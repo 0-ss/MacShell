@@ -28,6 +28,11 @@ ShellRoot {
         property var glassClients: []
         property var wallpaperMap: ({})
 
+        // the single settings window lives in MacDock.qml; everything else reaches it through here
+        property var bar: macBar
+        property var dock: macDock
+        function openSettings(pane) { macDock.openPrefs(pane); }
+
         // set by MacBar / MacDock (Binding elements) when their glass needs live data
         property bool barWantsGeo: false
         property bool dockWantsGeo: false
@@ -105,6 +110,13 @@ ShellRoot {
         }
     }
 
-    MacBar { hub: sharedHub }
-    MacDock { hub: sharedHub }
+    MacBar { id: macBar; hub: sharedHub }
+    MacDock { id: macDock; hub: sharedHub }
+
+    // reopen settings even when both the Dock and the Menu Bar are disabled:
+    //   qs -c macbar ipc call settings open
+    IpcHandler {
+        target: "settings"
+        function open(): void { macDock.openPrefs("general"); }
+    }
 }

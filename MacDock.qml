@@ -33,6 +33,10 @@ Scope {
 
     // shared helpers from shell.qml (window geometry poller, wallpaper lookup)
     property var hub: null
+    property bool dockEnabled: true      // false = no Dock at all (settings window stays available)
+    readonly property var bar: hub ? hub.bar : null
+    // appearance values shared by Dock and Menu Bar
+    function setLook(k, v) { root[k] = v; if (bar) bar[k] = v; }
 
     // ───────────── CONFIG ─────────────
     property string monitor: ""          // "" = every monitor, or e.g. "DP-1"
@@ -451,6 +455,16 @@ Scope {
                 Rectangle { x: 1.5; y: 8.9; width: 5.6; height: 5.6; radius: 1.6; color: "white" }
                 Rectangle { x: 8.9; y: 8.9; width: 5.6; height: 5.6; radius: 1.6; color: "white" }
             }
+            // menu bar
+            Item {
+                visible: gl.kind === "menubar"; anchors.fill: parent
+                Rectangle { x: 1; y: 2; width: 14; height: 4.5; radius: 1.5; color: "white" }
+                Rectangle { x: 2.5; y: 3.4; width: 4; height: 1.6; radius: 0.8; color: gl.c2 }
+                Rectangle {
+                    x: 1; y: 8.5; width: 14; height: 6.5; radius: 2
+                    color: "transparent"; border.width: 1; border.color: "white"
+                }
+            }
             // about
             Item {
                 visible: gl.kind === "about"; anchors.fill: parent
@@ -472,7 +486,7 @@ Scope {
     // ─────────────────────────── THE WINDOW ───────────────────────────
     Window {
         id: prefsWindow
-        title: "Dock Preferences"
+        title: "macshell Settings"
         width: 820
         height: 600
         minimumWidth: width
@@ -490,16 +504,20 @@ Scope {
         property string query: ""
 
         readonly property var panes: [
-            { name: "Dock",         glyph: "dock",       c1: "#4FA8FF", c2: "#0A6CFF",
+            { id: "general",    name: "General",      glyph: "behavior",   c1: "#8E8E93", c2: "#636366",
+              keys: "enable disable dock menu bar panel show hide off on" },
+            { id: "dock",       name: "Dock",         glyph: "dock",       c1: "#4FA8FF", c2: "#0A6CFF",
               keys: "size icon magnification zoom spacing margin distance edge" },
-            { name: "Appearance",   glyph: "appearance", c1: "#636366", c2: "#1C1C1E",
+            { id: "menubar",    name: "Menu Bar",     glyph: "menubar",    c1: "#7D7AFF", c2: "#4B48D6",
+              keys: "panel bar clock date seconds 24 hour battery tray search spotlight week monday style liquid" },
+            { id: "appearance", name: "Appearance",   glyph: "appearance", c1: "#636366", c2: "#1C1C1E",
               keys: "theme dark light mode accent color glass liquid apple style translucency blur corner radius font" },
-            { name: "Behavior",     glyph: "behavior",   c1: "#4CD964", c2: "#26A844",
+            { id: "behavior",   name: "Dock Behavior", glyph: "behavior",  c1: "#4CD964", c2: "#26A844",
               keys: "hide auto labels tooltip indicators bounce animate trash display monitor delay window preview thumbnail" },
-            { name: "Applications", glyph: "apps",       c1: "#FFB340", c2: "#FF9500",
+            { id: "apps",       name: "Applications", glyph: "apps",       c1: "#FFB340", c2: "#FF9500",
               keys: "pinned apps keep remove reset" },
-            { name: "About",        glyph: "about",      c1: "#A7A7AD", c2: "#7C7C82",
-              keys: "version reset config folder macdock" }
+            { id: "about",      name: "About",        glyph: "about",      c1: "#A7A7AD", c2: "#7C7C82",
+              keys: "version reset config folder macdock macbar macshell" }
         ]
 
         readonly property var filtered: {
@@ -849,7 +867,7 @@ Scope {
                     x: 22
                     y: 6
                     width: flick.width - 44
-                    sourceComponent: [paneDock, paneAppearance, paneBehavior, paneApps, paneAbout][prefsWindow.cur]
+                    sourceComponent: [paneGeneral, paneDock, paneMenuBar, paneAppearance, paneBehavior, paneApps, paneAbout][prefsWindow.cur]
                     onLoaded: fadeIn.restart()
                 }
             }
@@ -867,6 +885,140 @@ Scope {
         }
 
         // ═════════════ PANES ═════════════
+
+        // ── General ──
+        Component {
+            id: paneGeneral
+            Column {
+                spacing: 10
+
+                SLabel { t: pal; header: true; text: "Shell" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Dock"
+                        subtitle: "Show the Dock at the bottom of the screen"
+                        SSwitch { t: pal; checked: root.dockEnabled; onToggled: v => root.dockEnabled = v }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Menu Bar"
+                        subtitle: "Show the panel at the top of the screen. Spotlight, Control Center and the calendar belong to it."
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.barEnabled : true
+                            onToggled: v => { if (root.bar) root.bar.barEnabled = v; }
+                        }
+                    }
+                }
+                SLabel {
+                    t: pal
+                    text: "If you turn both off, reopen this window with:  qs -c macbar ipc call settings open"
+                }
+            }
+        }
+
+        // ── Menu Bar ──
+        Component {
+            id: paneMenuBar
+            Column {
+                spacing: 10
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Menu Bar style"
+                        subtitle: (root.bar && root.bar.barStyle === "liquid" && root.bar.glassState === "failed")
+                                  ? "Liquid Glass couldn't start (install qt6-shadertools)"
+                                  : "Style of the menus and popovers"
+                        SSegmented {
+                            t: pal
+                            model: ["Normal Blur", "Apple Liquid Glass"]
+                            segWidth: 128
+                            current: (root.bar && root.bar.barStyle === "liquid") ? 1 : 0
+                            onPicked: i => { if (root.bar) root.bar.barStyle = (i === 1 ? "liquid" : "blur"); }
+                        }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "24-hour clock"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.use24h : false
+                            onToggled: v => { if (root.bar) root.bar.use24h = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Show date"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.showDate : false
+                            onToggled: v => { if (root.bar) root.bar.showDate = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Show seconds"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.showSeconds : false
+                            onToggled: v => { if (root.bar) root.bar.showSeconds = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Week starts on Monday"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.weekStartsMonday : false
+                            onToggled: v => { if (root.bar) root.bar.weekStartsMonday = v; }
+                        }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Battery percentage"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.showBatteryPercent : false
+                            onToggled: v => { if (root.bar) root.bar.showBatteryPercent = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Show tray icons"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.showTray : false
+                            onToggled: v => { if (root.bar) root.bar.showTray = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Show search icon"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.showSearch : false
+                            onToggled: v => { if (root.bar) root.bar.showSearch = v; }
+                        }
+                    }
+                }
+                SLabel {
+                    t: pal
+                    text: "Translucency, accent color, appearance and font are in Appearance. Commands (terminal, launcher, files, clipboard) can be edited in ~/.config/macbar/settings.json."
+                }
+            }
+        }
 
         // ── Dock ──
         Component {
@@ -1017,18 +1169,18 @@ Scope {
                     SRow {
                         t: pal
                         title: "Appearance"
-                        subtitle: "Applies to the Dock, its menus and this window"
+                        subtitle: "Applies to the Dock, the Menu Bar and this window"
                         Row {
                             spacing: 14
                             SThemeTile {
                                 t: pal; label: "Light"; dark: false
                                 selected: !root.darkMode
-                                onClicked: root.darkMode = false
+                                onClicked: root.setLook("darkMode", false)
                             }
                             SThemeTile {
                                 t: pal; label: "Dark"; dark: true
                                 selected: root.darkMode
-                                onClicked: root.darkMode = true
+                                onClicked: root.setLook("darkMode", true)
                             }
                         }
                     }
@@ -1066,7 +1218,7 @@ Scope {
                                     }
                                     MouseArea {
                                         anchors.fill: parent
-                                        onClicked: root.accent = sw.modelData.c
+                                        onClicked: root.setLook("accent", sw.modelData.c)
                                     }
                                 }
                             }
@@ -1106,7 +1258,7 @@ Scope {
                             from: 0.0; to: 0.85; stepSize: 0.01
                             value: root.glassOpacity
                             leftLabel: "Clear"; rightLabel: "Frosted"
-                            onMoved: v => root.glassOpacity = v
+                            onMoved: v => root.setLook("glassOpacity", v)
                         }
                     }
                     SRow {
@@ -1133,7 +1285,7 @@ Scope {
                             model: ["Inter", "Noto Sans", "System"]
                             segWidth: 76
                             current: root.fontFamily === "Inter" ? 0 : (root.fontFamily === "Noto Sans" ? 1 : 2)
-                            onPicked: i => root.fontFamily = ["Inter", "Noto Sans", "sans-serif"][i]
+                            onPicked: i => root.setLook("fontFamily", ["Inter", "Noto Sans", "sans-serif"][i])
                         }
                     }
                 }
@@ -1305,7 +1457,7 @@ Scope {
                             y: 108
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: "macdock"
+                            text: "macshell"
                             color: pal.text
                             font.family: pal.fam
                             font.pixelSize: 21
@@ -1418,7 +1570,11 @@ Scope {
     property string lastSig: ""
 
     // ───────────── LOGIC ─────────────
-    function openPrefs() {
+    function openPrefs(pane) {
+        if (pane !== undefined && pane !== "") {
+            for (var i = 0; i < prefsWindow.panes.length; i++)
+                if (prefsWindow.panes[i].id === pane) { prefsWindow.go(i); break; }
+        }
         prefsWindow.visible = true;
         prefsWindow.requestActivate();
     }
@@ -1430,6 +1586,8 @@ Scope {
     }
 
     function resetSettings() {
+        dockEnabled = true;
+        if (bar) bar.resetSettings();
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
         darkMode = true; glassOpacity = 0.42; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter";
@@ -1438,7 +1596,7 @@ Scope {
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
-    readonly property string settingsSig: [iconSize, magnification, magnificationEnabled, spacing, margin,
+    readonly property string settingsSig: [dockEnabled, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, glassOpacity, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
         showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs].join("|")
     property bool settingsReady: false
@@ -1448,7 +1606,7 @@ Scope {
 
     function saveSettings() {
         var o = {
-            iconSize: iconSize, magnification: magnification, magnificationEnabled: magnificationEnabled,
+            dockEnabled: dockEnabled, iconSize: iconSize, magnification: magnification, magnificationEnabled: magnificationEnabled,
             spacing: spacing, margin: margin, cornerRadius: cornerRadius,
             darkMode: darkMode, glassOpacity: glassOpacity, dockStyle: dockStyle, wallpaperPath: wallpaperPath, glassDebug: glassDebug,
             glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid,
@@ -1462,7 +1620,7 @@ Scope {
 
     function applySettings(o) {
         if (!o || typeof o !== "object") return;
-        var keys = ["iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
+        var keys = ["dockEnabled", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
                     "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs"];
         for (var i = 0; i < keys.length; i++) {
@@ -1596,13 +1754,13 @@ Scope {
             m.push({ kind: "item", label: "Show", run: function () { activate(item, false); } });
             m.push({ kind: "item", label: "Close", run: function () { if (item.tl) item.tl.close(); } });
             m.push({ kind: "sep" });
-            m.push({ kind: "item", label: "Dock Preferences\u2026", run: function() { root.openPrefs(); } });
+            m.push({ kind: "item", label: "Settings\u2026", run: function() { root.openPrefs(); } });
             return m;
         }
         if (item.special === "trash") {
             m.push({ kind: "item", label: "Open", run: function () { activate(item, false); } });
             m.push({ kind: "sep" });
-            m.push({ kind: "item", label: "Dock Preferences\u2026", run: function() { root.openPrefs(); } });
+            m.push({ kind: "item", label: "Settings\u2026", run: function() { root.openPrefs(); } });
             return m;
         }
         var wins = windowsFor(item.key);
@@ -1631,7 +1789,7 @@ Scope {
         }
         
         m.push({ kind: "sep" });
-        m.push({ kind: "item", label: "Dock Preferences\u2026", run: function() { root.openPrefs(); } });
+        m.push({ kind: "item", label: "Settings\u2026", run: function() { root.openPrefs(); } });
 
         return m;
     }
@@ -1681,7 +1839,7 @@ Scope {
         if (showThumbs) {
             for (var w = 0; w < tls.length; w++) {
                 var tl = tls[w];
-                if (!tl.appId || tl.title === "Dock Preferences") continue;
+                if (!tl.appId || tl.title === "macshell Settings") continue;
                 var e3 = lookup(tl.appId);
                 var wid = winIdFor(tl);
                 liveWins.push(tl);
@@ -1776,7 +1934,7 @@ Scope {
 
     // live window geometry for the backdrop compositor (polled only while Liquid Glass is on)
     readonly property var glassClients: hub ? hub.glassClients : []
-    Binding { target: root.hub; property: "dockWantsGeo"; value: root.liquidActive }
+    Binding { target: root.hub; property: "dockWantsGeo"; value: root.liquidActive && root.dockEnabled }
     function tlFor(addr) {
         var a = String(addr).replace(/^0x/, "");
         var ts = Hyprland.toplevels.values;
@@ -1867,7 +2025,7 @@ Scope {
 
     // ───────────── UI ─────────────
     Variants {
-        model: Quickshell.screens
+        model: (root.settingsReady && root.dockEnabled) ? Quickshell.screens : []
 
         PanelWindow {
             id: win

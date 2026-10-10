@@ -9,10 +9,10 @@
 // Hyprland (hyprland.conf syntax):
 //   windowrule = float, title:^(macbar Settings)$
 //   windowrule = center, title:^(macbar Settings)$
-//   layerrule  = blur, macbar
-//   layerrule  = ignorealpha 0.05, macbar
+//   layerrule  = blur, macspot          (Spotlight is its own layer; the bar itself needs no blur rule)
+//   layerrule  = ignorealpha 0.05, macspot
 // Hyprland (Lua):
-//   hl.layer_rule({ name = "macbar", match = { namespace = "macbar" }, blur = true, ignore_alpha = 0.05, no_anim = true })
+//   hl.layer_rule({ name = "macspot", match = { namespace = "macspot" }, blur = true, ignore_alpha = 0.05, no_anim = true })
 //
 // Optional tools used by the Control Center:
 //   nmcli (Wi-Fi), bluetoothctl (Bluetooth), brightnessctl (Display), hyprsunset (Night Shift),
@@ -47,6 +47,7 @@ Scope {
     property var hub: null
 
     // ───────────── CONFIG (all persisted to settings.json) ─────────────
+    property bool barEnabled: true           // false = no menu bar / Spotlight / Control Center at all
     property bool darkMode: true
     property color accent: "#0A84FF"
     property string fontFamily: "Inter"
@@ -75,7 +76,7 @@ Scope {
     // Control Center: ids of the enabled controls, in order (edit with Control Center → Edit Controls)
     property var ccControls: ["wifi", "nowplaying", "bluetooth", "airplane", "focus", "nightshift", "keepawake", "display", "sound"]
 
-    readonly property var settingKeys: ["darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
+    readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
         "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "nightTemp", "ccControls"]
@@ -484,6 +485,9 @@ Scope {
         property bool dark: true
         property real tint: 0.4
         property real strength: 1.0
+        property real blurMul: 1.0          // scales the backdrop blur radius of every slab in this context
+        property real liquidMul: 1.0        // scales refraction / dispersion / magnify of every slab in this context
+        property real paneOpacity: 1.0      // <1 lets the compositor blur show through the shader pane
         property real rim: 0.45
         property real grain: 0.03
         property bool debug: false
@@ -513,9 +517,18 @@ Scope {
             visible: !gg.gx.liquid
             anchors.fill: parent
             radius: gg.cornerR
-            color: gg.gx.dark ? Qt.rgba(0.12, 0.12, 0.13, 0.30 + gg.gx.tint * 0.9) : Qt.rgba(1, 1, 1, 0.30 + gg.gx.tint * 0.7)
+            // identical to the Dock's "Normal Blur" pane: a translucent tint over the compositor blur
+            color: gg.gx.dark ? Qt.rgba(0.10, 0.10, 0.11, gg.gx.tint) : Qt.rgba(1, 1, 1, gg.gx.tint * 0.55)
             border.width: 1
-            border.color: gg.gx.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.55)
+            border.color: gg.gx.dark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(0, 0, 0, 0.12)
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: 1
+                radius: parent.radius - 1
+                color: "transparent"
+                border.width: 1
+                border.color: gg.gx.dark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.45)
+            }
         }
         Loader {
             anchors.fill: parent
@@ -527,6 +540,7 @@ Scope {
                     height: gg.height + 2 * gg.pad
                     fragmentShader: gg.gx.shaderUrl
                     onStatusChanged: if (status === ShaderEffect.Error) gg.gx.failed()
+                    opacity: gg.gx.paneOpacity
                     property variant src: gg.gx.src
                     property vector2d itemSize: Qt.vector2d(width, height)
                     property vector2d glassSize: Qt.vector2d(gg.width, gg.height)
@@ -536,12 +550,12 @@ Scope {
                     property real pad: gg.pad
                     property real radius: gg.cornerR
                     property real bezel: Math.min(gg.height * 0.36, 26)
-                    property real thickness: gg.thickness * gg.gx.strength * gg.strengthMul
-                    property real dispersion: 0.06 * gg.gx.strength * gg.strengthMul
-                    property real magnify: 0.05 * gg.gx.strength * gg.strengthMul
+                    property real thickness: gg.thickness * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul
+                    property real dispersion: 0.06 * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul
+                    property real magnify: 0.05 * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul
                     property real rim: gg.gx.rim
                     property real grain: gg.gx.grain * 0.2
-                    property real blurPx: 5
+                    property real blurPx: 5 * gg.gx.blurMul
                     property real tintMix: gg.gx.tint * 0.55 * gg.tintMul
                     property real saturation: 1.25
                     property real dark: gg.gx.dark ? 1 : 0
@@ -597,7 +611,10 @@ Scope {
         property real d: 40
         property real shadow: 0
         signal clicked()
+        property bool bounce: false
         width: d; height: d
+        scale: (bounce && bma.pressed) ? 0.84 : ((bounce && bma.containsMouse) ? 1.08 : 1)
+        Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
         GGlass { anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: b.shadow }
         Rectangle {
             anchors.fill: parent
@@ -1405,6 +1422,7 @@ Scope {
         }
     }
     function resetSettings() {
+        barEnabled = true;
         darkMode = true; accent = "#0a84ff"; fontFamily = "Inter"; glassOpacity = 0.42;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
         showTray = true; showSearch = true;
@@ -1488,6 +1506,7 @@ Scope {
     readonly property var monData: hub ? hub.monData : []
     readonly property var glassClients: hub ? hub.glassClients : []
     property int popCount: 0
+    onBarEnabledChanged: if (!barEnabled) popCount = 0
     Binding { target: root.hub; property: "barWantsGeo"; value: root.liquidActive && root.popCount > 0 }
     function tlFor(addr) {
         var a = String(addr).replace(/^0x/, "");
@@ -1507,116 +1526,25 @@ Scope {
         refreshBrightness();
     }
 
-    // ═════════════ SETTINGS WINDOW ═════════════
-    function openSettings() { prefs.visible = true; prefs.requestActivate(); }
-
-    Window {
-        id: prefs
-        title: "macbar Settings"
-        width: 460
-        height: 580
-        minimumWidth: width; maximumWidth: width
-        minimumHeight: height; maximumHeight: height
-        visible: false
-        color: pal.content
-
-        Flickable {
-            anchors.fill: parent
-            contentWidth: width
-            contentHeight: pcolumn.height + 40
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            Column {
-                id: pcolumn
-                x: 20; y: 20
-                width: parent.width - 40
-                spacing: 14
-
-                Text {
-                    text: "Menu Bar"
-                    color: pal.dark ? "#F5F5F7" : "#1D1D1F"
-                    font.family: pal.fam; font.pixelSize: 20; font.weight: Font.DemiBold
-                }
-
-                PCard {
-                    t: pal
-                    PRow {
-                        t: pal; title: "Appearance"
-                        PSeg { t: pal; model: ["Light", "Dark"]; segWidth: 80; current: root.darkMode ? 1 : 0
-                               onPicked: i => root.darkMode = (i === 1) }
-                    }
-                    PRow {
-                        t: pal; title: "Style"
-                        PSeg { t: pal; model: ["Normal Blur", "Liquid Glass"]; segWidth: 100; current: root.barStyle === "liquid" ? 1 : 0
-                               onPicked: i => root.barStyle = (i === 1 ? "liquid" : "blur") }
-                    }
-                    PRow {
-                        visible: root.barStyle === "liquid" && root.glassState === "failed"
-                        t: pal; title: "Liquid Glass failed (install qt6-shadertools)"
-                    }
-                    PRow {
-                        t: pal; title: "Glass translucency"
-                        PSlider { t: pal; from: 0; to: 0.85; value: root.glassOpacity; onMoved: v => root.glassOpacity = v }
-                    }
-                    PRow {
-                        t: pal; title: "Accent color"
-                        Row {
-                            spacing: 5
-                            Repeater {
-                                model: root.accentChoices
-                                delegate: Item {
-                                    required property var modelData
-                                    readonly property bool sel: String(root.accent).toLowerCase() === modelData.c.toLowerCase()
-                                    width: 22; height: 22
-                                    Rectangle { anchors.centerIn: parent; width: 16; height: 16; radius: 8; color: parent.modelData.c }
-                                    Rectangle {
-                                        anchors.centerIn: parent; visible: parent.sel; width: 22; height: 22; radius: 11
-                                        color: "transparent"; border.width: 2; border.color: pal.fg3
-                                    }
-                                    MouseArea { anchors.fill: parent; onClicked: root.accent = parent.modelData.c }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                PCard {
-                    t: pal
-                    PRow { t: pal; title: "24-hour clock"; PSwitch { t: pal; checked: root.use24h; onToggled: v => root.use24h = v } }
-                    PRow { t: pal; title: "Show date"; PSwitch { t: pal; checked: root.showDate; onToggled: v => root.showDate = v } }
-                    PRow { t: pal; title: "Show seconds"; PSwitch { t: pal; checked: root.showSeconds; onToggled: v => root.showSeconds = v } }
-                    PRow { t: pal; title: "Week starts on Monday"; PSwitch { t: pal; checked: root.weekStartsMonday; onToggled: v => root.weekStartsMonday = v } }
-                }
-
-                PCard {
-                    t: pal
-                    PRow { t: pal; title: "Battery percentage"; PSwitch { t: pal; checked: root.showBatteryPercent; onToggled: v => root.showBatteryPercent = v } }
-                    PRow { t: pal; title: "Show tray icons"; PSwitch { t: pal; checked: root.showTray; onToggled: v => root.showTray = v } }
-                    PRow { t: pal; title: "Show search icon"; PSwitch { t: pal; checked: root.showSearch; onToggled: v => root.showSearch = v } }
-                }
-
-                Text {
-                    width: parent.width
-                    wrapMode: Text.WordWrap
-                    color: pal.fg2
-                    font.family: pal.fam; font.pixelSize: 12
-                    text: "Commands (terminal, launcher, files, clipboard) can be edited in ~/.config/macbar/settings.json."
-                }
-            }
-        }
-    }
+    // ═════════════ SETTINGS ═════════════
+    // The settings window now lives in MacDock.qml (one window for the whole shell).
+    function openSettings(pane) { if (hub) hub.openSettings(pane || "menubar"); }
 
     // ═════════════ THE BAR ═════════════
     Variants {
-        model: Quickshell.screens
+        model: (root.settingsReady && root.barEnabled) ? Quickshell.screens : []
+
+        Scope {
+            id: perScreen
+            required property var modelData
 
         PanelWindow {
             id: win
-            required property var modelData
-            screen: modelData
+            property var modelData: perScreen.modelData
+            screen: perScreen.modelData
 
             anchors { left: true; right: true; top: true }
-            implicitHeight: spot.visible ? Math.max(win.modelData.height, root.barHeight + root.popRoom) : root.barHeight + root.popRoom
+            implicitHeight: root.barHeight + root.popRoom
             color: "transparent"
 
             exclusionMode: ExclusionMode.Normal
@@ -1624,7 +1552,7 @@ Scope {
 
             WlrLayershell.namespace: "macbar"
             WlrLayershell.layer: WlrLayer.Top
-            WlrLayershell.keyboardFocus: (ui.pop === "spot" || (ui.pop === "wifi" && ui.wifiPrompt !== "")) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+            WlrLayershell.keyboardFocus: (ui.pop === "wifi" && ui.wifiPrompt !== "") ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
             mask: Region { item: maskItem }
 
@@ -1727,7 +1655,7 @@ Scope {
                     function onActiveWinChanged() { if (ui.isMenu) ui.menuModel = root.menuModelFor(ui.pop); }
                 }
                 readonly property bool isMenu: ["apple", "app", "file", "edit", "view", "window", "help"].indexOf(pop) >= 0
-                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || spot.visible || wifiPop.visible || trayPop.visible
+                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || trayPop.visible
                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
                 onPopChanged: {
                     armed = "";
@@ -1783,7 +1711,11 @@ Scope {
                 Loader {
                     id: glassBackdrop
                     active: root.liquidActive && ui.anyVisible
-                    sourceComponent: Item {
+                    sourceComponent: backdropComp
+                }
+                Component {
+                    id: backdropComp
+                    Item {
                         id: bd
                         x: 0; y: 0
                         width: win.modelData.width
@@ -1824,7 +1756,7 @@ Scope {
                                 ScreencopyView {
                                     anchors.fill: parent
                                     captureSource: gw.tl
-                                    live: ui.anyVisible
+                                    live: ui.anyVisible || spotWin.visible
                                 }
                             }
                         }
@@ -1867,14 +1799,14 @@ Scope {
                     id: maskItem
                     x: 0; y: 0
                     width: ui.width
-                    height: ui.pop !== "" ? ui.height : root.barHeight
+                    height: (ui.pop !== "" && ui.pop !== "spot") ? ui.height : root.barHeight
                 }
 
                 // click-away layer (under the popovers and the bar)
                 MouseArea {
                     anchors.fill: parent
                     z: 5
-                    visible: ui.pop !== ""
+                    visible: ui.pop !== "" && ui.pop !== "spot"
                     acceptedButtons: Qt.AllButtons
                     onPressed: ui.pop = ""
                 }
@@ -2379,380 +2311,6 @@ Scope {
                                             }
                                         }
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ═════════ Spotlight (Liquid Glass) ═════════
-                Item {
-                    id: spot
-                    z: 10
-                    width: 640
-                    height: ui.spMode === "apps" ? appsPanel.height : (resPanel.visible ? resPanel.y + resPanel.height : spRow.height)
-                    x: Math.round((ui.width - width) / 2)
-                    // the search pill sits a little above the vertical centre of the screen (0.4 of the height; 0.5 = dead centre); the Applications panel centres itself instead
-                    y: Math.round(ui.height * 0.4 - (ui.spMode === "apps" ? appsPanel.height / 2 : 24))
-                    Behavior on y { enabled: spot.opacity > 0.99; NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
-                    // appears instantly (no entrance animation); dismiss: quick fade + shrink
-                    opacity: 0
-                    visible: opacity > 0
-                    scale: 0.94
-                    transformOrigin: Item.Center
-                    states: State {
-                        name: "open"
-                        when: ui.pop === "spot"
-                        PropertyChanges { target: spot; opacity: 1; scale: 1 }
-                    }
-                    // only the close is animated; there is no transition into "open", so it appears instantly
-                    transitions: Transition {
-                        from: "open"; to: ""
-                        NumberAnimation { properties: "opacity,scale"; duration: 110; easing.type: Easing.OutCubic }
-                    }
-
-                    ShaderEffectSource {
-                        id: spSrc
-                        sourceItem: glassBackdrop.item
-                        hideSource: true
-                        live: true
-                        visible: false
-                        sourceRect: Qt.rect(spot.x - 64, spot.y - 64, spot.width + 128, 620)
-                    }
-                    GlassCtx {
-                        id: spg
-                        src: spSrc
-                        srcRect: spSrc.sourceRect
-                        frame: ui
-                        liquid: root.liquidActive
-                        shaderUrl: root.glassShaderUrl
-                        dark: root.darkMode
-                        tint: root.glassOpacity
-                        strength: root.glassLiquid
-                        rim: root.glassRim
-                        grain: root.glassGrain
-                        debug: root.glassDebug
-                        onFailed: root.glassState = "failed"
-                    }
-                    Timer {
-                        id: spFocusTimer
-                        interval: 60
-                        onTriggered: (ui.spMode === "apps" ? appsInput : spInput).forceActiveFocus()
-                    }
-
-                    // ── search pill + the four round buttons ──
-                    Row {
-                        id: spRow
-                        spacing: 12
-                        opacity: ui.spMode !== "apps" ? 1 : 0
-                        visible: opacity > 0
-                        Behavior on opacity { NumberAnimation { duration: 160 } }
-
-                        Item {
-                            id: spPill
-                            width: spot.width - 4 * 60
-                            height: 48
-                            GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 20; strengthMul: 0.7; shadowAmt: 0.45 }
-                            Glyph {
-                                x: 18; anchors.verticalCenter: parent.verticalCenter
-                                width: 18; height: 18
-                                kind: "search"; color: pal.fg2
-                            }
-                            Text {
-                                x: spInput.x + 3
-                                anchors.verticalCenter: parent.verticalCenter
-                                visible: spInput.text === ""
-                                text: ui.spMode === "actions" ? "Actions" : "Spotlight Search"
-                                color: pal.fg2
-                                font.family: pal.fam; font.pixelSize: 17
-                            }
-                            TextInput {
-                                id: spInput
-                                x: 46
-                                width: parent.width - 46 - 18
-                                anchors.verticalCenter: parent.verticalCenter
-                                clip: true
-                                color: pal.fg
-                                selectionColor: root.accent
-                                selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 17
-                                onTextChanged: { if (ui.spMode !== "apps") { ui.spQuery = text; ui.spSel = 0; ui.armed = ""; } }
-                                Keys.onPressed: event => ui.spKey(event)
-                            }
-                        }
-                        Repeater {
-                            model: [
-                                { k: "appstore", id: "apps" }, { k: "folder", id: "files" },
-                                { k: "layers", id: "actions" }, { k: "clipboard", id: "clip" }
-                            ]
-                            delegate: CCBtn {
-                                required property var modelData
-                                t: pal; gx: spg
-                                d: 48
-                                shadow: 0.45
-                                kind: modelData.k
-                                on: ui.spMode === modelData.id
-                                onClicked: {
-                                    if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
-                                    else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");
-                                    else if (modelData.id === "files") { ui.pop = ""; root.sh(root.filesCmd); }
-                                    else { ui.pop = ""; root.sh(root.clipboardCmd); }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── results under the pill ──
-                    Item {
-                        id: resPanel
-                        y: spRow.height + 10
-                        width: spot.width
-                        readonly property var items: ui.spResults
-                        property int keep: 1                         // last non-empty row count, so the panel shrinks while it fades out
-                        onItemsChanged: if (items.length > 0) keep = items.length
-                        readonly property int selIdx: Math.max(0, Math.min(ui.spSel, items.length - 1))
-                        opacity: (ui.spMode !== "apps" && items.length > 0) ? 1 : 0
-                        visible: opacity > 0
-                        Behavior on opacity { NumberAnimation { duration: 140 } }
-                        height: (items.length > 0 ? items.length : keep) * 46 + 16
-                        Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 26; thickness: 26; strengthMul: 0.8; shadowAmt: 0.5 }
-                        Item {
-                            x: 8; y: 8
-                            width: parent.width - 16
-                            height: parent.height - 16
-                            clip: true
-                            Rectangle {
-                                y: resPanel.selIdx * 46
-                                width: parent.width; height: 46; radius: 16
-                                color: (resPanel.items[resPanel.selIdx] && resPanel.items[resPanel.selIdx].confirm === true
-                                        && ui.armed === resPanel.items[resPanel.selIdx].title) ? "#FF453A" : root.accent
-                                Behavior on y { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                                Behavior on color { ColorAnimation { duration: 120 } }
-                            }
-                        Column {
-                            width: parent.width
-                            Repeater {
-                                model: resPanel.items
-                                delegate: Item {
-                                    id: rr
-                                    required property var modelData
-                                    required property int index
-                                    readonly property bool sel: index === Math.min(ui.spSel, resPanel.items.length - 1)
-                                    readonly property bool armedNow: modelData.confirm === true && ui.armed === modelData.title
-                                    width: parent.width
-                                    height: 46
-                                    Item {
-                                        x: 12
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: 30; height: 30
-                                        Image {
-                                            visible: rr.modelData.icon !== ""
-                                            anchors.fill: parent
-                                            source: rr.modelData.icon
-                                            sourceSize: Qt.size(64, 64)
-                                            fillMode: Image.PreserveAspectFit
-                                            asynchronous: true
-                                            smooth: true
-                                        }
-                                        Glyph {
-                                            visible: rr.modelData.icon === ""
-                                            anchors.centerIn: parent
-                                            width: 20; height: 20
-                                            kind: rr.modelData.glyph
-                                            color: rr.sel ? "white" : pal.fg
-                                        }
-                                    }
-                                    Text {
-                                        x: 54
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: parent.width - 54 - 140
-                                        elide: Text.ElideRight
-                                        text: rr.armedNow ? "Press Return again to confirm" : rr.modelData.title
-                                        color: rr.sel ? "white" : pal.fg
-                                        font.family: pal.fam; font.pixelSize: 14
-                                    }
-                                    Text {
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 16
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: rr.modelData.sub
-                                        color: rr.sel ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
-                                        font.family: pal.fam; font.pixelSize: 12
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        onEntered: ui.spSel = rr.index
-                                        onClicked: ui.spActivate(rr.index)
-                                    }
-                                }
-                            }
-                        }
-                        }
-                    }
-
-                    // ── Applications panel ──
-                    Item {
-                        id: appsPanel
-                        opacity: ui.spMode === "apps" ? 1 : 0
-                        visible: opacity > 0
-                        scale: ui.spMode === "apps" ? 1 : 0.96
-                        transformOrigin: Item.Top
-                        Behavior on opacity { NumberAnimation { duration: 160 } }
-                        Behavior on scale { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-                        width: spot.width
-                        height: Math.min(64 + appsCol.height + 14, 520)
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
-
-                        Item {
-                            id: appsHeader
-                            x: 24
-                            width: parent.width - 48
-                            height: 64
-                            Glyph {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 24; height: 24
-                                kind: "appstore"; color: pal.fg2
-                            }
-                            Text {
-                                x: 40 + 3
-                                anchors.verticalCenter: parent.verticalCenter
-                                visible: appsInput.text === ""
-                                text: "Applications"
-                                color: pal.fg3
-                                font.family: pal.fam; font.pixelSize: 24
-                            }
-                            TextInput {
-                                id: appsInput
-                                x: 40
-                                width: parent.width - 40 - 48
-                                anchors.verticalCenter: parent.verticalCenter
-                                clip: true
-                                color: pal.fg
-                                selectionColor: root.accent
-                                selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 24
-                                onTextChanged: { if (ui.spMode === "apps") { ui.spQuery = text; ui.spSel = 0; } }
-                                Keys.onPressed: event => ui.spKey(event)
-                            }
-                            CCBtn {
-                                t: pal; gx: spg
-                                d: 34
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                kind: "dots"
-                                onClicked: ui.spSetMode("home")
-                            }
-                        }
-
-                        Flickable {
-                            id: appsFlick
-                            y: 64
-                            width: parent.width
-                            height: parent.height - 64 - 6
-                            contentWidth: width
-                            contentHeight: appsCol.height + 8
-                            clip: true
-                            boundsBehavior: Flickable.StopAtBounds
-
-                            Column {
-                                id: appsCol
-                                x: 24
-                                width: appsFlick.width - 48
-
-                                Repeater {
-                                    id: appsRep
-                                    model: ui.spQuery.trim() === "" ? root.appSections : root.appSearchSection(ui.spQuery)
-                                    delegate: Column {
-                                        id: sec
-                                        required property var modelData
-                                        readonly property bool searching: ui.spQuery.trim() !== ""
-                                        readonly property bool expanded: searching || ui.spExpanded[modelData.name] === true
-                                        readonly property int shown: expanded ? modelData.apps.length : Math.min(5, modelData.apps.length)
-                                        width: appsCol.width
-
-                                        Rectangle { width: parent.width; height: 1; color: pal.sep }
-                                        Item {
-                                            width: parent.width
-                                            height: 38
-                                            Text {
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                text: sec.modelData.name
-                                                color: pal.fg
-                                                font.family: pal.fam; font.pixelSize: 13; font.weight: Font.Bold
-                                            }
-                                            Text {
-                                                visible: !sec.searching && sec.modelData.apps.length > 5
-                                                anchors.right: parent.right
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                text: sec.expanded ? "Show Less" : "Show More"
-                                                color: root.accent
-                                                font.family: pal.fam; font.pixelSize: 12; font.weight: Font.Bold
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    anchors.margins: -6
-                                                    onClicked: ui.spToggleSection(sec.modelData.name)
-                                                }
-                                            }
-                                        }
-                                        Grid {
-                                            columns: 5
-                                            Repeater {
-                                                model: sec.shown
-                                                delegate: Item {
-                                                    id: cell
-                                                    required property int index
-                                                    readonly property var e: sec.modelData.apps[index]
-                                                    width: appsCol.width / 5
-                                                    height: 96
-                                                    Rectangle {
-                                                        anchors.fill: parent
-                                                        anchors.margins: 2
-                                                        radius: 16
-                                                        color: cma.containsMouse ? pal.hover : "transparent"
-                                                    }
-                                                    Image {
-                                                        anchors.horizontalCenter: parent.horizontalCenter
-                                                        y: 10
-                                                        width: 56; height: 56
-                                                        source: root.iconSrc(cell.e.icon)
-                                                        sourceSize: Qt.size(128, 128)
-                                                        fillMode: Image.PreserveAspectFit
-                                                        asynchronous: true
-                                                        smooth: true
-                                                    }
-                                                    Text {
-                                                        y: 72
-                                                        width: parent.width - 8
-                                                        x: 4
-                                                        horizontalAlignment: Text.AlignHCenter
-                                                        elide: Text.ElideRight
-                                                        text: cell.e.name
-                                                        color: pal.fg
-                                                        font.family: pal.fam; font.pixelSize: 12
-                                                    }
-                                                    MouseArea {
-                                                        id: cma
-                                                        anchors.fill: parent
-                                                        hoverEnabled: true
-                                                        onClicked: { ui.pop = ""; root.launchApp(cell.e); }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Item { width: 1; height: 10 }
-                                    }
-                                }
-                                Text {
-                                    visible: ui.spQuery.trim() !== "" && appsRep.count === 0
-                                    width: parent.width
-                                    height: 90
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                    text: "No Results"
-                                    color: pal.fg2
-                                    font.family: pal.fam; font.pixelSize: 14
                                 }
                             }
                         }
@@ -3614,6 +3172,422 @@ Scope {
                     }
                 }
             }
+        }
+
+        // ═════════ Spotlight lives in its OWN layer (namespace "macspot") ═════════
+        // Hyprland blurs a whole layer or none of it, so Spotlight has its own layer: put the blur layerrule on
+        // "macspot" and leave "macbar" without blur.
+        PanelWindow {
+            id: spotWin
+            screen: perScreen.modelData
+            visible: ui.pop === "spot" || spot.opacity > 0
+            anchors { left: true; right: true; top: true; bottom: true }
+            color: "transparent"
+            exclusionMode: ExclusionMode.Ignore
+
+            WlrLayershell.namespace: "macspot"
+            WlrLayershell.layer: WlrLayer.Top
+            WlrLayershell.keyboardFocus: ui.pop === "spot" ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+            Item {
+                id: spotRoot
+                anchors.fill: parent
+
+                // click outside Spotlight closes it
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.AllButtons
+                    onPressed: ui.pop = ""
+                }
+
+                // ═════════ Spotlight (Liquid Glass) ═════════
+                Item {
+                    id: spot
+                    z: 10
+                    width: 640
+                    height: ui.spMode === "apps" ? appsPanel.height : (resPanel.visible ? resPanel.y + resPanel.height : spRow.height)
+                    x: Math.round((spotRoot.width - width) / 2)
+                    // the search pill sits a little above the vertical centre of the screen (0.4 of the height; 0.5 = dead centre); the Applications panel centres itself instead
+                    y: Math.round(spotRoot.height * 0.4 - (ui.spMode === "apps" ? appsPanel.height / 2 : 24))
+                    Behavior on y { enabled: spot.opacity > 0.99; NumberAnimation { duration: 320; easing.type: Easing.OutBack; easing.overshoot: 1.8 } }
+                    // opens with a springy pop; dismiss: quick fade + shrink
+                    opacity: 0
+                    visible: opacity > 0
+                    scale: 0.8
+                    transformOrigin: Item.Center
+                    states: State {
+                        name: "open"
+                        when: ui.pop === "spot"
+                        PropertyChanges { target: spot; opacity: 1; scale: 1 }
+                    }
+                    transitions: [
+                        Transition {
+                            from: ""; to: "open"
+                            ParallelAnimation {
+                                NumberAnimation { property: "opacity"; duration: 100 }
+                                NumberAnimation { property: "scale"; duration: 360; easing.type: Easing.OutBack; easing.overshoot: 3.4 }
+                            }
+                        },
+                        Transition {
+                            from: "open"; to: ""
+                            NumberAnimation { properties: "opacity,scale"; duration: 100; easing.type: Easing.InCubic }
+                        }
+                    ]
+
+                    ShaderEffectSource {
+                        id: spSrc
+                        sourceItem: null        // no Liquid Glass here, so no backdrop is captured
+                        hideSource: false
+                        live: false
+                        visible: false
+                        sourceRect: Qt.rect(spot.x - 64, spot.y - 64, spot.width + 128, 620)
+                    }
+                    GlassCtx {
+                        id: spg
+                        src: spSrc
+                        srcRect: spSrc.sourceRect
+                        frame: spotRoot
+                        liquid: false       // plain glass: translucent pane over the compositor blur (macspot layerrule)
+                        shaderUrl: root.glassShaderUrl
+                        dark: root.darkMode
+                        tint: root.glassOpacity * 0.7        // clearer than the other popovers
+                        strength: root.glassLiquid
+                        rim: root.glassRim * 0.6
+                        grain: root.glassGrain
+                        debug: root.glassDebug
+                        onFailed: root.glassState = "failed"
+                    }
+                    Timer {
+                        id: spFocusTimer
+                        interval: 60
+                        onTriggered: (ui.spMode === "apps" ? appsInput : spInput).forceActiveFocus()
+                    }
+
+                    // ── search pill + the four round buttons ──
+                    Row {
+                        id: spRow
+                        spacing: 12
+                        opacity: ui.spMode !== "apps" ? 1 : 0
+                        visible: opacity > 0
+                        Behavior on opacity { NumberAnimation { duration: 160 } }
+
+                        Item {
+                            id: spPill
+                            width: spot.width - 4 * 60
+                            height: 48
+                            GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 20; strengthMul: 0.7; shadowAmt: 0.45 }
+                            Glyph {
+                                x: 18; anchors.verticalCenter: parent.verticalCenter
+                                width: 18; height: 18
+                                kind: "search"; color: pal.fg2
+                            }
+                            Text {
+                                x: spInput.x + 3
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: spInput.text === ""
+                                text: ui.spMode === "actions" ? "Actions" : "Spotlight Search"
+                                color: pal.fg2
+                                font.family: pal.fam; font.pixelSize: 17
+                            }
+                            TextInput {
+                                id: spInput
+                                x: 46
+                                width: parent.width - 46 - 18
+                                anchors.verticalCenter: parent.verticalCenter
+                                clip: true
+                                color: pal.fg
+                                selectionColor: root.accent
+                                selectedTextColor: "white"
+                                font.family: pal.fam; font.pixelSize: 17
+                                onTextChanged: { if (ui.spMode !== "apps") { ui.spQuery = text; ui.spSel = 0; ui.armed = ""; } }
+                                Keys.onPressed: event => ui.spKey(event)
+                            }
+                        }
+                        Repeater {
+                            model: [
+                                { k: "appstore", id: "apps" }, { k: "folder", id: "files" },
+                                { k: "layers", id: "actions" }, { k: "clipboard", id: "clip" }
+                            ]
+                            delegate: CCBtn {
+                                required property var modelData
+                                t: pal; gx: spg
+                                d: 48
+                                bounce: true
+                                shadow: 0.45
+                                kind: modelData.k
+                                on: ui.spMode === modelData.id
+                                onClicked: {
+                                    if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
+                                    else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");
+                                    else if (modelData.id === "files") { ui.pop = ""; root.sh(root.filesCmd); }
+                                    else { ui.pop = ""; root.sh(root.clipboardCmd); }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── results under the pill ──
+                    Item {
+                        id: resPanel
+                        y: spRow.height + 10
+                        width: spot.width
+                        readonly property var items: ui.spResults
+                        property int keep: 1                         // last non-empty row count, so the panel shrinks while it fades out
+                        onItemsChanged: if (items.length > 0) keep = items.length
+                        readonly property int selIdx: Math.max(0, Math.min(ui.spSel, items.length - 1))
+                        opacity: (ui.spMode !== "apps" && items.length > 0) ? 1 : 0
+                        visible: opacity > 0
+                        Behavior on opacity { NumberAnimation { duration: 140 } }
+                        height: (items.length > 0 ? items.length : keep) * 46 + 16
+                        Behavior on height { NumberAnimation { duration: 280; easing.type: Easing.OutBack; easing.overshoot: 2.2 } }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 26; thickness: 26; strengthMul: 0.8; shadowAmt: 0.5 }
+                        Item {
+                            x: 8; y: 8
+                            width: parent.width - 16
+                            height: parent.height - 16
+                            clip: true
+                            Rectangle {
+                                y: resPanel.selIdx * 46
+                                width: parent.width; height: 46; radius: 16
+                                color: (resPanel.items[resPanel.selIdx] && resPanel.items[resPanel.selIdx].confirm === true
+                                        && ui.armed === resPanel.items[resPanel.selIdx].title) ? "#FF453A" : root.accent
+                                Behavior on y { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 2.4 } }
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                            }
+                        Column {
+                            width: parent.width
+                            Repeater {
+                                model: resPanel.items
+                                delegate: Item {
+                                    id: rr
+                                    required property var modelData
+                                    required property int index
+                                    readonly property bool sel: index === Math.min(ui.spSel, resPanel.items.length - 1)
+                                    readonly property bool armedNow: modelData.confirm === true && ui.armed === modelData.title
+                                    width: parent.width
+                                    height: 46
+                                    Item {
+                                        x: 12
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 30; height: 30
+                                        Image {
+                                            visible: rr.modelData.icon !== ""
+                                            anchors.fill: parent
+                                            source: rr.modelData.icon
+                                            sourceSize: Qt.size(64, 64)
+                                            fillMode: Image.PreserveAspectFit
+                                            asynchronous: true
+                                            smooth: true
+                                        }
+                                        Glyph {
+                                            visible: rr.modelData.icon === ""
+                                            anchors.centerIn: parent
+                                            width: 20; height: 20
+                                            kind: rr.modelData.glyph
+                                            color: rr.sel ? "white" : pal.fg
+                                        }
+                                    }
+                                    Text {
+                                        x: 54
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: parent.width - 54 - 140
+                                        elide: Text.ElideRight
+                                        text: rr.armedNow ? "Press Return again to confirm" : rr.modelData.title
+                                        color: rr.sel ? "white" : pal.fg
+                                        font.family: pal.fam; font.pixelSize: 14
+                                    }
+                                    Text {
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 16
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: rr.modelData.sub
+                                        color: rr.sel ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
+                                        font.family: pal.fam; font.pixelSize: 12
+                                    }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        onEntered: ui.spSel = rr.index
+                                        onClicked: ui.spActivate(rr.index)
+                                    }
+                                }
+                            }
+                        }
+                        }
+                    }
+
+                    // ── Applications panel ──
+                    Item {
+                        id: appsPanel
+                        opacity: ui.spMode === "apps" ? 1 : 0
+                        visible: opacity > 0
+                        scale: ui.spMode === "apps" ? 1 : 0.88
+                        transformOrigin: Item.Top
+                        Behavior on opacity { NumberAnimation { duration: 160 } }
+                        Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutBack; easing.overshoot: 2.6 } }
+                        width: spot.width
+                        height: Math.min(64 + appsCol.height + 14, 520)
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
+
+                        Item {
+                            id: appsHeader
+                            x: 24
+                            width: parent.width - 48
+                            height: 64
+                            Glyph {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 24; height: 24
+                                kind: "appstore"; color: pal.fg2
+                            }
+                            Text {
+                                x: 40 + 3
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: appsInput.text === ""
+                                text: "Applications"
+                                color: pal.fg3
+                                font.family: pal.fam; font.pixelSize: 24
+                            }
+                            TextInput {
+                                id: appsInput
+                                x: 40
+                                width: parent.width - 40 - 48
+                                anchors.verticalCenter: parent.verticalCenter
+                                clip: true
+                                color: pal.fg
+                                selectionColor: root.accent
+                                selectedTextColor: "white"
+                                font.family: pal.fam; font.pixelSize: 24
+                                onTextChanged: { if (ui.spMode === "apps") { ui.spQuery = text; ui.spSel = 0; } }
+                                Keys.onPressed: event => ui.spKey(event)
+                            }
+                            CCBtn {
+                                t: pal; gx: spg
+                                d: 34
+                                bounce: true
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                kind: "dots"
+                                onClicked: ui.spSetMode("home")
+                            }
+                        }
+
+                        Flickable {
+                            id: appsFlick
+                            y: 64
+                            width: parent.width
+                            height: parent.height - 64 - 6
+                            contentWidth: width
+                            contentHeight: appsCol.height + 8
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+
+                            Column {
+                                id: appsCol
+                                x: 24
+                                width: appsFlick.width - 48
+
+                                Repeater {
+                                    id: appsRep
+                                    model: ui.spQuery.trim() === "" ? root.appSections : root.appSearchSection(ui.spQuery)
+                                    delegate: Column {
+                                        id: sec
+                                        required property var modelData
+                                        readonly property bool searching: ui.spQuery.trim() !== ""
+                                        readonly property bool expanded: searching || ui.spExpanded[modelData.name] === true
+                                        readonly property int shown: expanded ? modelData.apps.length : Math.min(5, modelData.apps.length)
+                                        width: appsCol.width
+
+                                        Rectangle { width: parent.width; height: 1; color: pal.sep }
+                                        Item {
+                                            width: parent.width
+                                            height: 38
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: sec.modelData.name
+                                                color: pal.fg
+                                                font.family: pal.fam; font.pixelSize: 13; font.weight: Font.Bold
+                                            }
+                                            Text {
+                                                visible: !sec.searching && sec.modelData.apps.length > 5
+                                                anchors.right: parent.right
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: sec.expanded ? "Show Less" : "Show More"
+                                                color: root.accent
+                                                font.family: pal.fam; font.pixelSize: 12; font.weight: Font.Bold
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    anchors.margins: -6
+                                                    onClicked: ui.spToggleSection(sec.modelData.name)
+                                                }
+                                            }
+                                        }
+                                        Grid {
+                                            columns: 5
+                                            Repeater {
+                                                model: sec.shown
+                                                delegate: Item {
+                                                    id: cell
+                                                    required property int index
+                                                    readonly property var e: sec.modelData.apps[index]
+                                                    width: appsCol.width / 5
+                                                    height: 96
+                                                    scale: cma.containsMouse ? 1.12 : 1
+                                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: 3 } }
+                                                    Rectangle {
+                                                        anchors.fill: parent
+                                                        anchors.margins: 2
+                                                        radius: 16
+                                                        color: cma.containsMouse ? pal.hover : "transparent"
+                                                    }
+                                                    Image {
+                                                        anchors.horizontalCenter: parent.horizontalCenter
+                                                        y: 10
+                                                        width: 56; height: 56
+                                                        source: root.iconSrc(cell.e.icon)
+                                                        sourceSize: Qt.size(128, 128)
+                                                        fillMode: Image.PreserveAspectFit
+                                                        asynchronous: true
+                                                        smooth: true
+                                                    }
+                                                    Text {
+                                                        y: 72
+                                                        width: parent.width - 8
+                                                        x: 4
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        elide: Text.ElideRight
+                                                        text: cell.e.name
+                                                        color: pal.fg
+                                                        font.family: pal.fam; font.pixelSize: 12
+                                                    }
+                                                    MouseArea {
+                                                        id: cma
+                                                        anchors.fill: parent
+                                                        hoverEnabled: true
+                                                        onClicked: { ui.pop = ""; root.launchApp(cell.e); }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Item { width: 1; height: 10 }
+                                    }
+                                }
+                                Text {
+                                    visible: ui.spQuery.trim() !== "" && appsRep.count === 0
+                                    width: parent.width
+                                    height: 90
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: "No Results"
+                                    color: pal.fg2
+                                    font.family: pal.fam; font.pixelSize: 14
+                                }
+                            }
+                        }
+                    }
+                }
+
+            }
+        }
         }
     }
 }
