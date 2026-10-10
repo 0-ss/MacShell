@@ -54,6 +54,7 @@ Scope {
     property real glassRim: 0.45
     property real glassGrain: 0.03
     property real glassLiquid: 1.0
+    property real glassBlur: 5            // Liquid Glass backdrop blur radius, px (settings slider)
     property bool glassDebug: false       // settings.json only: draw the raw Liquid Glass backdrop texture
     property string wallpaperPath: ""    // optional override for the wallpaper the Liquid Glass refracts
     property real glassOpacity: 0.42     // 0 = fully clear; below the layerrule's ignore_alpha (0.2) the blur turns off
@@ -1263,6 +1264,32 @@ Scope {
                     }
                     SRow {
                         t: pal
+                        visible: root.dockStyle === "liquid"
+                        title: "Blur"
+                        subtitle: "How strongly the glass blurs what's behind it"
+                        SSlider {
+                            t: pal
+                            from: 0; to: 80; stepSize: 1
+                            value: root.glassBlur
+                            leftLabel: "Sharp"; rightLabel: "Very blurry"
+                            onMoved: v => root.setLook("glassBlur", Math.round(v))
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: root.dockStyle === "liquid"
+                        title: "Liquid strength"
+                        subtitle: "Refraction, magnification and colour fringing of the glass"
+                        SSlider {
+                            t: pal
+                            from: 0.5; to: 2.5; stepSize: 0.05
+                            value: root.glassLiquid
+                            leftLabel: "Subtle"; rightLabel: "Very liquid"
+                            onMoved: v => root.setLook("glassLiquid", v)
+                        }
+                    }
+                    SRow {
+                        t: pal
                         title: "Corner radius"
                         SSlider {
                             t: pal
@@ -1590,14 +1617,14 @@ Scope {
         if (bar) bar.resetSettings();
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
-        darkMode = true; glassOpacity = 0.42; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter";
+        darkMode = true; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter";
         hideMode = "smart"; hideDelay = 450; monitor = "";
         showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true;
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, iconSize, magnification, magnificationEnabled, spacing, margin,
-        cornerRadius, darkMode, glassOpacity, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
+        cornerRadius, darkMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
         showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
@@ -1609,7 +1636,7 @@ Scope {
             dockEnabled: dockEnabled, iconSize: iconSize, magnification: magnification, magnificationEnabled: magnificationEnabled,
             spacing: spacing, margin: margin, cornerRadius: cornerRadius,
             darkMode: darkMode, glassOpacity: glassOpacity, dockStyle: dockStyle, wallpaperPath: wallpaperPath, glassDebug: glassDebug,
-            glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid,
+            glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid, glassBlur: glassBlur,
             accent: String(accent), fontFamily: fontFamily,
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
             showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators,
@@ -1621,7 +1648,7 @@ Scope {
     function applySettings(o) {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
-                    "darkMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
+                    "darkMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
                     "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
@@ -2258,7 +2285,7 @@ Scope {
                         anchors.fill: parent
                         active: root.liquidActive
                         sourceComponent: Item {
-                            readonly property real margin: 48      // extra backdrop captured around the Dock (refraction + blur reach)
+                            readonly property real margin: 72      // extra backdrop captured around the Dock (refraction + blur reach)
                             readonly property real padPx: 10       // shader item padding (drop shadow)
                             ShaderEffectSource {
                                 id: bsrc
@@ -2271,6 +2298,41 @@ Scope {
                                                     dock.width + 2 * (parent.padPx + parent.margin),
                                                     dock.height + 2 * (parent.padPx + parent.margin))
                             }
+                            MultiEffect {
+                                id: bblurFx
+                                source: bsrc
+                                width: bsrc.sourceRect.width; height: bsrc.sourceRect.height
+                                blurEnabled: true
+                                blurMax: 64
+                                blur: Math.min(1.0, (root.glassBlur) * 1.4 / 64.0)
+                                autoPaddingEnabled: false
+                                visible: false
+                            }
+                            // real Gaussian pre-blur of the backdrop (Qt MultiEffect): the glass shader refracts THIS texture,
+                            // so there are no sampled copies of the background any more
+                            ShaderEffectSource {
+                                id: bblur
+                                sourceItem: bblurFx
+                                live: !ui.tucked
+                                visible: false
+                            }
+                            MultiEffect {
+                                id: bblur2Fx
+                                source: bblur
+                                width: bsrc.sourceRect.width; height: bsrc.sourceRect.height
+                                blurEnabled: (root.glassBlur) * 1.4 / 64.0 > 1.0
+                                blurMax: 64
+                                blur: Math.max(0.0, Math.min(1.0, (root.glassBlur) * 1.4 / 64.0 - 1.0))
+                                autoPaddingEnabled: false
+                                visible: false
+                            }
+                            // second Gaussian pass: only active when the slider goes past a single pass's 64 px limit
+                            ShaderEffectSource {
+                                id: bblur2
+                                sourceItem: bblur2Fx
+                                live: !ui.tucked
+                                visible: false
+                            }
                             ShaderEffect {
                                 id: glassFx
                                 x: -padPx; y: -padPx
@@ -2282,7 +2344,7 @@ Scope {
                                     if (status === ShaderEffect.Error) root.glassState = "failed";
                                 }
 
-                                property variant src: bsrc
+                                property variant src: bblur2
                                 property real padPx: parent.padPx
                                 property vector2d itemSize: Qt.vector2d(width, height)
                                 property vector2d glassSize: Qt.vector2d(dock.width, dock.height)
@@ -2296,7 +2358,7 @@ Scope {
                                 property real magnify: 0.08 * root.glassLiquid
                                 property real rim: root.glassRim
                                 property real grain: root.glassGrain
-                                property real blurPx: 5
+                                property real blurPx: 1.5            // tiny residual smoothing; the real blur is the MultiEffect pre-pass
                                 property real tintMix: root.glassOpacity * 0.55
                                 property real saturation: 1.25
                                 property real dark: root.darkMode ? 1 : 0

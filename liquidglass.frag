@@ -39,25 +39,50 @@ layout(std140, binding = 0) uniform buf {
 
 layout(binding = 1) uniform sampler2D src;
 
-const int   TAPS   = 10;
+const int   TAPS   = 24;
 const float GOLDEN = 2.39996323;
 
-vec3 backdrop(vec2 pItem)
+// Natural blur, no "duplicated background" ghosts:
+//  * every tap reads a pre-blurred mip level sized to the gap between taps, so the taps overlap into one
+//    smooth surface instead of showing as separate copies of the content
+//  * Gaussian weights give a soft falloff instead of a hard disk edge
+//  * the tap pattern is rotated per pixel (interleaved gradient noise), so any leftover gaps turn into
+//    fine grain instead of repeating ghost lines
+//  * one shared pattern for all three colour channels (dispersion only shifts the centre)
+// Needs `mipmap: true` on the ShaderEffectSource (set in MacBar.qml / MacDock.qml).
+vec3 backdropLod(vec2 pItem, float lod)
 {
     vec2 uv = (pItem + srcOffset) / srcSize;
-    return texture(src, clamp(uv, vec2(0.001), vec2(0.999))).rgb;
+    return textureLod(src, clamp(uv, vec2(0.001), vec2(0.999)), lod).rgb;
 }
 
-vec3 blurred(vec2 pItem, float rad)
+float ign(vec2 p)
 {
-    vec3 acc = vec3(0.0);
+    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
+
+vec3 blurredDisp(vec2 pItem, vec2 disp, float disperse, float rad)
+{
+    float R   = max(rad, 0.5) * 1.5;                       // Gaussian reaches further than a flat disk
+    float gap = R * sqrt(3.14159265 / float(TAPS));        // spacing between neighbouring taps, px
+    float lod = clamp(log2(max(gap, 1.0)) + 0.35, 0.0, 6.0);
+    float rot = ign(gl_FragCoord.xy) * 6.2831853;
+    vec3  acc = vec3(0.0);
+    float wsum = 0.0;
     for (int i = 0; i < TAPS; ++i) {
         float fi = float(i) + 0.5;
         float r  = sqrt(fi / float(TAPS));
-        float a  = fi * GOLDEN;
-        acc += backdrop(pItem + vec2(cos(a), sin(a)) * r * rad);
+        float a  = fi * GOLDEN + rot;
+        float w  = exp(-2.2 * r * r);
+        vec2  o  = vec2(cos(a), sin(a)) * r * R;
+        vec3  c;
+        c.r = backdropLod(pItem + o + disp * (1.0 + disperse), lod).r;
+        c.g = backdropLod(pItem + o + disp,                    lod).g;
+        c.b = backdropLod(pItem + o + disp * (1.0 - disperse), lod).b;
+        acc  += c * w;
+        wsum += w;
     }
-    return acc / float(TAPS);
+    return acc / wsum;
 }
 
 float hash12(vec2 p)
@@ -106,7 +131,8 @@ void main()
                                  : ((d2.x > d2.y) ? vec2(sg.x, 0.0) : vec2(0.0, sg.y));
 
     // ── convex squircle bezel → surface normal ──
-    float u    = clamp(t / max(bezel, 1.0), 0.0, 1.0);
+    float bz   = max(bezel, 1.0) * 1.45;           // wider bezel: the glass reads thicker
+    float u    = clamp(t / bz, 0.0, 1.0);
     float om   = 1.0 - u;
     float om4  = om * om * om * om;
     float slope = (om * om * om) / pow(max(1.0 - om4, 1e-3), 0.75);
@@ -115,20 +141,13 @@ void main()
 
     // ── refraction: glass n≈1.5, ray enters straight down ──
     vec3 rd   = refract(vec3(0.0, 0.0, -1.0), n, 1.0 / 1.5);
-    vec2 disp = rd.xy / max(-rd.z, 0.2) * thickness;
+    vec2 disp = rd.xy / max(-rd.z, 0.2) * thickness * 1.35;
 
     // the whole slab acts as a gentle vertical lens; blur is crisper right at the curved rim
-    vec2 ps = vec2(p.x, (p.y - pad - hs.y) * (1.0 - magnify) + pad + hs.y);
-    float rad = blurPx * mix(0.45, 1.0, smoothstep(0.0, max(bezel, 1.0), t));
+    vec2 ps = vec2(p.x, (p.y - pad - hs.y) * (1.0 - magnify * 1.5) + pad + hs.y);
+    float rad = blurPx * mix(0.45, 1.0, smoothstep(0.0, bz, t));
 
-    vec3 col;
-    if (dispersion > 0.0) {
-        col.r = blurred(ps + disp * (1.0 + dispersion), rad).r;
-        col.g = blurred(ps + disp,                      rad).g;
-        col.b = blurred(ps + disp * (1.0 - dispersion), rad).b;
-    } else {
-        col = blurred(ps + disp, rad);
-    }
+    vec3 col = blurredDisp(ps, disp, dispersion * 0.6, rad);
 
     // ── colour grading: vibrancy, tint, milky lift ──
     float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -141,6 +160,7 @@ void main()
     float ty = clamp((q.y + hs.y) / glassSize.y, 0.0, 1.0);
     col += (1.0 - ty) * mix(0.040, 0.030, dark);
     col *= 1.0 - 0.12 * exp(-t / 6.0) * clamp(g.y, 0.0, 1.0);
+    col *= 1.0 - 0.10 * exp(-t / (bz * 0.45));          // thick glass absorbs light toward the edge (heavier feel)
 
     // ── specular rim, light from the top-left ──
     vec2  L      = normalize(vec2(-0.55, -0.83));
@@ -151,6 +171,11 @@ void main()
     float edgeHi = hair * (0.18 + 0.78 * spec) + wide * 0.10 * (0.30 + spec);
     edgeHi *= rim * mix(0.85, 1.0, dark);
     col += edgeHi * vec3(0.96, 0.98, 1.0);
+
+    // meniscus: a soft second highlight inside the rim, like surface tension pulling the liquid together
+    float mx  = (t - bz * 0.5) / (bz * 0.2 + 1.0);
+    float men = exp(-mx * mx);
+    col += men * 0.07 * (0.35 + spec) * rim * vec3(0.96, 0.98, 1.0);
 
     // fine triangular-distribution grain, same on every channel so it reads as texture, not colour noise
     float gn = hash12(gl_FragCoord.xy) + hash12(gl_FragCoord.xy * 1.7 + 17.0) - 1.0;

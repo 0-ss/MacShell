@@ -57,6 +57,7 @@ Scope {
     property real glassRim: 0.45
     property real glassGrain: 0.015
     property real glassLiquid: 1.0
+    property real glassBlur: 5
     property bool glassDebug: false
     property string wallpaperPath: ""
     property bool use24h: true
@@ -77,7 +78,7 @@ Scope {
     property var ccControls: ["wifi", "nowplaying", "bluetooth", "airplane", "focus", "nightshift", "keepawake", "display", "sound"]
 
     readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
-        "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassDebug", "wallpaperPath", "use24h", "showDate",
+        "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "nightTemp", "ccControls"]
     readonly property var accentChoices: [
@@ -225,6 +226,18 @@ Scope {
                 for (var i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
                 if (fill) { ctx.closePath(); ctx.fill(); } else ctx.stroke();
             }
+            // filled polygon with rounded corners (radius r), used by the media icons
+            function rpoly(p, r) {
+                var n = p.length / 2;
+                ctx.beginPath();
+                ctx.moveTo((p[0] + p[2 * (n - 1)]) / 2, (p[1] + p[2 * (n - 1) + 1]) / 2);
+                for (var q = 0; q < n; q++) {
+                    var x = p[2 * q], y = p[2 * q + 1];
+                    var nx = p[2 * ((q + 1) % n)], ny = p[2 * ((q + 1) % n) + 1];
+                    ctx.arcTo(x, y, (x + nx) / 2, (y + ny) / 2, r);
+                }
+                ctx.closePath(); ctx.fill();
+            }
             function rrect(x, y, w, h, r) {
                 ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
                 ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
@@ -305,16 +318,16 @@ Scope {
                     }
                 }
             } else if (k === "play") {
-                poly([5, 3.2, 15, 9, 5, 14.8], true);
+                rpoly([5, 3.2, 15, 9, 5, 14.8], 0.8);
             } else if (k === "pause") {
-                rrect(4.2, 3.4, 3.4, 11.2, 1); ctx.fill();
-                rrect(10.4, 3.4, 3.4, 11.2, 1); ctx.fill();
+                rrect(4.2, 3.4, 3.4, 11.2, 0.7); ctx.fill();
+                rrect(10.4, 3.4, 3.4, 11.2, 0.7); ctx.fill();
             } else if (k === "next") {
-                poly([1.8, 4, 8.6, 9, 1.8, 14], true);
-                poly([9.4, 4, 16.2, 9, 9.4, 14], true);
+                rpoly([1.8, 4, 8.6, 9, 1.8, 14], 0.6);
+                rpoly([9.4, 4, 16.2, 9, 9.4, 14], 0.6);
             } else if (k === "prev") {
-                poly([16.2, 4, 9.4, 9, 16.2, 14], true);
-                poly([8.6, 4, 1.8, 9, 8.6, 14], true);
+                rpoly([16.2, 4, 9.4, 9, 16.2, 14], 0.6);
+                rpoly([8.6, 4, 1.8, 9, 8.6, 14], 0.6);
             } else if (k === "note") {
                 line(7, 12.5, 7, 3.5); line(7, 3.5, 14, 2.2); line(14, 2.2, 14, 11);
                 circ(5.2, 13, 2); ctx.fill();
@@ -412,6 +425,7 @@ Scope {
         property real strength: 1.0         // liquid glass strength multiplier
         property real rim: 0.45
         property real grain: 0.03
+        property real blur: 5               // backdrop blur radius, px (settings slider)
         property bool debug: false
         signal shaderError()
 
@@ -428,7 +442,7 @@ Scope {
             active: g.liquid && g.backdrop !== null && g.visible
             sourceComponent: Item {
                 id: lg
-                readonly property real m: 48     // extra backdrop captured around the slab (refraction + blur reach)
+                readonly property real m: 72     // extra backdrop captured around the slab (refraction + blur reach)
                 readonly property real p: 10     // shader padding (drop shadow)
                 ShaderEffectSource {
                     id: bsrc
@@ -438,6 +452,41 @@ Scope {
                     visible: false
                     sourceRect: Qt.rect(g.bx - lg.p - lg.m, g.by - lg.p - lg.m,
                                         g.width + 2 * (lg.p + lg.m), g.height + 2 * (lg.p + lg.m))
+                }
+                MultiEffect {
+                    id: bblurFx
+                    source: bsrc
+                    width: bsrc.sourceRect.width; height: bsrc.sourceRect.height
+                    blurEnabled: true
+                    blurMax: 64
+                    blur: Math.min(1.0, (g.blur) * 1.4 / 64.0)
+                    autoPaddingEnabled: false
+                    visible: false
+                }
+                // real Gaussian pre-blur of the backdrop (Qt MultiEffect): the glass shader refracts THIS texture,
+                // so there are no sampled copies of the background any more
+                ShaderEffectSource {
+                    id: bblur
+                    sourceItem: bblurFx
+                    live: true
+                    visible: false
+                }
+                MultiEffect {
+                    id: bblur2Fx
+                    source: bblur
+                    width: bsrc.sourceRect.width; height: bsrc.sourceRect.height
+                    blurEnabled: (g.blur) * 1.4 / 64.0 > 1.0
+                    blurMax: 64
+                    blur: Math.max(0.0, Math.min(1.0, (g.blur) * 1.4 / 64.0 - 1.0))
+                    autoPaddingEnabled: false
+                    visible: false
+                }
+                // second Gaussian pass: only active when the slider goes past a single pass's 64 px limit
+                ShaderEffectSource {
+                    id: bblur2
+                    sourceItem: bblur2Fx
+                    live: true
+                    visible: false
                 }
                 ShaderEffect {
                     id: fx
@@ -449,7 +498,7 @@ Scope {
                         console.log("[macbar-glass] shader status:", status, "(0 = compiled, 1 = uncompiled, 2 = error)", log);
                         if (status === ShaderEffect.Error) g.shaderError();
                     }
-                    property variant src: bsrc
+                    property variant src: bblur2
                     property real padPx: lg.p
                     property vector2d itemSize: Qt.vector2d(width, height)
                     property vector2d glassSize: Qt.vector2d(g.width, g.height)
@@ -458,12 +507,12 @@ Scope {
                     property real pad: lg.p
                     property real radius: g.cornerR
                     property real bezel: Math.min(g.height * 0.36, 26)
-                    property real thickness: g.thickness * g.strength
-                    property real dispersion: 0.06 * g.strength
-                    property real magnify: 0.05 * g.strength
+                    property real thickness: g.thickness * g.strength * 1.6      // bar popovers: boosted to match the stronger dock glass
+                    property real dispersion: 0.06 * g.strength * 1.3
+                    property real magnify: 0.05 * g.strength * 1.6
                     property real rim: g.rim
                     property real grain: g.grain * 0.2
-                    property real blurPx: 5
+                    property real blurPx: 1.5
                     property real tintMix: g.tint * 0.55
                     property real saturation: 1.25
                     property real dark: g.dark ? 1 : 0
@@ -485,6 +534,7 @@ Scope {
         property bool dark: true
         property real tint: 0.4
         property real strength: 1.0
+        property real blur: 5               // base backdrop blur radius, px (settings slider)
         property real blurMul: 1.0          // scales the backdrop blur radius of every slab in this context
         property real liquidMul: 1.0        // scales refraction / dispersion / magnify of every slab in this context
         property real paneOpacity: 1.0      // <1 lets the compositor blur show through the shader pane
@@ -550,12 +600,12 @@ Scope {
                     property real pad: gg.pad
                     property real radius: gg.cornerR
                     property real bezel: Math.min(gg.height * 0.36, 26)
-                    property real thickness: gg.thickness * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul
-                    property real dispersion: 0.06 * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul
-                    property real magnify: 0.05 * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul
+                    property real thickness: gg.thickness * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul * 1.6
+                    property real dispersion: 0.06 * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul * 1.3
+                    property real magnify: 0.05 * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul * 1.6
                     property real rim: gg.gx.rim
                     property real grain: gg.gx.grain * 0.2
-                    property real blurPx: 5 * gg.gx.blurMul
+                    property real blurPx: 1.5
                     property real tintMix: gg.gx.tint * 0.55 * gg.tintMul
                     property real saturation: 1.25
                     property real dark: gg.gx.dark ? 1 : 0
@@ -1423,7 +1473,7 @@ Scope {
     }
     function resetSettings() {
         barEnabled = true;
-        darkMode = true; accent = "#0a84ff"; fontFamily = "Inter"; glassOpacity = 0.42;
+        darkMode = true; accent = "#0a84ff"; fontFamily = "Inter"; glassOpacity = 0.42; glassBlur = 5;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
         showTray = true; showSearch = true;
         ccControls = ccDefault.slice();
@@ -1437,7 +1487,7 @@ Scope {
         onLoaded: {
             try {
                 var o = JSON.parse(text());
-                root.applySettings(o, ["darkMode", "accent", "fontFamily", "glassOpacity", "glassRim", "glassGrain", "glassLiquid", "wallpaperPath"]);
+                root.applySettings(o, ["darkMode", "accent", "fontFamily", "glassOpacity", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "wallpaperPath"]);
                 if (o.dockStyle !== undefined) root.barStyle = (o.dockStyle === "liquid") ? "liquid" : "blur";
             } catch (err) { }
             store.path = root.configDir + "/settings.json";
@@ -2057,6 +2107,7 @@ Scope {
                         strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
+                        blur: root.glassBlur
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
                     }
@@ -2181,6 +2232,7 @@ Scope {
                         strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
+                        blur: root.glassBlur
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
                     }
@@ -2345,6 +2397,7 @@ Scope {
                         strength: 0.7 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
+                        blur: root.glassBlur
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
                     }
@@ -2607,6 +2660,7 @@ Scope {
                         strength: 0.8 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
+                        blur: root.glassBlur
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
                     }
@@ -2716,9 +2770,44 @@ Scope {
                         visible: false
                         sourceRect: Qt.rect(cc.x - 64, cc.y - 64, cc.width + 128, cc.height + 128)
                     }
+                    MultiEffect {
+                        id: ccBlurFx
+                        source: ccSrc
+                        width: ccSrc.sourceRect.width; height: ccSrc.sourceRect.height
+                        blurEnabled: true
+                        blurMax: 64
+                        blur: Math.min(1.0, (ccg.blur * ccg.blurMul) * 1.4 / 64.0)
+                        autoPaddingEnabled: false
+                        visible: false
+                    }
+                    // real Gaussian pre-blur of the backdrop (Qt MultiEffect): the glass shader refracts THIS texture,
+                    // so there are no sampled copies of the background any more
+                    ShaderEffectSource {
+                        id: ccBlur
+                        sourceItem: ccBlurFx
+                        live: true
+                        visible: false
+                    }
+                    MultiEffect {
+                        id: ccBlur2Fx
+                        source: ccBlur
+                        width: ccSrc.sourceRect.width; height: ccSrc.sourceRect.height
+                        blurEnabled: (ccg.blur * ccg.blurMul) * 1.4 / 64.0 > 1.0
+                        blurMax: 64
+                        blur: Math.max(0.0, Math.min(1.0, (ccg.blur * ccg.blurMul) * 1.4 / 64.0 - 1.0))
+                        autoPaddingEnabled: false
+                        visible: false
+                    }
+                    // second Gaussian pass: only active when the slider goes past a single pass's 64 px limit
+                    ShaderEffectSource {
+                        id: ccBlur2
+                        sourceItem: ccBlur2Fx
+                        live: true
+                        visible: false
+                    }
                     GlassCtx {
                         id: ccg
-                        src: ccSrc
+                        src: ccBlur2
                         srcRect: ccSrc.sourceRect
                         frame: ui
                         liquid: root.liquidActive
@@ -2728,6 +2817,7 @@ Scope {
                         strength: root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
+                        blur: root.glassBlur
                         debug: root.glassDebug
                         onFailed: root.glassState = "failed"
                     }
@@ -2901,7 +2991,7 @@ Scope {
                                 }
                             }
                             Column {
-                                x: 12; y: 72
+                                x: 12; y: 66
                                 width: parent.width - 24
                                 spacing: 1
                                 Text {
@@ -2919,26 +3009,30 @@ Scope {
                             }
                             Row {
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                y: parent.height - 34
-                                spacing: 18
+                                y: parent.height - 38
+                                spacing: 2
                                 opacity: np.pl ? 1 : 0.4
                                 Repeater {
                                     model: ["prev", "play", "next"]
                                     delegate: Item {
+                                        id: pbtn
                                         required property string modelData
-                                        width: 28; height: 24
+                                        width: 32; height: 30
                                         Glyph {
                                             anchors.centerIn: parent
-                                            width: 20; height: 20
-                                            kind: parent.modelData === "play" ? (np.pl && np.pl.isPlaying ? "pause" : "play") : parent.modelData
+                                            width: 26; height: 26
+                                            kind: pbtn.modelData === "play" ? (np.pl && np.pl.isPlaying ? "pause" : "play") : pbtn.modelData
                                             color: pal.fg
+                                            scale: pma.pressed ? 0.88 : 1
+                                            Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
                                         }
                                         MouseArea {
+                                            id: pma
                                             anchors.fill: parent
                                             enabled: np.pl !== null && np.pl !== undefined
                                             onClicked: {
-                                                if (parent.modelData === "prev") np.pl.previous();
-                                                else if (parent.modelData === "next") np.pl.next();
+                                                if (pbtn.modelData === "prev") np.pl.previous();
+                                                else if (pbtn.modelData === "next") np.pl.next();
                                                 else np.pl.togglePlaying();
                                             }
                                         }
@@ -3247,11 +3341,46 @@ Scope {
                         hideSource: true
                         live: spotWin.visible
                         visible: false
-                        sourceRect: Qt.rect(spot.x - 64, spot.y - 64, spot.width + 128, 620)
+                        sourceRect: Qt.rect(spot.x - 128, spot.y - 128, spot.width + 256, 684)
+                    }
+                    MultiEffect {
+                        id: spBlurFx
+                        source: spSrc
+                        width: spSrc.sourceRect.width; height: spSrc.sourceRect.height
+                        blurEnabled: true
+                        blurMax: 64
+                        blur: Math.min(1.0, (spg.blur * spg.blurMul) * 1.4 / 64.0)
+                        autoPaddingEnabled: false
+                        visible: false
+                    }
+                    // real Gaussian pre-blur of the backdrop (Qt MultiEffect): the glass shader refracts THIS texture,
+                    // so there are no sampled copies of the background any more
+                    ShaderEffectSource {
+                        id: spBlur
+                        sourceItem: spBlurFx
+                        live: spotWin.visible
+                        visible: false
+                    }
+                    MultiEffect {
+                        id: spBlur2Fx
+                        source: spBlur
+                        width: spSrc.sourceRect.width; height: spSrc.sourceRect.height
+                        blurEnabled: true
+                        blurMax: 64
+                        blur: Math.max(0.0, Math.min(1.0, (spg.blur * spg.blurMul) * 1.4 / 64.0 - 1.0))
+                        autoPaddingEnabled: false
+                        visible: false
+                    }
+                    // second Gaussian pass: stacks on the first one so Spotlight can blur past a single pass's 64 px limit
+                    ShaderEffectSource {
+                        id: spBlur2
+                        sourceItem: spBlur2Fx
+                        live: spotWin.visible
+                        visible: false
                     }
                     GlassCtx {
                         id: spg
-                        src: spSrc
+                        src: spBlur2
                         srcRect: spSrc.sourceRect
                         frame: spotRoot
                         liquid: root.liquidActive
@@ -3261,6 +3390,8 @@ Scope {
                         strength: root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
+                        blur: root.glassBlur
+                        blurMul: 12.0                   // Spotlight: strong smooth blur (two stacked Gaussian passes); lower to soften, raise to blur more
                         debug: root.glassDebug
                         onFailed: root.glassState = "failed"
                     }
