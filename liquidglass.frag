@@ -34,6 +34,7 @@ layout(std140, binding = 0) uniform buf {
     float rim;          // specular edge highlight strength (1 = original strength)
     float grain;        // fine noise amplitude over the whole glass
     float magnify;      // vertical lens magnification of the whole slab
+    float shadowAmt;    // drop-shadow strength (1 = original, 0 = none) - appended last so older layouts stay compatible
 };
 
 layout(binding = 1) uniform sampler2D src;
@@ -90,7 +91,7 @@ void main()
 
     // ── soft drop shadow (only visible outside the glass) ──
     float sds    = roundBox(q - vec2(0.0, 3.0), hs, r);
-    float shadow = 0.30 * (1.0 - smoothstep(-2.0, 9.0, sds));
+    float shadow = 0.30 * shadowAmt * (1.0 - smoothstep(-2.0, 9.0, sds));
     if (sd > 1.0) {
         fragColor = vec4(0.0, 0.0, 0.0, shadow) * qt_Opacity;
         return;
