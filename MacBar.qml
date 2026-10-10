@@ -613,7 +613,7 @@ Scope {
         signal clicked()
         property bool bounce: false
         width: d; height: d
-        scale: (bounce && bma.pressed) ? 0.84 : ((bounce && bma.containsMouse) ? 1.08 : 1)
+        scale: (bounce && bma.pressed) ? 0.88 : 1
         Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
         GGlass { anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: b.shadow }
         Rectangle {
@@ -3181,6 +3181,7 @@ Scope {
             id: spotWin
             screen: perScreen.modelData
             visible: ui.pop === "spot" || spot.opacity > 0
+            onVisibleChanged: root.popCount += (visible ? 1 : -1)     // keeps the window-geometry poller running while Spotlight is open
             anchors { left: true; right: true; top: true; bottom: true }
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore
@@ -3192,6 +3193,12 @@ Scope {
             Item {
                 id: spotRoot
                 anchors.fill: parent
+
+                Loader {
+                    id: spotBackdrop
+                    active: root.liquidActive && spotWin.visible
+                    sourceComponent: backdropComp
+                }
 
                 // click outside Spotlight closes it
                 MouseArea {
@@ -3209,7 +3216,7 @@ Scope {
                     x: Math.round((spotRoot.width - width) / 2)
                     // the search pill sits a little above the vertical centre of the screen (0.4 of the height; 0.5 = dead centre); the Applications panel centres itself instead
                     y: Math.round(spotRoot.height * 0.4 - (ui.spMode === "apps" ? appsPanel.height / 2 : 24))
-                    Behavior on y { enabled: spot.opacity > 0.99; NumberAnimation { duration: 320; easing.type: Easing.OutBack; easing.overshoot: 1.8 } }
+                    Behavior on y { enabled: spot.opacity > 0.99; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
                     // opens with a springy pop; dismiss: quick fade + shrink
                     opacity: 0
                     visible: opacity > 0
@@ -3236,9 +3243,9 @@ Scope {
 
                     ShaderEffectSource {
                         id: spSrc
-                        sourceItem: null        // no Liquid Glass here, so no backdrop is captured
-                        hideSource: false
-                        live: false
+                        sourceItem: spotBackdrop.item     // wallpaper + live windows, captured inside this layer
+                        hideSource: true
+                        live: spotWin.visible
                         visible: false
                         sourceRect: Qt.rect(spot.x - 64, spot.y - 64, spot.width + 128, 620)
                     }
@@ -3247,12 +3254,12 @@ Scope {
                         src: spSrc
                         srcRect: spSrc.sourceRect
                         frame: spotRoot
-                        liquid: false       // plain glass: translucent pane over the compositor blur (macspot layerrule)
+                        liquid: root.liquidActive
                         shaderUrl: root.glassShaderUrl
                         dark: root.darkMode
-                        tint: root.glassOpacity * 0.7        // clearer than the other popovers
+                        tint: root.glassOpacity
                         strength: root.glassLiquid
-                        rim: root.glassRim * 0.6
+                        rim: root.glassRim
                         grain: root.glassGrain
                         debug: root.glassDebug
                         onFailed: root.glassState = "failed"
@@ -3351,7 +3358,7 @@ Scope {
                                 width: parent.width; height: 46; radius: 16
                                 color: (resPanel.items[resPanel.selIdx] && resPanel.items[resPanel.selIdx].confirm === true
                                         && ui.armed === resPanel.items[resPanel.selIdx].title) ? "#FF453A" : root.accent
-                                Behavior on y { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 2.4 } }
+                                Behavior on y { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                 Behavior on color { ColorAnimation { duration: 120 } }
                             }
                         Column {
@@ -3421,10 +3428,10 @@ Scope {
                         id: appsPanel
                         opacity: ui.spMode === "apps" ? 1 : 0
                         visible: opacity > 0
-                        scale: ui.spMode === "apps" ? 1 : 0.88
+                        scale: ui.spMode === "apps" ? 1 : 0.96
                         transformOrigin: Item.Top
                         Behavior on opacity { NumberAnimation { duration: 160 } }
-                        Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutBack; easing.overshoot: 2.6 } }
+                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                         width: spot.width
                         height: Math.min(64 + appsCol.height + 14, 520)
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
@@ -3531,9 +3538,7 @@ Scope {
                                                     readonly property var e: sec.modelData.apps[index]
                                                     width: appsCol.width / 5
                                                     height: 96
-                                                    scale: cma.containsMouse ? 1.12 : 1
-                                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: 3 } }
-                                                    Rectangle {
+                                                                                                                                                            Rectangle {
                                                         anchors.fill: parent
                                                         anchors.margins: 2
                                                         radius: 16
