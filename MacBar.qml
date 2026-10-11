@@ -1693,7 +1693,7 @@ Scope {
     // ═════════════ NOTIFICATIONS ═════════════
     // Receives org.freedesktop.Notifications on D-Bus (stop dunst / mako / swaync first — only one daemon can own the name).
     property bool notifDnd: false            // Do Not Disturb: still stored in the centre, but no popups
-    property real notifBlur: 64              // blur of the notification glass (smooth two-pass Gaussian, same method as the Blur slider)
+    property real notifBlur: 20              // blur of the notification glass (smooth two-pass Gaussian, same method as the Blur slider)
     property int notifUnread: 0
     property int notifSeq: 0
     property var notifRefs: ({})
@@ -1805,7 +1805,7 @@ Scope {
     //   bindrt = ALT, Alt_L, exec, qs -c macshell ipc call switcher commit     # optional safety net: switch on ALT release
     // (use the same `qs ...` prefix you use for the Spotlight bind). Hold ALT, tap TAB to cycle, release ALT to switch.
     // Layer namespace: "macswitch" (only needed for a blur layerrule if you are NOT using the Liquid Glass style).
-    property real switcherBlur: 40           // blur of the switcher glass (smooth Gaussian; less than Spotlight / notifications)
+    property real switcherBlur: 20           // blur of the switcher glass (smooth Gaussian; less than Spotlight / notifications)
     property bool swOpen: false
     property var swApps: []                  // open apps, most recently used first: { appId, name, icon, win, count }
     property int swIndex: 0
@@ -3625,7 +3625,7 @@ Scope {
                             Rectangle {
                                 id: art
                                 x: 12; y: 12
-                                width: 52; height: 52; radius: 12
+                                width: 52; height: 52; radius: 9
                                 color: pal.btnOff
                                 Glyph { visible: artImg.status !== Image.Ready; anchors.centerIn: parent; width: 22; height: 22; kind: "note"; color: pal.fg2 }
                                 // `clip: true` only clips to a plain rectangle, so the cover is masked with a rounded shape instead
