@@ -299,6 +299,7 @@ Scope {
         height: 26
         Rectangle { anchors.fill: parent; radius: 7; color: g.t.ctrl }
         Rectangle {
+            visible: g.current >= 0
             y: 2
             x: 2 + g.current * g.segWidth
             width: g.segWidth
@@ -1035,6 +1036,108 @@ Scope {
                             t: pal
                             checked: root.bar ? root.bar.clipAutoPaste : false
                             onToggled: v => { if (root.bar) root.bar.clipAutoPaste = v; }
+                        }
+                    }
+                }
+                SLabel { t: pal; header: true; text: "Screenshots" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Save to a folder"
+                        subtitle: "Press Print to select an area. Turn off to only copy it to the clipboard"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.screenshotSave : true
+                            onToggled: v => { if (root.bar) root.bar.screenshotSave = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Save location"
+                        subtitle: "Leave empty for ~/Pictures/Screenshots"
+                        Row {
+                            spacing: 8
+                            Rectangle {
+                                width: 200; height: 24; radius: 6
+                                color: pal.ctrl
+                                border.width: 1
+                                border.color: pal.cardBorder
+                                TextInput {
+                                    id: shotDirInput
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8; anchors.rightMargin: 8
+                                    verticalAlignment: TextInput.AlignVCenter
+                                    clip: true
+                                    selectByMouse: true
+                                    color: pal.text
+                                    selectionColor: pal.accent
+                                    font.family: pal.fam
+                                    font.pixelSize: 12
+                                    text: root.bar ? root.bar.screenshotDir : ""
+                                    onTextEdited: { if (root.bar) root.bar.screenshotDir = text; }
+                                }
+                                Text {
+                                    visible: shotDirInput.text === ""
+                                    x: 8
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "~/Pictures/Screenshots"
+                                    color: pal.text3
+                                    font.family: pal.fam
+                                    font.pixelSize: 12
+                                }
+                            }
+                            SButton { t: pal; text: "Choose\u2026"; onClicked: shotPick.running = true }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Quick folders"
+                        SSegmented {
+                            t: pal
+                            property var dirs: ["~/Pictures/Screenshots", "~/Pictures", "~/Desktop", "~/Downloads"]
+                            model: ["Screenshots", "Pictures", "Desktop", "Downloads"]
+                            segWidth: 84
+                            current: {
+                                var d = root.bar ? root.bar.screenshotDir.replace(/\/+$/, "") : "";
+                                return dirs.indexOf(d === "" ? dirs[0] : d);
+                            }
+                            onPicked: i => { if (root.bar) root.bar.screenshotDir = dirs[i]; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Copy to clipboard"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.screenshotClipboard : true
+                            onToggled: v => { if (root.bar) root.bar.screenshotClipboard = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Show a notification"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.screenshotNotify : true
+                            onToggled: v => { if (root.bar) root.bar.screenshotNotify = v; }
+                        }
+                    }
+                }
+                SLabel {
+                    t: pal
+                    text: "Bind the Print key:  bind = , Print, exec, qs -c macbar ipc call screenshot region.  Choose\u2026 needs zenity, kdialog or yad; otherwise type the path. Screenshots need grim."
+                }
+                Process {
+                    id: shotPick
+                    command: ["sh", "-c",
+                        "if command -v zenity >/dev/null 2>&1; then zenity --file-selection --directory --title='Screenshot folder' 2>/dev/null; "
+                        + "elif command -v kdialog >/dev/null 2>&1; then kdialog --getexistingdirectory \"$HOME\" 2>/dev/null; "
+                        + "elif command -v yad >/dev/null 2>&1; then yad --file --directory --title='Screenshot folder' 2>/dev/null; fi"]
+                    stdout: StdioCollector {
+                        onStreamFinished: {
+                            var d = text.trim();
+                            if (d !== "" && root.bar) root.bar.screenshotDir = d;
                         }
                     }
                 }

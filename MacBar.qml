@@ -47,6 +47,16 @@
 //   (use the same `qs -c <name>` prefix you use for the Spotlight bind; `ipc call spotlight apps` opens the Applications panel)
 // Return pastes the entry into the focused app, Shift+Return only copies it, Delete removes it from the history.
 // Files runs filesCmd.
+//
+// Screenshots (Print key): the screen freezes and dims, drag to select an area (a size badge follows the pointer), release to capture.
+// Return/Space = whole screen, Esc or right-click = cancel. Where it is saved (and clipboard / notification) is in System Settings → Menu Bar.
+//   bind = , Print, exec, qs -c macbar ipc call screenshot region
+//   bind = SHIFT, Print, exec, qs -c macbar ipc call screenshot screen
+//   bind = ALT, Print, exec, qs -c macbar ipc call screenshot window
+// Hyprland (Lua):
+//   hl.bind("Print", hl.dsp.exec_cmd("qs -c macbar ipc call screenshot region"))
+// Optional (no fade on the picker):  layerrule = noanim, macshot   (Lua: hl.layer_rule({ name = "macshot", match = { namespace = "macshot" }, no_anim = true }))
+// Needs grim (and wl-clipboard for the clipboard copy).
 
 import QtQuick
 import QtQuick.Effects
@@ -96,6 +106,10 @@ Scope {
     property bool clipHistory: true           // keep a clipboard history for Spotlight → Clipboard (needs wl-clipboard + cliphist)
     property bool clipAutoPaste: true         // after picking a clipboard entry / emoji, paste it into the focused app
     property var emojiRecent: []              // recently used emoji, newest first
+    property string screenshotDir: ""         // where screenshots are saved ("" = ~/Pictures/Screenshots)
+    property bool screenshotSave: true        // save the PNG to screenshotDir
+    property bool screenshotClipboard: true   // also copy it to the clipboard
+    property bool screenshotNotify: true      // "Screenshot saved" notification
     property int spotRequest: 0
     property string spotWant: "home"          // which Spotlight panel the next request opens: home | clip | emoji | apps
     property int nightTemp: 4000
@@ -105,7 +119,7 @@ Scope {
     readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
         "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch", "weekStartsMonday", "terminal", "launcher",
-        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "nightTemp", "ccControls", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
+        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
     readonly property var accentChoices: [
         { name: "Blue", c: "#0a84ff" }, { name: "Purple", c: "#bf5af2" }, { name: "Pink", c: "#ff375f" },
         { name: "Red", c: "#ff453a" }, { name: "Orange", c: "#ff9f0a" }, { name: "Yellow", c: "#ffd60a" },
@@ -1288,10 +1302,9 @@ Scope {
         if (any(["code", "codium", "cursor", "dev.zed", "kate", "gedit", "sublime", "geany", "neovide", "emacs", "jetbrains", "pycharm", "intellij", "clion", "webstorm"])) return "editor";
         return "";
     }
-    function shot(region) {      // "" = whole screen, "sel" = pick an area, otherwise "x,y WxH"
-        var g = region === "" ? "" : (region === "sel" ? "-g \"$(slurp)\"" : "-g '" + region + "'");
-        sh("d=\"$HOME/Pictures\"; mkdir -p \"$d\"; f=\"$d/Screenshot-$(date +%F_%H-%M-%S).png\"; "
-           + "grim " + g + " \"$f\" && { wl-copy < \"$f\"; notify-send -a macbar 'Screenshot saved' \"$f\"; }");
+    function shot(region) {      // "" = whole screen, "sel" = pick an area (frozen-screen picker), otherwise "x,y WxH"
+        if (region === "sel") shotStart();
+        else shotFinish(region, "");
     }
     function shotWindow(aw) {
         if (!aw || !aw.at || !aw.size) return;
@@ -1869,6 +1882,209 @@ Scope {
         return m;
     }
 
+    // ═════════════ SCREENSHOT (Print key) ═════════════
+    // Same flow as Noctalia: every output is snapshotted first (grim), the frozen frame is shown dimmed, you drag a region and
+    // the final PNG is cropped from that frozen frame, so nothing that moves while you select ends up in the picture.
+    property bool shotOpen: false             // the picker overlay is showing
+    property bool shotBusy: false             // taking the snapshots
+    property int shotId: 0
+    readonly property string shotTmp: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
+    readonly property string shotFinishScript: [
+        "d=\"$1\"; sv=\"$2\"; cl=\"$3\"; nt=\"$4\"; tmp=\"$5\"; g=\"$6\"",
+        "if [ \"$g\" = '@' ]; then :; elif [ -n \"$g\" ]; then grim -g \"$g\" \"$tmp\"; else grim \"$tmp\"; fi || exit 1",
+        "[ -s \"$tmp\" ] || exit 1",
+        "f=\"$tmp\"",
+        "if [ \"$sv\" = 1 ]; then",
+        "  [ -z \"$d\" ] && d=\"$HOME/Pictures/Screenshots\"",
+        "  case \"$d\" in '~') d=\"$HOME\";; '~/'*) d=\"$HOME/${d#'~/'}\";; esac",
+        "  n=\"$d/Screenshot-$(date +%F_%H-%M-%S).png\"",
+        "  mkdir -p \"$d\" && mv -f \"$tmp\" \"$n\" && f=\"$n\"",
+        "fi",
+        "[ \"$cl\" = 1 ] && wl-copy --type image/png < \"$f\"",
+        "if [ \"$nt\" = 1 ]; then if [ \"$f\" = \"$tmp\" ]; then notify-send -a macbar 'Screenshot copied' 'Copied to the clipboard'; else notify-send -a macbar 'Screenshot saved' \"$f\"; fi; fi",
+        "[ \"$f\" = \"$tmp\" ] && rm -f \"$tmp\"",
+        "true"
+    ].join("\n")
+    // geom: "" = whole screen, "x,y WxH" = that area, "@" = `tmpPath` already holds the finished PNG (from the picker)
+    function shotFinish(geom, tmpPath) {
+        var tmp = tmpPath || (shotTmp + "/macshot-out-" + Date.now() + ".png");
+        var save = screenshotSave || !screenshotClipboard;          // never end up with nowhere to put it
+        Quickshell.execDetached(["sh", "-c", shotFinishScript, "sh", screenshotDir, save ? "1" : "0", screenshotClipboard ? "1" : "0",
+                                 screenshotNotify ? "1" : "0", tmp, geom]);
+    }
+    function shotStart() {
+        if (shotOpen) { shotClose(); return; }
+        if (shotBusy) return;
+        var scr = Quickshell.screens, names = [];
+        for (var i = 0; i < scr.length; i++) names.push(scr[i].name);
+        if (names.length === 0) return;
+        shotBusy = true;
+        shotId++;
+        shotSnap.command = ["sh", "-c",
+            "d=\"$1\"; i=\"$2\"; shift 2; for n in \"$@\"; do grim -t ppm -o \"$n\" \"$d/macshot-$i-$n.ppm\" & done; wait; "
+            + "for n in \"$@\"; do [ -s \"$d/macshot-$i-$n.ppm\" ] || exit 1; done", "sh", shotTmp, String(shotId)].concat(names);
+        shotSnap.running = true;
+    }
+    function shotClose() {
+        shotOpen = false;
+        Quickshell.execDetached(["sh", "-c", "rm -f \"$1\"/macshot-*.ppm", "sh", shotTmp]);
+    }
+    Process {
+        id: shotSnap
+        onExited: (code, status) => {
+            root.shotBusy = false;
+            if (code === 0) root.shotOpen = true;
+            else root.shotClose();
+        }
+    }
+    IpcHandler {
+        target: "screenshot"
+        function region(): void { root.shotStart(); }
+        function screen(): void { root.shotFinish("", ""); }
+        function window(): void { root.shotWindow(root.activeWin); }
+    }
+    Variants {
+        model: root.shotOpen ? Quickshell.screens : []
+        PanelWindow {
+            id: shw
+            required property var modelData
+            screen: modelData
+            anchors { left: true; right: true; top: true; bottom: true }
+            color: "transparent"
+            exclusionMode: ExclusionMode.Ignore
+
+            WlrLayershell.namespace: "macshot"
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+
+            readonly property url snap: "file://" + root.shotTmp + "/macshot-" + root.shotId + "-" + modelData.name + ".ppm"
+            readonly property real k: frozen.implicitWidth > 0 ? frozen.implicitWidth / width : 1     // snapshot pixels per logical pixel
+            property real ax: 0
+            property real ay: 0
+            property real px: 0
+            property real py: 0
+            property real selX: 0
+            property real selY: 0
+            property real selW: 0
+            property real selH: 0
+            property bool dragging: false
+            property bool grabbing: false
+            readonly property bool hasSel: selW > 1 && selH > 1
+
+            function capture(x, y, w, h) {
+                if (grabbing) return;
+                grabbing = true;
+                selX = Math.round(x); selY = Math.round(y); selW = Math.round(w); selH = Math.round(h);
+                grabTimer.restart();
+            }
+            Timer {
+                id: grabTimer
+                interval: 40                         // let the cut-out settle at its final size before it is grabbed
+                onTriggered: {
+                    var out = root.shotTmp + "/macshot-out-" + Date.now() + ".png";
+                    var kk = shw.k;
+                    var ok = cut.grabToImage(function (res) {
+                        var saved = res.saveToFile(out);
+                        root.shotClose();
+                        if (saved) root.shotFinish("@", out);
+                    }, Qt.size(Math.max(1, Math.round(shw.selW * kk)), Math.max(1, Math.round(shw.selH * kk))));
+                    if (!ok) root.shotClose();
+                }
+            }
+
+            Item {
+                id: sroot
+                anchors.fill: parent
+                focus: true
+                Component.onCompleted: forceActiveFocus()
+                NumberAnimation on opacity { from: 0; to: 1; duration: 120 }
+                Keys.onPressed: event => {
+                    if (event.key === Qt.Key_Escape) { root.shotClose(); event.accepted = true; }
+                    else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                        shw.capture(0, 0, shw.width, shw.height);
+                        event.accepted = true;
+                    }
+                }
+
+                Image { id: frozen; anchors.fill: parent; source: shw.snap; fillMode: Image.Stretch; smooth: true }
+                Rectangle { anchors.fill: parent; color: "black"; opacity: 0.42 }
+
+                // the selected area, undimmed. This item is what gets cropped, so nothing else may be drawn inside it
+                Item {
+                    id: cut
+                    visible: shw.hasSel
+                    x: shw.selX; y: shw.selY; width: shw.selW; height: shw.selH
+                    clip: true
+                    Image { x: -cut.x; y: -cut.y; width: shw.width; height: shw.height; source: shw.snap; fillMode: Image.Stretch; smooth: true }
+                }
+                Rectangle {
+                    visible: shw.hasSel && !shw.grabbing
+                    x: cut.x - 1; y: cut.y - 1; width: cut.width + 2; height: cut.height + 2
+                    color: "transparent"
+                    border.width: 1.5
+                    border.color: "white"
+                }
+
+                // size badge follows the pointer while selecting
+                Rectangle {
+                    visible: shw.hasSel && !shw.grabbing
+                    x: Math.max(8, Math.min(shw.width - width - 8, shw.px + 14))
+                    y: Math.max(8, Math.min(shw.height - height - 8, shw.py + 18))
+                    width: sizeTxt.implicitWidth + 18; height: 24; radius: 12
+                    color: Qt.rgba(0, 0, 0, 0.72)
+                    Text {
+                        id: sizeTxt
+                        anchors.centerIn: parent
+                        text: Math.round(shw.selW * shw.k) + " \u00D7 " + Math.round(shw.selH * shw.k)
+                        color: "white"
+                        font.family: root.fontFamily; font.pixelSize: 12; font.weight: Font.Medium
+                    }
+                }
+                Rectangle {
+                    visible: !shw.hasSel && !shw.grabbing
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: 56
+                    width: hintTxt.implicitWidth + 28; height: 32; radius: 16
+                    color: Qt.rgba(0, 0, 0, 0.72)
+                    Text {
+                        id: hintTxt
+                        anchors.centerIn: parent
+                        text: "Drag to select an area   \u2022   Return: whole screen   \u2022   Esc: cancel"
+                        color: "white"
+                        font.family: root.fontFamily; font.pixelSize: 13
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    cursorShape: Qt.CrossCursor
+                    onPressed: m => {
+                        if (m.button === Qt.RightButton) { root.shotClose(); return; }
+                        if (shw.grabbing) return;
+                        shw.dragging = true;
+                        shw.ax = m.x; shw.ay = m.y; shw.px = m.x; shw.py = m.y;
+                        shw.selX = m.x; shw.selY = m.y; shw.selW = 0; shw.selH = 0;
+                    }
+                    onPositionChanged: m => {
+                        shw.px = m.x; shw.py = m.y;
+                        if (!shw.dragging) return;
+                        var x2 = Math.max(0, Math.min(shw.width, m.x)), y2 = Math.max(0, Math.min(shw.height, m.y));
+                        shw.selX = Math.min(shw.ax, x2); shw.selY = Math.min(shw.ay, y2);
+                        shw.selW = Math.abs(x2 - shw.ax); shw.selH = Math.abs(y2 - shw.ay);
+                    }
+                    onReleased: m => {
+                        if (!shw.dragging) return;
+                        shw.dragging = false;
+                        if (shw.selW >= 4 && shw.selH >= 4) shw.capture(shw.selX, shw.selY, shw.selW, shw.selH);
+                        else { shw.selW = 0; shw.selH = 0; }
+                    }
+                }
+            }
+        }
+    }
+
     // ═════════════ SETTINGS PERSISTENCE ═════════════
     readonly property string settingsSig: settingKeys.map(function (k) { return String(root[k]); }).join("|")
     property bool settingsReady: false
@@ -2004,7 +2220,7 @@ Scope {
     // ═════════════ NOTIFICATIONS ═════════════
     // Receives org.freedesktop.Notifications on D-Bus (stop dunst / mako / swaync first — only one daemon can own the name).
     property bool notifDnd: false            // Do Not Disturb: still stored in the centre, but no popups
-    property real notifBlur: 64              // blur of the notification glass (smooth two-pass Gaussian, same method as the Blur slider)
+    property real notifBlur: 14              // blur of the notification glass (smooth two-pass Gaussian, same method as the Blur slider)
     property int notifUnread: 0
     property int notifSeq: 0
     property var notifRefs: ({})
@@ -2270,7 +2486,7 @@ Scope {
     //   bindrt = ALT, Alt_L, exec, qs -c macshell ipc call switcher commit     # optional safety net: switch on ALT release
     // (use the same `qs ...` prefix you use for the Spotlight bind). Hold ALT, tap TAB to cycle, release ALT to switch.
     // Layer namespace: "macswitch" (only needed for a blur layerrule if you are NOT using the Liquid Glass style).
-    property real switcherBlur: 40           // blur of the switcher glass (smooth Gaussian; less than Spotlight / notifications)
+    property real switcherBlur: 15           // blur of the switcher glass (smooth Gaussian; less than Spotlight / notifications)
     property bool swOpen: false
     property var swApps: []                  // open apps, most recently used first: { appId, name, icon, win, count }
     property int swIndex: 0
@@ -3125,7 +3341,7 @@ Scope {
                     }
                 }
 
-                // ═════════ notification centre (bell) ═════════
+                // ═════════ notification centre (bell) r ═════════
                 Item {
                     id: notifPop
                     z: 10
@@ -4136,7 +4352,7 @@ Scope {
                             Rectangle {
                                 id: art
                                 x: 12; y: 12
-                                width: 52; height: 52; radius: 5
+                                width: 52; height: 52; radius: 10
                                 color: pal.btnOff
                                 Glyph { visible: artImg.status !== Image.Ready; anchors.centerIn: parent; width: 22; height: 22; kind: "note"; color: pal.fg2 }
                                 // `clip: true` only clips to a plain rectangle, so the cover is masked with a rounded shape instead
@@ -5013,8 +5229,8 @@ Scope {
                         source: spSrc
                         width: spSrc.sourceRect.width; height: spSrc.sourceRect.height
                         blurEnabled: true
-                        blurMax: 64
-                        blur: Math.min(1.0, (spg.blur * spg.blurMul) * 1.4 / 64.0)
+                        blurMax: 6
+                        blur: Math.min(1.0, (spg.blur * spg.blurMul) * 1.4 / 6.0)
                         autoPaddingEnabled: false
                         visible: false
                     }
@@ -5122,7 +5338,7 @@ Scope {
                                 onClicked: {
                                     if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
                                     else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");
-                                    else if (modelData.id === "files") { ui.pop = ""; root.sh(root.filesCmd); }
+                                    else if (modelData.id === "files") { ui.pop = ""; root.sh("dolphin \"$HOME\""); }
                                     else if (modelData.id === "clip") ui.spSetMode(ui.spMode === "clip" ? "home" : "clip");
                                     else ui.spSetMode(ui.spMode === "emoji" ? "home" : "emoji");
                                 }
