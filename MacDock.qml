@@ -1014,6 +1014,30 @@ Scope {
                         }
                     }
                 }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Keep clipboard history"
+                        subtitle: "Spotlight \u2192 Clipboard (needs wl-clipboard and cliphist). Turn off to stop recording what you copy"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.clipHistory : false
+                            onToggled: v => { if (root.bar) root.bar.clipHistory = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Paste after choosing"
+                        subtitle: "Insert the chosen clipboard entry or emoji into the focused app (Shift+Return only copies)"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.clipAutoPaste : false
+                            onToggled: v => { if (root.bar) root.bar.clipAutoPaste = v; }
+                        }
+                    }
+                }
                 SLabel {
                     t: pal
                     text: "Translucency, accent color, appearance and font are in Appearance. Commands (terminal, launcher, files, clipboard) can be edited in ~/.config/macbar/settings.json."

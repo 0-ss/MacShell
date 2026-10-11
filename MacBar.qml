@@ -17,7 +17,7 @@
 // Optional tools used by the Control Center:
 //   nmcli (Wi-Fi), bluetoothctl (Bluetooth), brightnessctl (Display), hyprsunset (Night Shift),
 //   systemd-inhibit (Keep Awake), grim + slurp + wl-copy + notify-send (File → Screenshot),
-//   man / xdg-open (Help), an emoji picker such as emote/bemoji/rofimoji (Edit → Emoji & Symbols),
+//   man / xdg-open (Help), wl-clipboard + cliphist (Spotlight → Clipboard, Emoji),
 //   wtype (only if you set keysViaWtype: true; menu shortcuts are otherwise sent with Hyprland's sendshortcut),
 //   rfkill (Airplane mode), dunstctl / makoctl / swaync-client (Focus). Missing tools just do nothing.
 //
@@ -37,7 +37,16 @@
 //   (hyprlang:  bind = CTRL ALT, W, exec, qs -c macbar ipc call wallpapers toggle)
 // Folder: ~/Pictures/Wallpapers by default (change it inside the picker, or "wallpaperDir" in settings.json).
 // Star a wallpaper to pin it to the top. Applied through Noctalia / awww / swww / hyprpaper, or your own "wallpaperCmd" ({} = image path).
-// Its Clipboard button uses cliphist + wl-copy (command: clipboardCmd), Files runs filesCmd.
+// Clipboard history + Emoji live inside Spotlight (the clipboard and smiley buttons next to the search field):
+//   needs wl-clipboard + cliphist (this shell starts the `wl-paste --watch cliphist store` watchers itself, unless you already run them).
+//   bind = SUPER, V, exec, qs -c macbar ipc call spotlight clipboard       # Clipboard history (replace any default SUPER+V bind)
+//   bind = SUPER, period, exec, qs -c macbar ipc call spotlight emoji      # Emoji picker
+// Hyprland (Lua):
+//   hl.bind("SUPER + V", hl.dsp.exec_cmd("qs -c macbar ipc call spotlight clipboard"))
+//   hl.bind("SUPER + period", hl.dsp.exec_cmd("qs -c macbar ipc call spotlight emoji"))
+//   (use the same `qs -c <name>` prefix you use for the Spotlight bind; `ipc call spotlight apps` opens the Applications panel)
+// Return pastes the entry into the focused app, Shift+Return only copies it, Delete removes it from the history.
+// Files runs filesCmd.
 
 import QtQuick
 import QtQuick.Effects
@@ -50,6 +59,7 @@ import Quickshell.Services.UPower
 import Quickshell.Services.Pipewire
 import Quickshell.Services.Mpris
 import Quickshell.Services.Notifications
+import "EmojiData.js" as EmojiData
 
 Scope {
     id: root
@@ -83,7 +93,11 @@ Scope {
     property string filesCmd: "xdg-open \"$HOME\""
     property string clipboardCmd: "cliphist list | (fuzzel --dmenu || wofi --dmenu || rofi -dmenu) | cliphist decode | wl-copy"
     property var appUsage: ({})               // launch counts, feeds the "Suggestions" row in Spotlight
+    property bool clipHistory: true           // keep a clipboard history for Spotlight → Clipboard (needs wl-clipboard + cliphist)
+    property bool clipAutoPaste: true         // after picking a clipboard entry / emoji, paste it into the focused app
+    property var emojiRecent: []              // recently used emoji, newest first
     property int spotRequest: 0
+    property string spotWant: "home"          // which Spotlight panel the next request opens: home | clip | emoji | apps
     property int nightTemp: 4000
     // Control Center: ids of the enabled controls, in order (edit with Control Center → Edit Controls)
     property var ccControls: ["wifi", "nowplaying", "bluetooth", "airplane", "focus", "nightshift", "keepawake", "display", "sound"]
@@ -91,7 +105,7 @@ Scope {
     readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
         "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch", "weekStartsMonday", "terminal", "launcher",
-        "filesCmd", "clipboardCmd", "appUsage", "nightTemp", "ccControls", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
+        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "nightTemp", "ccControls", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
     readonly property var accentChoices: [
         { name: "Blue", c: "#0a84ff" }, { name: "Purple", c: "#bf5af2" }, { name: "Pink", c: "#ff375f" },
         { name: "Red", c: "#ff453a" }, { name: "Orange", c: "#ff9f0a" }, { name: "Yellow", c: "#ffd60a" },
@@ -389,6 +403,28 @@ Scope {
                 rrect(6.4, 1.9, 5.2, 3.4, 1.2); ctx.stroke();
                 line(6.4, 9, 11.6, 9);
                 line(6.4, 12, 10, 12);
+            } else if (k === "smile") {
+                circ(9, 9, 6.6); ctx.stroke();
+                circ(6.7, 7.5, 0.95); ctx.fill();
+                circ(11.3, 7.5, 0.95); ctx.fill();
+                ctx.beginPath(); ctx.arc(9, 9.2, 3.7, 0.25, PI - 0.25, false); ctx.stroke();
+            } else if (k === "doc") {
+                ctx.beginPath(); ctx.moveTo(4.6, 2.2); ctx.lineTo(10.2, 2.2); ctx.lineTo(13.8, 5.8); ctx.lineTo(13.8, 15.8); ctx.lineTo(4.6, 15.8); ctx.closePath(); ctx.stroke();
+                poly([10.2, 2.2, 10.2, 5.8, 13.8, 5.8], false);
+                line(6.8, 9.6, 11.6, 9.6);
+                line(6.8, 12.4, 11.6, 12.4);
+            } else if (k === "link") {
+                ctx.save(); ctx.translate(9, 9); ctx.rotate(-PI / 4);
+                rrect(-7.2, -2.7, 8.2, 5.4, 2.7); ctx.stroke();
+                rrect(-1, -2.7, 8.2, 5.4, 2.7); ctx.stroke();
+                ctx.restore();
+            } else if (k === "photo") {
+                rrect(2.4, 3.4, 13.2, 11.2, 2.2); ctx.stroke();
+                circ(6.4, 7.4, 1.3); ctx.fill();
+                poly([3.2, 13.4, 7.6, 9.4, 10.4, 12, 12.4, 10.2, 14.8, 13.4], false);
+            } else if (k === "return") {
+                poly([14.5, 4, 14.5, 10, 4.5, 10], false);
+                poly([7.5, 7, 4.5, 10, 7.5, 13], false);
             } else if (k === "dots") {
                 circ(3.6, 9, 1.35); ctx.fill();
                 circ(9, 9, 1.35); ctx.fill();
@@ -1292,12 +1328,275 @@ Scope {
         if (e) e.execute();
     }
     function search() {
+        spotWant = "home";
         if (launcher !== "") sh(launcher);
         else spotRequest++;                       // every bar window listens and the focused screen opens Spotlight
     }
+    function spotOpen(mode) { spotWant = mode; spotRequest++; }
     IpcHandler {
         target: "spotlight"
         function toggle(): void { root.search(); }
+        function clipboard(): void { root.spotOpen("clip"); }
+        function emoji(): void { root.spotOpen("emoji"); }
+        function apps(): void { root.spotOpen("apps"); }
+    }
+
+    // ═════════════ CLIPBOARD HISTORY + EMOJI (Spotlight panels) ═════════════
+    // History comes from cliphist; its `wl-paste --watch` watchers are started here (unless you already run them), and every
+    // new entry also gets a timestamp in ~/.cache/macbar/clip-times so the list can say "Copied 4:11 pm".
+    property string clipState: "unknown"      // unknown | ok | external | missing
+    property var clipEntries: []              // newest first
+    property bool clipLoading: false
+    readonly property string clipDir: Quickshell.env("HOME") + "/.cache/macbar"
+    // the system's default colour emoji font (asked from fontconfig); Noto Color Emoji until that answers
+    property string emojiFont: "Noto Color Emoji"
+    Process {
+        running: true
+        command: ["sh", "-c", "fc-match -f '%{family[0]}|%{color}' emoji 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var p = text.trim().split("|");
+                if (p.length === 2 && p[0] !== "" && p[1].toLowerCase() === "true") root.emojiFont = p[0];
+            }
+        }
+    }
+
+    readonly property string clipStoreCmd: "cliphist store; id=$(cliphist list | head -n1 | cut -f1); t=\"$HOME/.cache/macbar/clip-times\"; "
+        + "[ -n \"$id\" ] && [ \"$id\" != \"$(tail -n1 \"$t\" 2>/dev/null | cut -f1)\" ] && printf '%s\\t%s\\n' \"$id\" \"$(date +%s)\" >> \"$t\""
+    readonly property string clipListCmd: [
+        "if ! command -v cliphist >/dev/null 2>&1; then echo '@@MISSING@@'; exit 0; fi",
+        "d=\"$HOME/.cache/macbar\"; mkdir -p \"$d/clip\"; t=\"$d/clip-times\"; touch \"$t\"",
+        "l=$(mktemp); cliphist list 2>/dev/null | head -n 300 > \"$l\"",
+        "awk -F'\\t' -v now=\"$(date +%s)\" 'FILENAME==ARGV[1]{s[$1]=1;next} !($1 in s){print $1\"\\t\"now}' \"$t\" \"$l\" >> \"$t\"",
+        "tail -n 3000 \"$t\" > \"$t.tmp\" && mv \"$t.tmp\" \"$t\"",
+        "awk -F'\\t' '$2 ~ /^\\[\\[ binary data/ {print $1}' \"$l\" | head -n 30 | while read -r id; do [ -s \"$d/clip/$id.img\" ] || cliphist decode \"$id\" > \"$d/clip/$id.img\" 2>/dev/null; done",
+        "find \"$d/clip\" -type f -mtime +3 -delete 2>/dev/null",
+        "cat \"$l\"; echo '@@TIMES@@'; cat \"$t\"; rm -f \"$l\""
+    ].join("\n")
+
+    function clipStart() {
+        if (clipHistory && barEnabled && settingsReady) clipProbe.running = true;
+        else { clipWatchText.running = false; clipWatchImg.running = false; }
+    }
+    onSettingsReadyChanged: { clipStart(); emojiEnsure(); }
+    onClipHistoryChanged: clipStart()
+    Process {
+        id: clipProbe
+        command: ["sh", "-c",
+            "if ! command -v wl-paste >/dev/null 2>&1 || ! command -v cliphist >/dev/null 2>&1; then echo missing; exit 0; fi; "
+            + "mkdir -p \"$HOME/.cache/macbar/clip\"; "
+            // look at real wl-paste processes only (`pgrep -f` also matched this very shell, so it always answered "external"
+            // and the watchers below never started)
+            + "ext=0; for p in $(pgrep -x wl-paste 2>/dev/null); do "
+            + "if tr '\\0' ' ' < /proc/$p/cmdline 2>/dev/null | grep -q cliphist; then ext=1; fi; done; "
+            + "if [ $ext = 1 ]; then echo external; else echo ok; fi"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.clipState = text.trim();
+                if (root.clipState === "ok") { clipWatchText.running = true; clipWatchImg.running = true; }
+            }
+        }
+    }
+    Process { id: clipWatchText; command: ["wl-paste", "--type", "text", "--watch", "sh", "-c", root.clipStoreCmd, "sh"] }
+    Process { id: clipWatchImg; command: ["wl-paste", "--type", "image", "--watch", "sh", "-c", root.clipStoreCmd, "sh"] }
+
+    function clipRefresh() {
+        if (clipLoading) return;
+        clipLoading = true;
+        clipListProc.running = true;
+    }
+    Process {
+        id: clipListProc
+        command: ["sh", "-c", root.clipListCmd]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.clipLoading = false;
+                if (text.indexOf("@@MISSING@@") === 0) { root.clipState = "missing"; root.clipEntries = []; return; }
+                root.clipEntries = root.clipParse(text);
+            }
+        }
+    }
+    function clipWhen(ts) {
+        if (!ts) return "";
+        var d = new Date(ts * 1000), n = new Date();
+        var tm = Qt.formatDateTime(d, root.use24h ? "HH:mm" : "h:mm ap");
+        var today = new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+        var day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+        if (day === today) return "Copied " + tm;
+        if (day === today - 86400000) return "Copied Yesterday, " + tm;
+        return "Copied " + Qt.formatDateTime(d, "d MMM") + ", " + tm;
+    }
+    function clipEntry(id, txt, ts) {
+        var en = { id: id, text: txt, kind: "text", title: txt, label: "Text", host: "", thumb: "", color: "" };
+        var m = /^\[\[ binary data ([\d.]+ \w+) (\w+) (\d+x\d+) \]\]$/.exec(txt);
+        if (m) {
+            en.kind = "image";
+            en.title = "Image " + m[3].replace("x", "\u00D7");
+            en.label = "Image \u2022 " + m[2].toUpperCase() + " \u2022 " + m[1];
+            en.thumb = "file://" + clipDir + "/clip/" + id + ".img";
+        } else if (/^(https?|ftp):\/\/\S+$/i.test(txt) || /^www\.\S+\.\S+$/i.test(txt)) {
+            en.kind = "url";
+            en.host = txt.replace(/^[a-z]+:\/\//i, "").split(/[\/?#]/)[0];
+            en.label = "URL \u2022 " + en.host;
+        } else if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(txt)) {
+            en.kind = "color";
+            en.color = txt;
+            en.label = "Color";
+        }
+        var w = clipWhen(ts);
+        en.sub = en.label + (w !== "" ? " \u2022 " + w : "");
+        return en;
+    }
+    function clipParse(out) {
+        var parts = out.split("@@TIMES@@\n");
+        var lines = parts[0].split("\n"), tl = (parts[1] || "").split("\n"), times = {}, res = [], i;
+        for (i = 0; i < tl.length; i++) {
+            var p = tl[i].split("\t");
+            if (p.length >= 2) times[p[0]] = parseInt(p[1]);
+        }
+        for (i = 0; i < lines.length; i++) {
+            var tab = lines[i].indexOf("\t");
+            if (tab < 1) continue;
+            var id = lines[i].substring(0, tab);
+            res.push(clipEntry(id, lines[i].substring(tab + 1), times[id] || 0));
+        }
+        return res;
+    }
+    function clipRunner(en) { return function () { root.clipPick(en, undefined); }; }
+    function clipFiltered(q) {
+        q = (q || "").trim().toLowerCase();
+        var src = clipEntries, out = [];
+        for (var i = 0; i < src.length && out.length < 150; i++) {
+            var en = src[i];
+            if (q !== "" && en.text.toLowerCase().indexOf(q) < 0 && en.label.toLowerCase().indexOf(q) < 0) continue;
+            var it = {};
+            for (var k in en) it[k] = en[k];
+            it.confirm = false;
+            it.run = clipRunner(en);
+            out.push(it);
+        }
+        return out;
+    }
+    function clipPick(en, paste) {
+        var id = parseInt(en.id);
+        if (isNaN(id)) return;
+        sh("cliphist decode " + id + " | wl-copy");
+        if (paste === undefined ? clipAutoPaste : paste) pasteSoon();
+    }
+    function clipDelete(en) {
+        if (!en) return;
+        var id = parseInt(en.id);
+        if (isNaN(id)) return;
+        clipEntries = clipEntries.filter(function (x) { return x.id !== en.id; });
+        sh("printf '%s\\t\\n' " + id + " | cliphist delete; rm -f \"$HOME/.cache/macbar/clip/" + id + ".img\"");
+    }
+    function clipClear() {
+        clipEntries = [];
+        sh("cliphist wipe; rm -f \"$HOME/.cache/macbar/clip-times\" \"$HOME/.cache/macbar/clip/\"*");
+    }
+    // paste into the app that had focus before Spotlight (terminals paste with Ctrl+Shift+V)
+    property var pasteFn: null
+    function pasteSoon() {
+        pasteFn = appKind(activeAppId) === "terminal" ? keys(["ctrl", "shift"], "v") : keys(["ctrl"], "v");
+        pasteTimer.restart();
+    }
+    Timer { id: pasteTimer; interval: 230; onTriggered: if (root.pasteFn) root.pasteFn() }
+
+    // emoji: search by name / keyword, categories, recents
+    // Data comes from the system's own Unicode files when they exist (emoji-test.txt = every emoji with its official name and
+    // category, CLDR annotations = search keywords), so it always matches your installed emoji font. EmojiData.js is the fallback.
+    property var emojiList: EmojiData.list
+    property string emojiSource: "bundled"
+    property bool emojiTried: false
+    readonly property var emojiIndex: {
+        var m = {}, L = root.emojiList;
+        for (var i = 0; i < L.length; i++) m[L[i][0]] = L[i];
+        return m;
+    }
+    function emojiEnsure() {
+        if (emojiTried) return;
+        emojiTried = true;
+        emojiLoadProc.running = true;
+    }
+    readonly property string emojiLoadCmd: [
+        "t=''; for f in /usr/share/unicode/emoji/emoji-test.txt /usr/share/unicode/ucd/emoji/emoji-test.txt /usr/share/unicode-emoji/emoji-test.txt /usr/local/share/unicode/emoji/emoji-test.txt \"$HOME/.local/share/unicode/emoji-test.txt\"; do [ -r \"$f\" ] && { t=\"$f\"; break; }; done",
+        "[ -z \"$t\" ] && t=$(find /usr/share /usr/local/share -maxdepth 6 -name emoji-test.txt 2>/dev/null | head -n1)",
+        "[ -z \"$t\" ] && { echo '@@NONE@@'; exit 0; }",
+        "echo '@@TEST@@'; grep -E '^(# (sub)?group:|[0-9A-F])' \"$t\"",
+        "echo '@@CLDR@@'",
+        "for d in annotations annotationsDerived; do f=''; for b in /usr/share/unicode/cldr/common /usr/share/unicode-cldr/common /usr/share/cldr/common /usr/share/unicode/cldr; do [ -r \"$b/$d/en.xml\" ] && { f=\"$b/$d/en.xml\"; break; }; done",
+        "  [ -z \"$f\" ] && f=$(find /usr/share /usr/local/share -maxdepth 7 -path \"*/$d/en.xml\" 2>/dev/null | head -n1)",
+        "  [ -n \"$f\" ] && grep -h '<annotation ' \"$f\"; done; true"
+    ].join("\n")
+    Process {
+        id: emojiLoadProc
+        command: ["sh", "-c", root.emojiLoadCmd]
+        stdout: StdioCollector { onStreamFinished: root.emojiLoad(text) }
+    }
+    function emojiLoad(out) {
+        var iT = out.indexOf("@@TEST@@\n"), iC = out.indexOf("@@CLDR@@\n");
+        if (iT < 0 || iC < iT) return;                                  // no emoji-test.txt on this system: keep EmojiData.js
+        var testTxt = out.substring(iT + 9, iC), cldrTxt = out.substring(iC + 9), m, i;
+        function unesc(x) { return x.replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"); }
+        var kw = {}, re = /<annotation cp="([^"]+)"( type="tts")?>([^<]*)<\/annotation>/g;
+        while ((m = re.exec(cldrTxt)) !== null) {
+            if (m[2]) continue;
+            var key = m[1].replace(/\uFE0F/g, "");
+            kw[key] = (kw[key] ? kw[key] + " | " : "") + unesc(m[3]);
+        }
+        var cats = { "Smileys & Emotion": 0, "People & Body": 1, "Animals & Nature": 2, "Food & Drink": 3, "Travel & Places": 4,
+                     "Activities": 5, "Objects": 6, "Symbols": 7, "Flags": 8 };
+        var cat = -1, list = [], lines = testTxt.split("\n");
+        for (i = 0; i < lines.length; i++) {
+            var ln = lines[i];
+            if (ln.charAt(0) === "#") {
+                m = /^# group: (.+)$/.exec(ln);
+                if (m) cat = cats[m[1].trim()] !== undefined ? cats[m[1].trim()] : -1;      // "Component" (skin tones, hair) -> skipped
+                continue;
+            }
+            if (cat < 0) continue;
+            m = /^[0-9A-F ]+;\s*(\S+)\s*#\s*(\S+)\s+E\d+(?:\.\d+)?\s+(.+)$/.exec(ln);
+            if (!m || m[1] !== "fully-qualified") continue;
+            var name = m[3].trim();
+            if (name.indexOf("skin tone") >= 0) continue;                  // tone variants would triple the grid; the base emoji is kept
+            var extra = (kw[m[2].replace(/\uFE0F/g, "")] || "").replace(/ \| /g, " ");
+            list.push([m[2], name, extra, cat, (name + " " + extra).toLowerCase()]);
+        }
+        if (list.length < 800) return;                                  // looks wrong, keep the bundled list
+        root.emojiList = list;
+        root.emojiSource = "system";
+    }
+    function emojiItems(q, cat) {
+        var L = root.emojiList, out = [], i;
+        q = (q || "").trim().toLowerCase();
+        if (q !== "") {
+            var hits = [];
+            for (i = 0; i < L.length; i++) {
+                var p = L[i][4].indexOf(q);
+                if (p < 0) continue;
+                var nm = L[i][1].toLowerCase();
+                // exact name, name starts with it, exact keyword (e.g. "smile" -> grinning face), a word of the name, anything else
+                hits.push([nm === q ? 0 : (nm.indexOf(q) === 0 ? 1 : ((" " + L[i][2] + " ").indexOf(" " + q + " ") >= 0 ? 2
+                           : (nm.indexOf(" " + q) >= 0 ? 3 : (p === 0 ? 4 : 5)))), i]);
+            }
+            hits.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+            for (i = 0; i < hits.length && i < 240; i++) out.push(L[hits[i][1]]);
+            return out;
+        }
+        if (cat === 0) {
+            for (i = 0; i < emojiRecent.length; i++) if (emojiIndex[emojiRecent[i]]) out.push(emojiIndex[emojiRecent[i]]);
+            return out;
+        }
+        for (i = 0; i < L.length; i++) if (L[i][3] === cat - 1) out.push(L[i]);
+        return out;
+    }
+    function emojiPick(en) {
+        if (!en) return;
+        var r = [en[0]];
+        for (var i = 0; i < emojiRecent.length && r.length < 24; i++) if (emojiRecent[i] !== en[0]) r.push(emojiRecent[i]);
+        emojiRecent = r;
+        Quickshell.execDetached(["sh", "-c", "printf %s \"$1\" | wl-copy", "sh", en[0]]);
+        if (clipAutoPaste) pasteSoon();
     }
 
     // ── applications for Spotlight ──
@@ -1504,8 +1803,8 @@ Scope {
                     m.push(mi("Find\u2026", "Ctrl+F", keys(["ctrl"], "f")));
                 }
                 if (has) m.push(msep());
-                m.push(mi("Clipboard History\u2026", "", function () { sh(clipboardCmd); }));
-                m.push(mi("Emoji & Symbols", "", function () { root.emoji(); }));
+                m.push(mi("Clipboard History\u2026", "", function () { root.spotOpen("clip"); }));
+                m.push(mi("Emoji & Symbols", "", function () { root.spotOpen("emoji"); }));
             } else if (name === "view") {
                 if (has) {
                     m.push(mi(fsMode === 2 ? "Exit Full Screen" : "Enter Full Screen", "", disp('hl.dsp.window.fullscreen({ mode = "fullscreen", action = "toggle" })')));
@@ -1677,7 +1976,7 @@ Scope {
     readonly property var monData: hub ? hub.monData : []
     readonly property var glassClients: hub ? hub.glassClients : []
     property int popCount: 0
-    onBarEnabledChanged: if (!barEnabled) popCount = 0
+    onBarEnabledChanged: { if (!barEnabled) popCount = 0; clipStart(); }
     Binding { target: root.hub; property: "barWantsGeo"; value: root.liquidActive && root.popCount > 0 }
     function tlFor(addr) {
         var a = String(addr).replace(/^0x/, "");
@@ -2150,16 +2449,28 @@ Scope {
                 property string spQuery: ""
                 property int spSel: 0
                 property var spExpanded: ({})
+                property bool clipMenu: false           // the round "..." menu of the Clipboard panel
+                property bool spCalm: false             // Spotlight was opened by the clipboard / emoji shortcut: plain fade, no springy pop
+                property bool spReqCalm: false
+                property int emCat: 0                   // emoji category tab (0 = recents)
+                property bool spHover: false            // spSel was just changed by the pointer, so lists must not scroll to it
+                readonly property int emCols: 12
+                readonly property bool spFull: spMode === "apps" || spMode === "clip" || spMode === "emoji"
                 property var spResults: spMode === "actions" ? root.actionItems(spQuery)
-                                        : (spQuery.trim() === "" ? [] : root.homeItems(spQuery))
+                                        : (spMode === "clip" ? root.clipFiltered(spQuery)
+                                        : (spMode === "emoji" ? root.emojiItems(spQuery, emCat)
+                                        : (spQuery.trim() === "" ? [] : root.homeItems(spQuery))))
 
                 function spSetMode(m) {
-                    spMode = m; spQuery = ""; spSel = 0; armed = "";
-                    spInput.text = ""; appsInput.text = "";
+                    spMode = m; spQuery = ""; spSel = 0; armed = ""; clipMenu = false;
+                    spInput.text = ""; appsInput.text = ""; clipInput.text = ""; emojiInput.text = "";
+                    if (m === "clip") root.clipRefresh();
+                    if (m === "emoji") emCat = root.emojiRecent.length > 0 ? 0 : 1;
                     spFocusTimer.restart();
                 }
                 function spEscape() {
-                    if (spQuery !== "") { spInput.text = ""; appsInput.text = ""; spQuery = ""; }
+                    if (clipMenu) clipMenu = false;
+                    else if (spQuery !== "") { spInput.text = ""; appsInput.text = ""; clipInput.text = ""; emojiInput.text = ""; spQuery = ""; }
                     else if (spMode !== "home") spSetMode("home");
                     else pop = "";
                 }
@@ -2178,13 +2489,37 @@ Scope {
                     if (spMode === "apps") {
                         var r = root.searchApps(spQuery);
                         if (r.length > 0) { pop = ""; root.launchApp(r[0]); }
+                    } else if (spMode === "emoji") {
+                        var em = spResults[Math.min(spSel, spResults.length - 1)];
+                        if (em) { pop = ""; root.emojiPick(em); }
                     } else spActivate(Math.min(spSel, spResults.length - 1));
                 }
                 function spKey(ev) {
-                    if (ev.key === Qt.Key_Escape) { spEscape(); ev.accepted = true; }
-                    else if (ev.key === Qt.Key_Down) { spMove(1); ev.accepted = true; }
-                    else if (ev.key === Qt.Key_Up) { spMove(-1); ev.accepted = true; }
-                    else if (ev.key === Qt.Key_Return || ev.key === Qt.Key_Enter) { spEnter(); ev.accepted = true; }
+                    var k = ev.key, n = spResults.length;
+                    if (k === Qt.Key_Escape) { spEscape(); ev.accepted = true; }
+                    else if (spMode === "emoji" && (k === Qt.Key_Left || k === Qt.Key_Right || k === Qt.Key_Up || k === Qt.Key_Down)) {
+                        var d = k === Qt.Key_Left ? -1 : (k === Qt.Key_Right ? 1 : (k === Qt.Key_Up ? -emCols : emCols));
+                        if (n > 0) spSel = Math.max(0, Math.min(n - 1, Math.min(spSel, n - 1) + d));
+                        ev.accepted = true;
+                    }
+                    else if (spMode === "emoji" && (k === Qt.Key_Tab || k === Qt.Key_Backtab)) {
+                        if (spQuery.trim() === "") { emCat = (emCat + (k === Qt.Key_Tab ? 1 : 9)) % 10; spSel = 0; }
+                        ev.accepted = true;
+                    }
+                    else if (k === Qt.Key_Down) { spMove(1); ev.accepted = true; }
+                    else if (k === Qt.Key_Up) { spMove(-1); ev.accepted = true; }
+                    else if (spMode === "clip" && k === Qt.Key_Delete) {
+                        if (n > 0) root.clipDelete(spResults[Math.min(spSel, n - 1)]);
+                        ev.accepted = true;
+                    }
+                    else if (k === Qt.Key_Return || k === Qt.Key_Enter) {
+                        if (spMode === "clip" && (ev.modifiers & Qt.ShiftModifier) && n > 0) {
+                            var it = spResults[Math.min(spSel, n - 1)];
+                            pop = "";
+                            root.clipPick(it, false);       // Shift+Return: copy only, don't paste
+                        } else spEnter();
+                        ev.accepted = true;
+                    }
                 }
                 function spToggleSection(name) {
                     var o = {};
@@ -2212,8 +2547,8 @@ Scope {
                     if (pop === "notif") root.notifUnread = 0;
                     if (pop === "wifi") { root.wifiError = ""; root.scanWifi(); }
                     if (pop === "spot") {
-                        spMode = "home"; spQuery = ""; spSel = 0; spExpanded = ({});
-                        spInput.text = ""; appsInput.text = "";
+                        spMode = "home"; spQuery = ""; spSel = 0; spExpanded = ({}); clipMenu = false;
+                        spInput.text = ""; appsInput.text = ""; clipInput.text = ""; emojiInput.text = "";
                         spFocusTimer.restart();
                     }
                 }
@@ -2221,12 +2556,22 @@ Scope {
                     target: root
                     function onSpotRequestChanged() {
                         var fm = Hyprland.focusedMonitor;
-                        if (!fm || fm.name === win.modelData.name || Quickshell.screens.length === 1) ui.openPop("spot", 0);
+                        if (!(!fm || fm.name === win.modelData.name || Quickshell.screens.length === 1)) return;
+                        var want = root.spotWant;
+                        if (ui.pop === "spot") {
+                            if (want === "home" || want === ui.spMode) ui.pop = "";    // same key again closes it
+                            else ui.spSetMode(want);
+                        } else {
+                            ui.spReqCalm = (want === "clip" || want === "emoji");
+                            ui.openPop("spot", 0);
+                            if (want !== "home") ui.spSetMode(want);
+                        }
                     }
                 }
 
                 function openPop(name, x) {
                     if (pop === name) { pop = ""; return; }
+                    if (name === "spot") { spCalm = spReqCalm; spReqCalm = false; }
                     menuX = x;
                     if (["apple", "app", "file", "edit", "view", "window", "help"].indexOf(name) >= 0) root.refreshActive();
                     if (["apple", "app", "file", "edit", "view", "window", "help"].indexOf(name) >= 0) menuModel = root.menuModelFor(name);
@@ -4625,15 +4970,16 @@ Scope {
                     id: spot
                     z: 10
                     width: 640
-                    height: ui.spMode === "apps" ? appsPanel.height : (resPanel.visible ? resPanel.y + resPanel.height : spRow.height)
+                    readonly property var curPanel: ui.spMode === "apps" ? appsPanel : (ui.spMode === "clip" ? clipPanel : emojiPanel)
+                    height: ui.spFull ? curPanel.height : (resPanel.visible ? resPanel.y + resPanel.height : spRow.height)
                     x: Math.round((spotRoot.width - width) / 2)
                     // the search pill sits a little above the vertical centre of the screen (0.4 of the height; 0.5 = dead centre); the Applications panel centres itself instead
-                    y: Math.round(spotRoot.height * 0.4 - (ui.spMode === "apps" ? appsPanel.height / 2 : 24))
+                    y: Math.round(spotRoot.height * 0.4 - (ui.spFull ? curPanel.height / 2 : 24))
                     Behavior on y { enabled: spot.opacity > 0.99; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
                     // opens with a springy pop; dismiss: quick fade + shrink
                     opacity: 0
                     visible: opacity > 0
-                    scale: 0.8
+                    scale: ui.spCalm ? 0.97 : 0.8
                     transformOrigin: Item.Center
                     states: State {
                         name: "open"
@@ -4645,7 +4991,7 @@ Scope {
                             from: ""; to: "open"
                             ParallelAnimation {
                                 NumberAnimation { property: "opacity"; duration: 100 }
-                                NumberAnimation { property: "scale"; duration: 360; easing.type: Easing.OutBack; easing.overshoot: 3.4 }
+                                NumberAnimation { property: "scale"; duration: ui.spCalm ? 160 : 360; easing.type: ui.spCalm ? Easing.OutCubic : Easing.OutBack; easing.overshoot: 3.4 }
                             }
                         },
                         Transition {
@@ -4717,20 +5063,20 @@ Scope {
                     Timer {
                         id: spFocusTimer
                         interval: 60
-                        onTriggered: (ui.spMode === "apps" ? appsInput : spInput).forceActiveFocus()
+                        onTriggered: (ui.spMode === "apps" ? appsInput : (ui.spMode === "clip" ? clipInput : (ui.spMode === "emoji" ? emojiInput : spInput))).forceActiveFocus()
                     }
 
                     // ── search pill + the four round buttons ──
                     Row {
                         id: spRow
                         spacing: 12
-                        opacity: ui.spMode !== "apps" ? 1 : 0
+                        opacity: !ui.spFull ? 1 : 0
                         visible: opacity > 0
                         Behavior on opacity { NumberAnimation { duration: 160 } }
 
                         Item {
                             id: spPill
-                            width: spot.width - 4 * 60
+                            width: spot.width - 5 * 60
                             height: 48
                             GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 20; strengthMul: 0.7; shadowAmt: 0.45 }
                             Glyph {
@@ -4756,14 +5102,14 @@ Scope {
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
                                 font.family: pal.fam; font.pixelSize: 17
-                                onTextChanged: { if (ui.spMode !== "apps") { ui.spQuery = text; ui.spSel = 0; ui.armed = ""; } }
+                                onTextChanged: { if (!ui.spFull) { ui.spQuery = text; ui.spSel = 0; ui.armed = ""; } }
                                 Keys.onPressed: event => ui.spKey(event)
                             }
                         }
                         Repeater {
                             model: [
                                 { k: "appstore", id: "apps" }, { k: "folder", id: "files" },
-                                { k: "layers", id: "actions" }, { k: "clipboard", id: "clip" }
+                                { k: "layers", id: "actions" }, { k: "clipboard", id: "clip" }, { k: "smile", id: "emoji" }
                             ]
                             delegate: CCBtn {
                                 required property var modelData
@@ -4777,7 +5123,8 @@ Scope {
                                     if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
                                     else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");
                                     else if (modelData.id === "files") { ui.pop = ""; root.sh(root.filesCmd); }
-                                    else { ui.pop = ""; root.sh(root.clipboardCmd); }
+                                    else if (modelData.id === "clip") ui.spSetMode(ui.spMode === "clip" ? "home" : "clip");
+                                    else ui.spSetMode(ui.spMode === "emoji" ? "home" : "emoji");
                                 }
                             }
                         }
@@ -4788,11 +5135,11 @@ Scope {
                         id: resPanel
                         y: spRow.height + 10
                         width: spot.width
-                        readonly property var items: ui.spResults
+                        readonly property var items: ui.spFull ? [] : ui.spResults      // clipboard / emoji / apps have their own panels
                         property int keep: 1                         // last non-empty row count, so the panel shrinks while it fades out
                         onItemsChanged: if (items.length > 0) keep = items.length
                         readonly property int selIdx: Math.max(0, Math.min(ui.spSel, items.length - 1))
-                        opacity: (ui.spMode !== "apps" && items.length > 0) ? 1 : 0
+                        opacity: (!ui.spFull && items.length > 0) ? 1 : 0
                         visible: opacity > 0
                         Behavior on opacity { NumberAnimation { duration: 140 } }
                         height: (items.length > 0 ? items.length : keep) * 46 + 16
@@ -4870,6 +5217,447 @@ Scope {
                                 }
                             }
                         }
+                        }
+                    }
+
+                    // ── Clipboard history panel (macOS Tahoe style) ──
+                    Item {
+                        id: clipPanel
+                        opacity: ui.spMode === "clip" ? 1 : 0
+                        visible: opacity > 0
+                        scale: ui.spMode === "clip" ? 1 : 0.96
+                        transformOrigin: Item.Top
+                        Behavior on opacity { NumberAnimation { duration: 160 } }
+                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        width: spot.width
+                        readonly property var items: ui.spMode === "clip" ? ui.spResults : []
+                        readonly property int rowH: 56
+                        readonly property int shown: Math.min(items.length, 7)
+                        readonly property string emptyTitle: root.clipState === "missing" ? "Clipboard history isn't set up"
+                            : (!root.clipHistory ? "Clipboard history is off"
+                            : (root.clipLoading && root.clipEntries.length === 0 ? "Loading\u2026"
+                            : (ui.spQuery.trim() !== "" ? "No Results" : "Nothing copied yet")))
+                        readonly property string emptySub: root.clipState === "missing" ? "Install cliphist and wl-clipboard, then open this tab again"
+                            : (!root.clipHistory ? "Turn it on in System Settings \u2192 Menu Bar"
+                            : (ui.spQuery.trim() === "" && !root.clipLoading ? "Copy some text or an image and it will show up here" : ""))
+                        height: 64 + (items.length > 0 ? shown * rowH + 14 : 118)
+                        Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
+
+                        Item {
+                            id: clipHeader
+                            x: 20
+                            width: parent.width - 40
+                            height: 64
+                            Rectangle {
+                                id: clipChip
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 34; height: 34; radius: 10
+                                color: root.accent
+                                Glyph { anchors.centerIn: parent; width: 20; height: 20; kind: "clipboard"; color: "white" }
+                            }
+                            Text {
+                                id: clipLabel
+                                x: 46
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Clipboard"
+                                color: pal.fg
+                                font.family: pal.fam; font.pixelSize: 24; font.weight: Font.Medium
+                            }
+                            TextInput {
+                                id: clipInput
+                                x: clipLabel.x + clipLabel.width + 14
+                                width: parent.width - x - 48
+                                anchors.verticalCenter: parent.verticalCenter
+                                clip: true
+                                color: pal.fg
+                                selectionColor: root.accent
+                                selectedTextColor: "white"
+                                font.family: pal.fam; font.pixelSize: 24
+                                onTextChanged: { if (ui.spMode === "clip") { ui.spQuery = text; ui.spSel = 0; } }
+                                Keys.onPressed: event => ui.spKey(event)
+                            }
+                            CCBtn {
+                                t: pal; gx: spg
+                                d: 34
+                                bounce: true
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                kind: "dots"
+                                on: ui.clipMenu
+                                onClicked: ui.clipMenu = !ui.clipMenu
+                            }
+                        }
+
+                        ListView {
+                            id: clipListView
+                            x: 8; y: 64
+                            width: parent.width - 16
+                            height: clipPanel.shown * clipPanel.rowH
+                            visible: clipPanel.items.length > 0
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: clipPanel.items
+                            Connections {
+                                target: ui
+                                function onSpSelChanged() {
+                                    if (ui.spHover) { ui.spHover = false; return; }
+                                    if (ui.spMode === "clip" && clipPanel.items.length > 0)
+                                        clipListView.positionViewAtIndex(Math.min(ui.spSel, clipPanel.items.length - 1), ListView.Contain);
+                                }
+                            }
+                            delegate: Item {
+                                id: cr
+                                required property var modelData
+                                required property int index
+                                readonly property bool sel: index === Math.min(ui.spSel, clipPanel.items.length - 1)
+                                width: ListView.view.width
+                                height: clipPanel.rowH
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.topMargin: 2; anchors.bottomMargin: 2
+                                    radius: 16
+                                    color: root.accent
+                                    opacity: cr.sel ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 90 } }
+                                }
+                                Item {
+                                    x: 14
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 36; height: 36
+                                    Rectangle {
+                                        visible: cr.modelData.kind === "text" || cr.modelData.kind === "url"
+                                        anchors.fill: parent
+                                        radius: 10
+                                        color: cr.sel ? Qt.rgba(1, 1, 1, 0.22) : (root.darkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06))
+                                        Glyph {
+                                            anchors.centerIn: parent
+                                            width: 20; height: 20
+                                            kind: cr.modelData.kind === "url" ? "link" : "doc"
+                                            color: cr.sel ? "white" : pal.fg2
+                                        }
+                                    }
+                                    Rectangle {
+                                        visible: cr.modelData.kind === "color"
+                                        anchors.fill: parent
+                                        radius: 10
+                                        color: cr.modelData.kind === "color" ? cr.modelData.color : "transparent"
+                                        border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.25)
+                                    }
+                                    Item {
+                                        visible: cr.modelData.kind === "image"
+                                        anchors.fill: parent
+                                        Rectangle { anchors.fill: parent; radius: 10; color: root.darkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06) }
+                                        Image {
+                                            anchors.fill: parent
+                                            source: cr.modelData.kind === "image" ? cr.modelData.thumb : ""
+                                            sourceSize: Qt.size(72, 72)
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                            layer.enabled: true
+                                            layer.effect: MultiEffect {
+                                                maskEnabled: true
+                                                maskSource: thMask
+                                                maskThresholdMin: 0.5
+                                                maskSpreadAtMin: 1.0
+                                            }
+                                        }
+                                        Item {
+                                            id: thMask
+                                            anchors.fill: parent
+                                            visible: false
+                                            layer.enabled: true
+                                            Rectangle { anchors.fill: parent; radius: 10; color: "black" }
+                                        }
+                                    }
+                                }
+                                Text {
+                                    x: 62; y: 9
+                                    width: parent.width - 62 - 56
+                                    elide: Text.ElideRight
+                                    text: cr.modelData.title
+                                    color: cr.sel ? "white" : pal.fg
+                                    font.family: pal.fam; font.pixelSize: 14
+                                }
+                                Text {
+                                    x: 62; y: 31
+                                    width: parent.width - 62 - 56
+                                    elide: Text.ElideRight
+                                    text: cr.modelData.sub
+                                    color: cr.sel ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
+                                    font.family: pal.fam; font.pixelSize: 12
+                                }
+                                Glyph {
+                                    visible: cr.sel
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 18; height: 18
+                                    kind: "return"; color: "white"
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onEntered: { if (ui.spSel !== cr.index) { ui.spHover = true; ui.spSel = cr.index; } }
+                                    onClicked: ui.spActivate(cr.index)
+                                }
+                            }
+                        }
+
+                        Column {
+                            visible: clipPanel.items.length === 0
+                            x: 20; y: 64
+                            width: parent.width - 40
+                            height: 118
+                            spacing: 6
+                            topPadding: 30
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: clipPanel.emptyTitle
+                                color: pal.fg
+                                font.family: pal.fam; font.pixelSize: 15; font.weight: Font.Medium
+                            }
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                                text: clipPanel.emptySub
+                                color: pal.fg2
+                                font.family: pal.fam; font.pixelSize: 12
+                            }
+                        }
+
+                        // the round "..." menu
+                        MouseArea { anchors.fill: parent; z: 4; visible: ui.clipMenu; onClicked: ui.clipMenu = false }
+                        Item {
+                            id: clipMenuPop
+                            z: 5
+                            visible: ui.clipMenu
+                            x: parent.width - width - 20
+                            y: 58
+                            width: 250
+                            height: 3 * 40 + 12
+                            GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 22; strengthMul: 0.8; shadowAmt: 0.6 }
+                            Column {
+                                x: 6; y: 6
+                                width: parent.width - 12
+                                Repeater {
+                                    model: ["auto", "del", "clear"]
+                                    delegate: Item {
+                                        id: cm
+                                        required property string modelData
+                                        width: parent.width; height: 40
+                                        readonly property bool armedNow: modelData === "clear" && ui.armed === "clipclear"
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: 14
+                                            color: cm.armedNow ? "#FF453A" : root.accent
+                                            opacity: cmMa.containsMouse ? 1 : 0
+                                        }
+                                        Glyph {
+                                            visible: cm.modelData === "auto" && root.clipAutoPaste
+                                            x: 12; anchors.verticalCenter: parent.verticalCenter
+                                            width: 16; height: 16
+                                            kind: "check"; color: cmMa.containsMouse ? "white" : pal.fg
+                                        }
+                                        Text {
+                                            x: 38
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: cm.modelData === "auto" ? "Paste Automatically"
+                                                  : (cm.modelData === "del" ? "Delete Selected"
+                                                  : (cm.armedNow ? "Click again to confirm" : "Clear History"))
+                                            color: cmMa.containsMouse ? "white" : ((cm.modelData === "clear") ? "#FF453A" : pal.fg)
+                                            font.family: pal.fam; font.pixelSize: 14
+                                        }
+                                        MouseArea {
+                                            id: cmMa
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            onClicked: {
+                                                if (cm.modelData === "auto") root.clipAutoPaste = !root.clipAutoPaste;
+                                                else if (cm.modelData === "del") {
+                                                    var n = clipPanel.items.length;
+                                                    if (n > 0) root.clipDelete(clipPanel.items[Math.min(ui.spSel, n - 1)]);
+                                                    ui.clipMenu = false;
+                                                } else {
+                                                    if (ui.armed === "clipclear") { ui.armed = ""; root.clipClear(); ui.clipMenu = false; }
+                                                    else ui.armed = "clipclear";
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Emoji panel ──
+                    Item {
+                        id: emojiPanel
+                        opacity: ui.spMode === "emoji" ? 1 : 0
+                        visible: opacity > 0
+                        scale: ui.spMode === "emoji" ? 1 : 0.96
+                        transformOrigin: Item.Top
+                        Behavior on opacity { NumberAnimation { duration: 160 } }
+                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        width: spot.width
+                        readonly property int cell: 50
+                        readonly property int gridRows: 6
+                        readonly property var items: ui.spMode === "emoji" ? ui.spResults : []
+                        readonly property var cur: items[Math.min(ui.spSel, items.length - 1)]
+                        height: 64 + 42 + gridRows * cell + 46
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
+
+                        Item {
+                            x: 20
+                            width: parent.width - 40
+                            height: 64
+                            Rectangle {
+                                id: emojiChip
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 34; height: 34; radius: 10
+                                color: root.accent
+                                Glyph { anchors.centerIn: parent; width: 20; height: 20; kind: "smile"; color: "white" }
+                            }
+                            Text {
+                                id: emojiLabel
+                                x: 46
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Emoji"
+                                color: pal.fg
+                                font.family: pal.fam; font.pixelSize: 24; font.weight: Font.Medium
+                            }
+                            TextInput {
+                                id: emojiInput
+                                x: emojiLabel.x + emojiLabel.width + 14
+                                width: parent.width - x
+                                anchors.verticalCenter: parent.verticalCenter
+                                clip: true
+                                color: pal.fg
+                                selectionColor: root.accent
+                                selectedTextColor: "white"
+                                font.family: pal.fam; font.pixelSize: 24
+                                onTextChanged: { if (ui.spMode === "emoji") { ui.spQuery = text; ui.spSel = 0; } }
+                                Keys.onPressed: event => ui.spKey(event)
+                            }
+                        }
+
+                        // category tabs
+                        Row {
+                            x: 20; y: 64
+                            opacity: ui.spQuery.trim() === "" ? 1 : 0.35
+                            Repeater {
+                                model: ["\uD83D\uDD58", "\uD83D\uDE00", "\uD83E\uDDD1", "\uD83D\uDC3B", "\uD83C\uDF54", "\u2708\uFE0F", "\u26BD", "\uD83D\uDCA1", "\uD83D\uDD23", "\uD83C\uDFF3\uFE0F"]
+                                delegate: Item {
+                                    id: tab
+                                    required property string modelData
+                                    required property int index
+                                    width: 60; height: 36
+                                    Rectangle {
+                                        anchors.centerIn: parent
+                                        width: 48; height: 32; radius: 12
+                                        color: root.accent
+                                        opacity: (ui.emCat === tab.index && ui.spQuery.trim() === "") ? 0.9 : (tabMa.containsMouse ? 0.25 : 0)
+                                        Behavior on opacity { NumberAnimation { duration: 100 } }
+                                    }
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: tab.modelData
+                                        font.family: root.emojiFont; font.pixelSize: 22
+                                    }
+                                    MouseArea {
+                                        id: tabMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        onClicked: {
+                                            emojiInput.text = "";
+                                            ui.emCat = tab.index; ui.spSel = 0;
+                                            emojiInput.forceActiveFocus();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        GridView {
+                            id: emojiGrid
+                            x: 20; y: 64 + 42
+                            width: ui.emCols * emojiPanel.cell
+                            height: emojiPanel.gridRows * emojiPanel.cell
+                            cellWidth: emojiPanel.cell
+                            cellHeight: emojiPanel.cell
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: emojiPanel.items
+                            Connections {
+                                target: ui
+                                function onSpSelChanged() {
+                                    if (ui.spHover) { ui.spHover = false; return; }
+                                    if (ui.spMode === "emoji" && emojiPanel.items.length > 0)
+                                        emojiGrid.positionViewAtIndex(Math.min(ui.spSel, emojiPanel.items.length - 1), GridView.Contain);
+                                }
+                            }
+                            delegate: Item {
+                                id: ec
+                                required property var modelData
+                                required property int index
+                                readonly property bool sel: index === Math.min(ui.spSel, emojiPanel.items.length - 1)
+                                width: emojiPanel.cell; height: emojiPanel.cell
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: parent.width - 4; height: parent.height - 4
+                                    radius: 14
+                                    color: root.accent
+                                    opacity: ec.sel ? 1 : 0
+                                }
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: ec.modelData[0]
+                                    font.family: root.emojiFont; font.pixelSize: 36
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onEntered: { if (ui.spSel !== ec.index) { ui.spHover = true; ui.spSel = ec.index; } }
+                                    onClicked: { ui.pop = ""; root.emojiPick(ec.modelData); }
+                                }
+                            }
+                        }
+                        Text {
+                            visible: emojiPanel.items.length === 0
+                            x: 20; y: 64 + 42
+                            width: parent.width - 40
+                            height: emojiPanel.gridRows * emojiPanel.cell
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            text: ui.spQuery.trim() !== "" ? "No Results" : "No recently used emoji"
+                            color: pal.fg2
+                            font.family: pal.fam; font.pixelSize: 14
+                        }
+
+                        // footer: name of the highlighted emoji
+                        Item {
+                            x: 20; y: parent.height - 46
+                            width: parent.width - 40; height: 46
+                            Rectangle { width: parent.width; height: 1; color: pal.sep }
+                            Text {
+                                x: 4
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 180
+                                elide: Text.ElideRight
+                                text: emojiPanel.cur ? (emojiPanel.cur[0] + "  " + emojiPanel.cur[1]) : ""
+                                color: pal.fg2
+                                font.family: pal.fam; font.pixelSize: 13
+                            }
+                            Text {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 4
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.clipAutoPaste ? "Return to insert" : "Return to copy"
+                                color: pal.fg3
+                                font.family: pal.fam; font.pixelSize: 12
+                            }
                         }
                     }
 
