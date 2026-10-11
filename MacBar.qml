@@ -23,6 +23,11 @@
 //
 // Wi-Fi: click the Wi-Fi icon in the bar (or the Wi-Fi tile in Control Center) for a list of nearby networks (nmcli).
 //
+// Notifications: the bar is also a notification daemon (org.freedesktop.Notifications). Stop dunst / mako / swaync first,
+// e.g. `systemctl --user disable --now dunst`, otherwise only one of them can own the D-Bus name. Popups appear top right in
+// Liquid Glass; the bell in the bar opens the "Notification system" panel (history, delete, Clear All, Do Not Disturb).
+// Test with: notify-send "Fitness" "Move goal achieved"
+//
 // Spotlight (the search icon) is built in and drawn in Liquid Glass. Bind it to a key with:
 //   bind = ALT, space, exec, qs -c macbar ipc call spotlight toggle
 // Hyprland (Lua):
@@ -39,6 +44,7 @@ import Quickshell.Services.SystemTray
 import Quickshell.Services.UPower
 import Quickshell.Services.Pipewire
 import Quickshell.Services.Mpris
+import Quickshell.Services.Notifications
 
 Scope {
     id: root
@@ -399,6 +405,17 @@ Scope {
                 poly([11, 3.5, 5.5, 9, 11, 14.5], false);
             } else if (k === "chevR") {
                 poly([7, 3.5, 12.5, 9, 7, 14.5], false);
+            } else if (k === "bell") {
+                ctx.beginPath(); ctx.moveTo(3.4, 12.9);
+                ctx.bezierCurveTo(4.6, 11.8, 5.0, 10.6, 5.0, 8.2);
+                ctx.bezierCurveTo(5.0, 5.6, 6.8, 3.9, 9.0, 3.9);
+                ctx.bezierCurveTo(11.2, 3.9, 13.0, 5.6, 13.0, 8.2);
+                ctx.bezierCurveTo(13.0, 10.6, 13.4, 11.8, 14.6, 12.9);
+                ctx.closePath(); ctx.stroke();
+                line(9, 2.2, 9, 3.9);
+                ctx.beginPath(); ctx.arc(9, 14.3, 1.7, 0.25, PI - 0.25); ctx.stroke();
+            } else if (k === "close") {
+                line(5, 5, 13, 13); line(13, 5, 5, 13);
             } else if (k === "gear") {
                 circ(9, 9, 2.6); ctx.stroke();
                 for (i2 = 0; i2 < 8; i2++) {
@@ -728,6 +745,98 @@ Scope {
         }
     }
 
+    // ── notification card contents (used by the popups and by the notification centre) ──
+    component NotifBody: Item {
+        id: nb
+        required property var t
+        property string app: ""
+        property string summary: ""
+        property string body: ""
+        property string icon: ""
+        property int urgency: 1
+        property real stamp: 0
+        property real nowMs: 0
+        property bool showClose: false
+        property bool showTime: false
+        signal closeClicked()
+        width: parent ? parent.width : 340
+        height: Math.max(74, textCol.height + 30)
+
+        readonly property string agoText: {
+            var m = Math.floor((nb.nowMs - nb.stamp) / 60000);
+            return m < 1 ? "now" : (m < 60 ? m + "m ago" : (m < 1440 ? Math.floor(m / 60) + "h ago" : Math.floor(m / 1440) + "d ago"));
+        }
+
+        Item {
+            x: 14; y: 15; width: 44; height: 44
+            Rectangle {
+                anchors.fill: parent; radius: 10
+                visible: nimg.status !== Image.Ready
+                color: nb.t.accent
+                Glyph { anchors.centerIn: parent; width: 24; height: 24; kind: "bell"; color: "white" }
+            }
+            Image {
+                id: nimg
+                anchors.fill: parent
+                visible: status === Image.Ready
+                source: nb.icon
+                sourceSize.width: 96; sourceSize.height: 96
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true; smooth: true
+            }
+        }
+        Column {
+            id: textCol
+            x: 70; y: 14
+            width: parent.width - 70 - 44
+            spacing: 1
+            Text {
+                width: parent.width
+                text: nb.urgency === 2 ? "TIME SENSITIVE" : nb.app
+                visible: text !== ""
+                color: nb.urgency === 2 ? nb.t.fg2 : nb.t.fg
+                font.family: nb.t.fam; font.pixelSize: nb.urgency === 2 ? 12 : 14
+                font.weight: Font.DemiBold
+                font.letterSpacing: nb.urgency === 2 ? 0.4 : 0
+                elide: Text.ElideRight
+            }
+            Text {
+                width: parent.width
+                text: nb.summary
+                visible: text !== ""
+                color: nb.t.fg
+                font.family: nb.t.fam; font.pixelSize: 14; font.weight: Font.Bold
+                wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight
+            }
+            Text {
+                width: parent.width
+                text: nb.body
+                visible: text !== ""
+                color: nb.t.fg
+                font.family: nb.t.fam; font.pixelSize: 13
+                wrapMode: Text.Wrap; maximumLineCount: 3; elide: Text.ElideRight
+            }
+        }
+        Text {
+            visible: nb.showTime && !nb.showClose
+            anchors.right: parent.right; anchors.rightMargin: 14
+            y: 15
+            text: nb.agoText
+            color: nb.t.fg2
+            font.family: nb.t.fam; font.pixelSize: 12
+        }
+        Rectangle {
+            id: xbtn
+            visible: nb.showClose
+            anchors.right: parent.right; anchors.rightMargin: 10
+            y: 10
+            width: 22; height: 22; radius: 11
+            color: xma.containsMouse ? nb.t.btnHover : nb.t.btnOff
+            Glyph { anchors.centerIn: parent; width: 12; height: 12; kind: "close"; color: nb.t.fg }
+            MouseArea { id: xma; anchors.fill: parent; hoverEnabled: true; onClicked: nb.closeClicked() }
+        }
+    }
+
     // ── settings window pieces ──
     component PRow: Item {
         id: r
@@ -859,7 +968,7 @@ Scope {
     // Hyprland's view of the focused window (floating / fullscreen / pinned / pid ...), refreshed when a menu opens
     property var activeWin: null
     function refreshActive() { if (!awProc.running) awProc.running = true; }
-    onActiveTlChanged: refreshActive()
+    onActiveTlChanged: { refreshActive(); swTrack(); }      // swTrack = window-switcher recent-app order
     Process {
         id: awProc
         command: ["hyprctl", "-j", "activewindow"]
@@ -1581,6 +1690,226 @@ Scope {
     function openSettings(pane) { if (hub) hub.openSettings(pane || "menubar"); }
 
     // ═════════════ THE BAR ═════════════
+    // ═════════════ NOTIFICATIONS ═════════════
+    // Receives org.freedesktop.Notifications on D-Bus (stop dunst / mako / swaync first — only one daemon can own the name).
+    property bool notifDnd: false            // Do Not Disturb: still stored in the centre, but no popups
+    property real notifBlur: 64              // blur of the notification glass (smooth two-pass Gaussian, same method as the Blur slider)
+    property int notifUnread: 0
+    property int notifSeq: 0
+    property var notifRefs: ({})
+    ListModel { id: notifHist }              // notification centre history, newest first
+    ListModel { id: notifToasts }            // popups currently on screen, newest first
+
+    NotificationServer {
+        id: notifServer
+        keepOnReload: false
+        bodySupported: true
+        bodyMarkupSupported: false
+        imageSupported: true
+        actionsSupported: true
+        persistenceSupported: true
+        onNotification: n => root.notifReceive(n)
+    }
+    function notifIndex(model, id) {
+        for (var i = 0; i < model.count; i++) if (model.get(i).nid === id) return i;
+        return -1;
+    }
+    function notifReceive(n) {
+        n.tracked = true;
+        var id = ++root.notifSeq;
+        root.notifRefs[id] = n;
+        var ic = "";
+        if (n.image && n.image !== "") ic = n.image;
+        else if (n.appIcon && n.appIcon !== "") ic = Quickshell.iconPath(n.appIcon, true);
+        var urg = 1;
+        if (n.urgency === NotificationUrgency.Critical) urg = 2;
+        else if (n.urgency === NotificationUrgency.Low) urg = 0;
+        var rec = {
+            nid: id, app: n.appName || "", summary: n.summary || "", body: n.body || "",
+            icon: ic || "", urgency: urg, time: Date.now(),
+            timeout: n.expireTimeout > 0 ? Math.round(n.expireTimeout * 1000) : 0
+        };
+        notifHist.insert(0, rec);
+        while (notifHist.count > 60) {
+            var old = notifHist.get(notifHist.count - 1).nid;
+            notifHist.remove(notifHist.count - 1);
+            delete root.notifRefs[old];
+        }
+        if (!root.notifDnd || urg === 2) {
+            notifToasts.insert(0, rec);
+            while (notifToasts.count > 4) notifToasts.remove(notifToasts.count - 1);
+        }
+        if (!root.notifOpen) root.notifUnread++;
+        try { n.closed.connect(function () { root.notifToastRemove(id); }); } catch (e) {}
+    }
+    property bool notifOpen: false
+    function notifToastRemove(id) {
+        var i = notifIndex(notifToasts, id);
+        if (i >= 0) notifToasts.remove(i);
+    }
+    function notifDelete(id) {
+        notifToastRemove(id);
+        var i = notifIndex(notifHist, id);
+        if (i >= 0) notifHist.remove(i);
+        var n = root.notifRefs[id];
+        if (n) { try { n.dismiss(); } catch (e) {} delete root.notifRefs[id]; }
+    }
+    function notifClear() {
+        notifToasts.clear();
+        for (var i = 0; i < notifHist.count; i++) {
+            var n = root.notifRefs[notifHist.get(i).nid];
+            if (n) { try { n.dismiss(); } catch (e) {} }
+        }
+        notifHist.clear();
+        root.notifRefs = ({});
+        root.notifUnread = 0;
+    }
+    function notifActivate(id) {
+        var n = root.notifRefs[id];
+        if (n) {
+            try {
+                for (var i = 0; i < n.actions.length; i++)
+                    if (n.actions[i].identifier === "default") { n.actions[i].invoke(); break; }
+            } catch (e) {}
+        }
+        notifToastRemove(id);
+    }
+
+    // ═════════════ WORKSPACES (centre of the bar) ═════════════
+    function hlWorkspace(sel) {      // Hyprland 0.55+ (Lua) workspace switch
+        Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + sel + "\" })"]);
+    }
+    property int wsMin: 4                    // always show at least workspaces 1..wsMin (set 0 to show only existing ones)
+    readonly property var wsIds: {
+        var ids = [], vals = Hyprland.workspaces.values;
+        for (var i = 1; i <= root.wsMin; i++) ids.push(i);
+        for (var j = 0; j < vals.length; j++) {
+            var id = vals[j].id;
+            if (id > 0 && ids.indexOf(id) < 0) ids.push(id);
+        }
+        var fw = Hyprland.focusedWorkspace;
+        if (fw && fw.id > 0 && ids.indexOf(fw.id) < 0) ids.push(fw.id);
+        ids.sort(function (a, b) { return a - b; });
+        return ids;
+    }
+    function wsOccupied(id) {
+        var vals = Hyprland.workspaces.values;
+        for (var i = 0; i < vals.length; i++) if (vals[i].id === id) return (vals[i].toplevels ? vals[i].toplevels.values.length : 0) > 0;
+        return false;
+    }
+
+    // ═════════════ WINDOW SWITCHER (ALT + TAB) ═════════════
+    // Hyprland binds (put these in hyprland.conf, and remove any existing ALT+TAB bind):
+    //   bind   = ALT, TAB, exec, qs -c macshell ipc call switcher next
+    //   bind   = ALT SHIFT, TAB, exec, qs -c macshell ipc call switcher prev
+    //   bindrt = ALT, Alt_L, exec, qs -c macshell ipc call switcher commit     # optional safety net: switch on ALT release
+    // (use the same `qs ...` prefix you use for the Spotlight bind). Hold ALT, tap TAB to cycle, release ALT to switch.
+    // Layer namespace: "macswitch" (only needed for a blur layerrule if you are NOT using the Liquid Glass style).
+    property real switcherBlur: 40           // blur of the switcher glass (smooth Gaussian; less than Spotlight / notifications)
+    property bool swOpen: false
+    property var swApps: []                  // open apps, most recently used first: { appId, name, icon, win, count }
+    property int swIndex: 0
+    property var swMru: []                   // recently focused toplevels, newest first
+    function swTrack() {
+        var t = root.activeTl;
+        if (!t) return;
+        var a = [t];
+        for (var i = 0; i < root.swMru.length && a.length < 60; i++) if (root.swMru[i] !== t) a.push(root.swMru[i]);
+        root.swMru = a;
+    }
+    function swIcon(a) {
+        if (a.icon) return root.iconSrc(a.icon);
+        var p = Quickshell.iconPath(a.appId, true);
+        if (p === "") p = Quickshell.iconPath(a.appId.toLowerCase(), true);
+        return p !== "" ? p : root.iconSrc("");
+    }
+    function swBuild() {
+        var vals = ToplevelManager.toplevels.values, all = [];
+        for (var i = 0; i < vals.length; i++) all.push(vals[i]);
+        var order = [];
+        if (root.activeTl && all.indexOf(root.activeTl) >= 0) order.push(root.activeTl);       // the app you are in comes first
+        for (var m = 0; m < root.swMru.length; m++) if (all.indexOf(root.swMru[m]) >= 0 && order.indexOf(root.swMru[m]) < 0) order.push(root.swMru[m]);
+        for (var j = 0; j < all.length; j++) if (order.indexOf(all[j]) < 0) order.push(all[j]);
+        var seen = {}, apps = [];
+        for (var k = 0; k < order.length; k++) {
+            var t = order[k], id = t.appId || "";
+            if (id === "") continue;
+            if (seen[id] !== undefined) { apps[seen[id]].count++; continue; }
+            var e = root.lookup(id);
+            seen[id] = apps.length;
+            apps.push({ appId: id, name: e ? e.name : id, icon: e ? e.icon : "", win: t, count: 1 });
+        }
+        return apps;
+    }
+    function swNext(dir) {
+        if (!root.swOpen) {
+            var apps = root.swBuild();
+            if (apps.length === 0) return;
+            root.swApps = apps;
+            root.swIndex = 0;                // 0 = the app you are in, so the first TAB lands on the previous one
+            root.swOpen = true;
+        }
+        var n = root.swApps.length;
+        root.swIndex = (root.swIndex + (dir >= 0 ? 1 : n - 1)) % n;
+    }
+    // The switcher layer holds EXCLUSIVE keyboard focus while open, and Hyprland can refuse to focus / switch
+    // workspace while an exclusive layer is up. So: close the layer first, then dispatch a moment later.
+    property var swPending: null
+    Timer {
+        id: swFocusTimer
+        interval: 60
+        onTriggered: {
+            var t = root.swPending;
+            root.swPending = null;
+            if (!t) return;
+            // Hyprland 0.55+ is Lua: `hyprctl dispatch` takes a Lua expression, the old "focuswindow ..." strings fail.
+            var lua = "";
+            if (t.ws > 0) lua += "hl.dispatch(hl.dsp.focus({ workspace = \"" + t.ws + "\" })); ";
+            lua += "hl.dispatch(hl.dsp.focus({ window = \"" + (t.addr !== "" ? "address:" + t.addr : "class:^(" + t.cls + ")$") + "\" }))";
+            console.log("[switcher] hyprctl eval '" + lua + "'");
+            Quickshell.execDetached(["hyprctl", "eval", lua]);
+        }
+    }
+    function swCommit() {
+        if (!root.swOpen) return;
+        var a = root.swApps[root.swIndex];
+        root.swOpen = false;
+        if (!a || !a.win) return;
+        try { Hyprland.refreshToplevels(); } catch (e) {}
+        var ts = Hyprland.toplevels.values, hit = null, i;
+        for (i = 0; i < ts.length; i++) if (ts[i].wayland === a.win) { hit = ts[i]; break; }
+        if (!hit) {                                   // handle did not match: fall back to class (+ title)
+            var cls = (a.appId || "").toLowerCase(), ttl = a.win.title || "", loose = null;
+            for (i = 0; i < ts.length; i++) {
+                var o = ts[i].lastIpcObject || {};
+                if (("" + (o["class"] || "")).toLowerCase() !== cls) continue;
+                if (("" + (o.title || "")) === ttl) { hit = ts[i]; break; }
+                if (!loose) loose = ts[i];
+            }
+            if (!hit) hit = loose;
+        }
+        var addr = "", ws = 0;
+        if (hit) {
+            addr = "" + hit.address;
+            if (addr.indexOf("0x") !== 0) addr = "0x" + addr;
+            var w = hit.workspace;
+            if (w && w.id > 0) ws = w.id;
+            else if (hit.lastIpcObject && hit.lastIpcObject.workspace && hit.lastIpcObject.workspace.id > 0) ws = hit.lastIpcObject.workspace.id;
+        }
+        console.log("[switcher] app=" + a.appId + " matched=" + (hit ? "yes" : "no") + " addr=" + addr + " ws=" + ws);
+        if (!hit && !a.appId) { try { a.win.activate(); } catch (e2) {} return; }
+        root.swPending = { addr: addr, ws: ws, cls: (a.appId || "").replace(/[\\"']/g, "") };
+        swFocusTimer.restart();
+    }
+    function swCancel() { root.swOpen = false; }
+    IpcHandler {
+        target: "switcher"
+        function next(): void { root.swNext(1); }
+        function prev(): void { root.swNext(-1); }
+        function commit(): void { root.swCommit(); }
+        function cancel(): void { root.swCancel(); }
+    }
+
     Variants {
         model: (root.settingsReady && root.barEnabled) ? Quickshell.screens : []
 
@@ -1604,7 +1933,7 @@ Scope {
             WlrLayershell.layer: WlrLayer.Top
             WlrLayershell.keyboardFocus: (ui.pop === "wifi" && ui.wifiPrompt !== "") ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
-            mask: Region { item: maskItem }
+            mask: Region { item: maskItem; Region { item: toastMask } }
 
             Item {
                 id: ui
@@ -1620,6 +1949,8 @@ Scope {
                 property bool ccEdit: false         // Control Center is in "Edit Controls" mode
                 property var trayItem: null         // SystemTrayItem whose menu is open in the tray popover
                 property var trayStack: []          // submenu path (QsMenuEntry objects) inside that menu
+                readonly property bool toastScreen: Quickshell.screens.length === 1 || (Hyprland.focusedMonitor !== null && Hyprland.focusedMonitor.name === win.modelData.name)
+                readonly property bool toastsShown: toastScreen && notifToasts.count > 0
 
                 function openTray(item, x) {
                     if (!item || !item.hasMenu) return;
@@ -1705,12 +2036,14 @@ Scope {
                     function onActiveWinChanged() { if (ui.isMenu) ui.menuModel = root.menuModelFor(ui.pop); }
                 }
                 readonly property bool isMenu: ["apple", "app", "file", "edit", "view", "window", "help"].indexOf(pop) >= 0
-                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || trayPop.visible
+                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible
                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
                 onPopChanged: {
                     armed = "";
                     wifiPrompt = "";
                     if (pop !== "cc") ccEdit = false;
+                    root.notifOpen = (pop === "notif");
+                    if (pop === "notif") root.notifUnread = 0;
                     if (pop === "wifi") { root.wifiError = ""; root.scanWifi(); }
                     if (pop === "spot") {
                         spMode = "home"; spQuery = ""; spSel = 0; spExpanded = ({});
@@ -1760,7 +2093,7 @@ Scope {
                 // ── Liquid Glass backdrop: wallpaper + live windows behind the popovers, in screen coordinates ──
                 Loader {
                     id: glassBackdrop
-                    active: root.liquidActive && ui.anyVisible
+                    active: root.liquidActive && (ui.anyVisible || ui.toastsShown)
                     sourceComponent: backdropComp
                 }
                 Component {
@@ -1806,7 +2139,7 @@ Scope {
                                 ScreencopyView {
                                     anchors.fill: parent
                                     captureSource: gw.tl
-                                    live: ui.anyVisible || spotWin.visible
+                                    live: ui.anyVisible || spotWin.visible || swWin.visible
                                 }
                             }
                         }
@@ -1918,6 +2251,54 @@ Scope {
                         }
                     }
 
+                    // ── centre: workspaces (minimal, text only) ──
+                    Row {
+                        id: wsRow
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        height: parent.height
+                        spacing: 0
+                        readonly property var mon: Hyprland.monitorFor(perScreen.modelData)
+                        readonly property int activeId: mon && mon.activeWorkspace ? mon.activeWorkspace.id : (Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1)
+                        Repeater {
+                            model: root.wsIds
+                            delegate: Item {
+                                id: wsi
+                                required property var modelData
+                                readonly property bool cur: wsRow.activeId === modelData
+                                readonly property bool busy: root.wsOccupied(modelData)
+                                width: 22; height: barBg.height
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: parent.width - 2
+                                    height: parent.height - 6
+                                    radius: 6
+                                    color: wsi.cur ? pal.hover : "transparent"
+                                    opacity: wsi.cur || wsMa.containsMouse ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 140 } }
+                                }
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "" + wsi.modelData
+                                    color: wsi.cur ? pal.fg : (wsi.busy ? pal.fg2 : pal.fg3)
+                                    font.family: pal.fam
+                                    font.pixelSize: 13
+                                    font.weight: wsi.cur ? Font.DemiBold : Font.Normal
+                                    Behavior on color { ColorAnimation { duration: 140 } }
+                                }
+                                MouseArea {
+                                    id: wsMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked: { ui.pop = ""; root.hlWorkspace("" + wsi.modelData); }
+                                }
+                            }
+                        }
+                        WheelHandler {
+                            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                            onWheel: event => root.hlWorkspace(event.angleDelta.y > 0 ? "e-1" : "e+1")
+                        }
+                    }
+
                     // ── right: tray, status items, control center, clock ──
                     Row {
                         id: rightRow
@@ -1971,13 +2352,19 @@ Scope {
                             Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: "bluetooth"; color: root.btConnected > 0 ? pal.fg : pal.fg2 }
                             MouseArea { anchors.fill: parent; onClicked: ui.openPop("cc", 0) }
                         }
-                        // volume
+                        // volume (opens a popover with just the volume slider)
                         Item {
+                            id: volBtn
                             width: 28; height: barBg.height
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width - 2; height: parent.height - 6; radius: 6
+                                color: ui.pop === "vol" ? pal.hover : "transparent"
+                            }
                             Glyph { anchors.centerIn: parent; width: 16; height: 16; kind: "speaker"; level: root.volLevel; color: pal.fg }
                             MouseArea {
                                 anchors.fill: parent
-                                onClicked: ui.openPop("cc", 0)
+                                onClicked: ui.openPop("vol", volBtn.mapToItem(ui, 0, 0).x + volBtn.width / 2)
                                 onWheel: wheel => root.setVolume(root.volume + (wheel.angleDelta.y > 0 ? 0.03 : -0.03))
                             }
                         }
@@ -2024,6 +2411,24 @@ Scope {
                                 }
                             }
                             MouseArea { anchors.fill: parent; onClicked: ui.openPop("cc", 0) }
+                        }
+                        // notification system (bell)
+                        Item {
+                            id: bellBtn
+                            width: 28; height: barBg.height
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width - 2; height: parent.height - 6; radius: 6
+                                color: ui.pop === "notif" ? pal.hover : "transparent"
+                            }
+                            Glyph { anchors.centerIn: parent; width: 16; height: 16; kind: "bell"; color: root.notifDnd ? pal.fg2 : pal.fg }
+                            Rectangle {
+                                visible: root.notifUnread > 0 && !root.notifDnd
+                                x: parent.width / 2 + 2; y: parent.height / 2 - 8
+                                width: 7; height: 7; radius: 3.5
+                                color: "#FF453A"
+                            }
+                            MouseArea { anchors.fill: parent; onClicked: ui.openPop("notif", 0) }
                         }
                         // wifi
                         Item {
@@ -2075,6 +2480,273 @@ Scope {
                                 font.pixelSize: 13
                             }
                             MouseArea { anchors.fill: parent; onClicked: ui.openPop("cal", 0) }
+                        }
+                    }
+                }
+
+                // ═════════ volume popover (speaker icon): just the volume slider ═════════
+                Item {
+                    id: volPop
+                    z: 10
+                    width: 250
+                    height: 52
+                    x: Math.max(6, Math.min(ui.width - width - 8, ui.menuX - width / 2))
+                    y: root.barHeight + 6
+                    opacity: ui.pop === "vol" ? 1 : 0
+                    visible: opacity > 0
+                    scale: ui.pop === "vol" ? 1 : 0.96
+                    transformOrigin: Item.Top
+                    Behavior on opacity { NumberAnimation { duration: 110 } }
+                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: glassBackdrop.item
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.darkMode
+                        bx: volPop.x; by: volPop.y
+                        cornerR: 26
+                        tint: root.glassOpacity
+                        thickness: 22
+                        strength: 0.7 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: root.glassBlur
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                    }
+                    MouseArea { anchors.fill: parent }      // clicks inside don't close the popover
+                    CCSlider {
+                        t: pal
+                        x: 14; y: 12
+                        width: parent.width - 28
+                        value: root.muted ? 0 : root.volume
+                        leftKind: "speaker"; leftLevel: 1
+                        rightKind: "speaker"; rightLevel: 3
+                        onMoved: v => root.setVolume(v)
+                    }
+                }
+
+                // ═════════ notification popups (top right, under the bar) ═════════
+                Item {
+                    id: toastMask
+                    x: toastArea.x; y: toastArea.y
+                    width: ui.toastsShown ? toastArea.width : 0
+                    height: ui.toastsShown ? toastArea.height : 0
+                }
+                Item {
+                    id: toastArea
+                    z: 12
+                    width: 364
+                    x: ui.width - width - 10
+                    y: root.barHeight + 8
+                    height: toastCol.height
+                    visible: ui.toastsShown
+                    Column {
+                        id: toastCol
+                        width: parent.width
+                        spacing: 10
+                        Repeater {
+                            model: notifToasts
+                            delegate: Item {
+                                id: toast
+                                required property int nid
+                                required property string app
+                                required property string summary
+                                required property string body
+                                required property string icon
+                                required property int urgency
+                                required property real time
+                                required property int timeout
+                                property bool shown: false
+                                property bool leaving: false
+                                readonly property int life: timeout > 0 ? timeout : (urgency === 2 ? 10000 : 6000)
+                                width: toastCol.width
+                                height: tbody.height
+                                opacity: (shown && !leaving) ? 1 : 0
+                                scale: (shown && !leaving) ? 1 : 0.96
+                                transformOrigin: Item.Top
+                                Behavior on opacity { NumberAnimation { duration: 180 } }
+                                Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                                Component.onCompleted: shown = true
+                                function dismiss() { leaving = true; goneTimer.restart(); }
+                                Timer { interval: 200; id: goneTimer; onTriggered: root.notifToastRemove(toast.nid) }
+                                Timer {
+                                    interval: toast.life
+                                    running: toast.shown && !toast.leaving && !thov.hovered
+                                    onTriggered: toast.dismiss()
+                                }
+                                HoverHandler { id: thov }
+
+                                LGlass {
+                                    anchors.fill: parent
+                                    backdrop: glassBackdrop.item
+                                    shaderUrl: root.glassShaderUrl
+                                    liquid: root.liquidActive
+                                    dark: root.darkMode
+                                    bx: toastArea.x + toast.x; by: toastArea.y + toast.y
+                                    cornerR: 24
+                                    tint: root.glassOpacity
+                                    thickness: 22
+                                    strength: 0.7 * root.glassLiquid
+                                    rim: root.glassRim
+                                    grain: root.glassGrain
+                                    blur: root.notifBlur
+                                    debug: root.glassDebug
+                                    onShaderError: root.glassState = "failed"
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: { root.notifActivate(toast.nid); toast.dismiss(); }
+                                }
+                                NotifBody {
+                                    id: tbody
+                                    t: pal
+                                    width: parent.width
+                                    app: toast.app; summary: toast.summary; body: toast.body; icon: toast.icon
+                                    urgency: toast.urgency; stamp: toast.time; nowMs: clock.date.getTime()
+                                    showClose: thov.hovered
+                                    onCloseClicked: toast.dismiss()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ═════════ notification centre (bell) ═════════
+                Item {
+                    id: notifPop
+                    z: 10
+                    width: 380
+                    height: 92 + (notifHist.count === 0 ? 70 : nfl.height) + 14
+                    x: Math.max(6, ui.width - width - 8)
+                    y: root.barHeight + 6
+                    opacity: ui.pop === "notif" ? 1 : 0
+                    visible: opacity > 0
+                    scale: ui.pop === "notif" ? 1 : 0.96
+                    transformOrigin: Item.TopRight
+                    Behavior on opacity { NumberAnimation { duration: 110 } }
+                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: glassBackdrop.item
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.darkMode
+                        bx: notifPop.x; by: notifPop.y
+                        cornerR: 26
+                        tint: root.glassOpacity
+                        thickness: 26
+                        strength: 0.8 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: root.notifBlur
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                    }
+                    MouseArea { anchors.fill: parent }      // clicks inside the panel don't close it
+
+                    Item {
+                        x: 18; y: 14; width: parent.width - 36; height: 26
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Notification system"
+                            color: pal.fg
+                            font.family: pal.fam; font.pixelSize: 17; font.weight: Font.DemiBold
+                        }
+                        Rectangle {
+                            visible: notifHist.count > 0
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            width: clrText.implicitWidth + 20; height: 24; radius: 12
+                            color: clrMa.containsMouse ? pal.btnHover : pal.btnOff
+                            Text {
+                                id: clrText
+                                anchors.centerIn: parent
+                                text: "Clear All"
+                                color: pal.fg
+                                font.family: pal.fam; font.pixelSize: 12; font.weight: Font.Medium
+                            }
+                            MouseArea { id: clrMa; anchors.fill: parent; hoverEnabled: true; onClicked: root.notifClear() }
+                        }
+                    }
+                    Item {
+                        x: 12; y: 46; width: parent.width - 24; height: 36
+                        Rectangle { anchors.fill: parent; radius: 12; color: pal.tile; border.width: 1; border.color: pal.tileBorder }
+                        Glyph { x: 12; anchors.verticalCenter: parent.verticalCenter; width: 15; height: 15; kind: "moon"; color: pal.fg }
+                        Text {
+                            x: 36; anchors.verticalCenter: parent.verticalCenter
+                            text: "Do Not Disturb"
+                            color: pal.fg
+                            font.family: pal.fam; font.pixelSize: 13
+                        }
+                        Rectangle {
+                            anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter
+                            width: 38; height: 22; radius: 11
+                            color: root.notifDnd ? pal.accent : pal.switchOff
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                            Rectangle {
+                                y: 2; width: 18; height: 18; radius: 9; color: "white"
+                                x: root.notifDnd ? 18 : 2
+                                Behavior on x { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                            }
+                            MouseArea { anchors.fill: parent; onClicked: root.notifDnd = !root.notifDnd }
+                        }
+                    }
+                    Text {
+                        visible: notifHist.count === 0
+                        x: 0; y: 96; width: parent.width; height: 60
+                        horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                        text: "No Notifications"
+                        color: pal.fg2
+                        font.family: pal.fam; font.pixelSize: 14
+                    }
+                    Flickable {
+                        id: nfl
+                        x: 12; y: 92
+                        width: parent.width - 24
+                        height: Math.min(ncol.height, 440)
+                        contentHeight: ncol.height
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        Column {
+                            id: ncol
+                            width: nfl.width
+                            spacing: 8
+                            Repeater {
+                                model: notifHist
+                                delegate: Rectangle {
+                                    id: hc
+                                    required property int nid
+                                    required property string app
+                                    required property string summary
+                                    required property string body
+                                    required property string icon
+                                    required property int urgency
+                                    required property real time
+                                    width: ncol.width
+                                    height: hbody.height
+                                    radius: 18
+                                    color: pal.tile
+                                    border.width: 1; border.color: pal.tileBorder
+                                    HoverHandler { id: hhov }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: { root.notifActivate(hc.nid); ui.pop = ""; }
+                                    }
+                                    NotifBody {
+                                        id: hbody
+                                        t: pal
+                                        width: parent.width
+                                        app: hc.app; summary: hc.summary; body: hc.body; icon: hc.icon
+                                        urgency: hc.urgency; stamp: hc.time; nowMs: clock.date.getTime()
+                                        showTime: true
+                                        showClose: hhov.hovered
+                                        onCloseClicked: root.notifDelete(hc.nid)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -3263,6 +3935,135 @@ Scope {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // ═════════ Window switcher (ALT + TAB) lives in its OWN layer (namespace "macswitch") ═════════
+        PanelWindow {
+            id: swWin
+            screen: perScreen.modelData
+            visible: (root.swOpen && ui.toastScreen) || swPanel.opacity > 0
+            onVisibleChanged: root.popCount += (visible ? 1 : -1)     // keeps the window-geometry poller running while it is open
+            anchors { left: true; right: true; top: true; bottom: true }
+            color: "transparent"
+            exclusionMode: ExclusionMode.Ignore
+
+            WlrLayershell.namespace: "macswitch"
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.keyboardFocus: (root.swOpen && ui.toastScreen) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+            Item {
+                id: swRoot
+                anchors.fill: parent
+                focus: true
+
+                // releasing ALT switches to the selected app; TAB / SHIFT+TAB / arrows cycle; ESC cancels
+                Keys.onPressed: event => {
+                    if (event.key === Qt.Key_Tab || event.key === Qt.Key_Right) { root.swNext(1); event.accepted = true; }
+                    else if (event.key === Qt.Key_Backtab || event.key === Qt.Key_Left) { root.swNext(-1); event.accepted = true; }
+                    else if (event.key === Qt.Key_Escape) { root.swCancel(); event.accepted = true; }
+                    else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.swCommit(); event.accepted = true; }
+                }
+                Keys.onReleased: event => {
+                    if (event.key === Qt.Key_Alt && !event.isAutoRepeat) { root.swCommit(); event.accepted = true; }
+                }
+
+                Loader {
+                    id: swBackdrop
+                    active: root.liquidActive && swWin.visible
+                    sourceComponent: backdropComp
+                }
+                MouseArea { anchors.fill: parent; onPressed: root.swCancel() }      // click outside cancels
+
+                Item {
+                    id: swPanel
+                    z: 10
+                    readonly property int n: root.swApps.length
+                    readonly property real cw: Math.min(92, (swRoot.width - 160) / Math.max(n, 1))
+                    readonly property real ico: Math.round(cw * 0.7)
+                    readonly property real pad: 14
+                    readonly property real cellH: Math.round(cw * 0.8)
+                    readonly property real padY: 9
+                    width: n * cw + 2 * pad
+                    height: padY + cellH + 25
+                    x: Math.round((swRoot.width - width) / 2)
+                    y: Math.round(swRoot.height * 0.42 - height / 2)
+                    opacity: (root.swOpen && ui.toastScreen) ? 1 : 0
+                    visible: opacity > 0
+                    scale: (root.swOpen && ui.toastScreen) ? 1 : 0.94
+                    transformOrigin: Item.Center
+                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                    Behavior on scale { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: swBackdrop.item
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.darkMode
+                        bx: swPanel.x; by: swPanel.y
+                        cornerR: 26
+                        tint: root.glassOpacity
+                        thickness: 20
+                        strength: 0.75 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: root.switcherBlur
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                    }
+
+                    // selection highlight (slides between apps)
+                    Rectangle {
+                        visible: swPanel.n > 0
+                        x: swPanel.pad + root.swIndex * swPanel.cw
+                        y: swPanel.padY
+                        width: swPanel.cw; height: swPanel.cellH
+                        radius: 17
+                        color: root.darkMode ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.11)
+                        border.width: 1
+                        border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.06)
+                        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                    }
+                    Repeater {
+                        model: root.swApps
+                        delegate: Item {
+                            id: swCell
+                            required property int index
+                            required property var modelData
+                            x: swPanel.pad + index * swPanel.cw
+                            y: swPanel.padY
+                            width: swPanel.cw; height: swPanel.cellH
+                            Image {
+                                anchors.centerIn: parent
+                                width: swPanel.ico; height: swPanel.ico
+                                source: root.swIcon(swCell.modelData)
+                                sourceSize.width: 128; sourceSize.height: 128
+                                fillMode: Image.PreserveAspectFit
+                                smooth: true; mipmap: true
+                                asynchronous: true
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onPositionChanged: root.swIndex = swCell.index      // only on real mouse movement, so TAB keeps control
+                                onClicked: { root.swIndex = swCell.index; root.swCommit(); }
+                            }
+                        }
+                    }
+                    // name of the selected app, under its icon
+                    Text {
+                        visible: swPanel.n > 0
+                        text: root.swApps.length > root.swIndex ? root.swApps[root.swIndex].name : ""
+                        color: pal.fg
+                        font.family: pal.fam; font.pixelSize: 13; font.weight: Font.Medium
+                        elide: Text.ElideRight
+                        width: Math.min(implicitWidth, swPanel.width - 20)
+                        x: Math.max(10, Math.min(swPanel.width - width - 10, swPanel.pad + root.swIndex * swPanel.cw + swPanel.cw / 2 - width / 2))
+                        y: swPanel.padY + swPanel.cellH + 3
+                        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                     }
                 }
             }
