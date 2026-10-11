@@ -15,7 +15,8 @@
 //   hl.layer_rule({ name = "macspot", match = { namespace = "macspot" }, blur = true, ignore_alpha = 0.05, no_anim = true })
 //
 // Optional tools used by the Control Center:
-//   nmcli (Wi-Fi), bluetoothctl (Bluetooth), brightnessctl (Display), hyprsunset (Night Shift),
+//   nmcli (Wi-Fi / VPN / Ethernet), pactl (audio device routing), hyprctl (keyboard layouts), pw-dump (privacy dots),
+//   wf-recorder (screen recording), hyprpicker (color picker), bluetoothctl (Bluetooth), brightnessctl (Display), hyprsunset (Night Shift),
 //   systemd-inhibit (Keep Awake), grim + slurp + wl-copy + notify-send (File → Screenshot),
 //   man / xdg-open (Help), wl-clipboard + cliphist (Spotlight → Clipboard, Emoji),
 //   wtype (only if you set keysViaWtype: true; menu shortcuts are otherwise sent with Hyprland's sendshortcut),
@@ -89,6 +90,7 @@ Scope {
     property real glassGrain: 0.015
     property real glassLiquid: 1.0
     property real glassBlur: 5
+    property bool glassRealtime: true       // keep every window capture live all the time (no wallpaper-first delay when a popover opens)
     property bool glassDebug: false
     property string wallpaperPath: ""
     property bool use24h: true
@@ -115,11 +117,31 @@ Scope {
     property int nightTemp: 4000
     // Control Center: ids of the enabled controls, in order (edit with Control Center → Edit Controls)
     property var ccControls: ["wifi", "nowplaying", "bluetooth", "airplane", "focus", "nightshift", "keepawake", "display", "sound"]
+    property bool recording: false
+    property var otherConnections: []
+    property string keyboardLayout: "EN"      // two-letter label shown in the bar
+    property var kbLayouts: []                // configured layouts of the main keyboard: [{ code, name }]
+    property int kbIndex: 0                   // index of the active one
+    property string kbMain: ""                // name of the main keyboard (Hyprland)
+    property string recordFile: ""
+    property string fileQuery: ""
+    property string fileSearchFor: ""
+    property bool fileSearchPending: false
+    property var fileHits: []
 
     readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
-        "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "glassDebug", "wallpaperPath", "use24h", "showDate",
-        "showSeconds", "showBatteryPercent", "showTray", "showSearch", "weekStartsMonday", "terminal", "launcher",
+        "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "showDate",
+        "showSeconds", "showBatteryPercent", "showTray", "showSearch", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
+    // Optional bar widgets; tray and Spotlight use their existing showTray/showSearch settings.
+    property var barWidgets: ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "privacy", "controlCenter", "clock"]
+    function barWidgetEnabled(id) { return barWidgets.indexOf(id) >= 0; }
+    function setBarWidget(id, enabled) {
+        var next = [];
+        for (var i = 0; i < barWidgets.length; i++) if (barWidgets[i] !== id) next.push(barWidgets[i]);
+        if (enabled) next.push(id);
+        barWidgets = next;
+    }
     readonly property var accentChoices: [
         { name: "Blue", c: "#0a84ff" }, { name: "Purple", c: "#bf5af2" }, { name: "Pink", c: "#ff375f" },
         { name: "Red", c: "#ff453a" }, { name: "Orange", c: "#ff9f0a" }, { name: "Yellow", c: "#ffd60a" },
@@ -361,6 +383,22 @@ Scope {
                         ctx.beginPath(); ctx.arc(9.2, 9, 2.4 + i2 * 3.0, -0.62, 0.62); ctx.stroke();
                     }
                 }
+            } else if (k === "mic") {
+                rrect(6.5, 1.8, 5, 8.6, 2.5); ctx.stroke();
+                ctx.beginPath(); ctx.arc(9, 8.4, 5, 0.12, PI - 0.12, false); ctx.stroke();
+                line(9, 13.4, 9, 16); line(6.2, 16, 11.8, 16);
+                if (flag) line(2.5, 2.5, 15.5, 15.5);
+            } else if (k === "headphones") {
+                ctx.beginPath(); ctx.arc(9, 9.8, 5.9, PI, 0, false); ctx.stroke();
+                rrect(2.5, 9.4, 3.3, 5.8, 1.5); ctx.fill();
+                rrect(12.2, 9.4, 3.3, 5.8, 1.5); ctx.fill();
+            } else if (k === "monitor") {
+                rrect(2, 3, 14, 9.4, 1.8); ctx.stroke();
+                line(6.4, 15.4, 11.6, 15.4); line(9, 12.4, 9, 15.4);
+            } else if (k === "camera") {
+                rrect(2, 4.6, 14, 9.6, 2.2); ctx.stroke();
+                circ(9, 9.4, 2.7); ctx.stroke();
+                line(6.8, 3, 11.2, 3);
             } else if (k === "play") {
                 rpoly([5, 3.2, 15, 9, 5, 14.8], 0.8);
             } else if (k === "pause") {
@@ -521,6 +559,10 @@ Scope {
                 id: lg
                 readonly property real m: 72     // extra backdrop captured around the slab (refraction + blur reach)
                 readonly property real p: 10     // shader padding (drop shadow)
+                // a Gaussian blur of 8 px or more doesn't need full resolution: blurring at half size is visually identical
+                // and costs a quarter of the GPU work, every frame
+                readonly property real ds: g.blur >= 8 ? 0.5 : 1.0
+                readonly property real bn: g.blur * 1.4 * ds / 64.0     // blur amount in MultiEffect units (at the reduced size)
                 ShaderEffectSource {
                     id: bsrc
                     sourceItem: g.backdrop
@@ -529,14 +571,15 @@ Scope {
                     visible: false
                     sourceRect: Qt.rect(g.bx - lg.p - lg.m, g.by - lg.p - lg.m,
                                         g.width + 2 * (lg.p + lg.m), g.height + 2 * (lg.p + lg.m))
+                    textureSize: Qt.size(Math.max(1, Math.round(sourceRect.width * lg.ds)), Math.max(1, Math.round(sourceRect.height * lg.ds)))
                 }
                 MultiEffect {
                     id: bblurFx
                     source: bsrc
-                    width: bsrc.sourceRect.width; height: bsrc.sourceRect.height
+                    width: bsrc.sourceRect.width * lg.ds; height: bsrc.sourceRect.height * lg.ds
                     blurEnabled: true
                     blurMax: 64
-                    blur: Math.min(1.0, (g.blur) * 1.4 / 64.0)
+                    blur: Math.min(1.0, lg.bn)
                     autoPaddingEnabled: false
                     visible: false
                 }
@@ -551,17 +594,18 @@ Scope {
                 MultiEffect {
                     id: bblur2Fx
                     source: bblur
-                    width: bsrc.sourceRect.width; height: bsrc.sourceRect.height
-                    blurEnabled: (g.blur) * 1.4 / 64.0 > 1.0
+                    width: bsrc.sourceRect.width * lg.ds; height: bsrc.sourceRect.height * lg.ds
+                    blurEnabled: lg.bn > 1.0
                     blurMax: 64
-                    blur: Math.max(0.0, Math.min(1.0, (g.blur) * 1.4 / 64.0 - 1.0))
+                    blur: Math.max(0.0, Math.min(1.0, lg.bn - 1.0))
                     autoPaddingEnabled: false
                     visible: false
                 }
                 // second Gaussian pass: only active when the slider goes past a single pass's 64 px limit
                 ShaderEffectSource {
                     id: bblur2
-                    sourceItem: bblur2Fx
+                    // the 2nd pass is a pure copy unless the blur radius exceeds one pass: skip it then (same pixels, one GPU pass less)
+                    sourceItem: lg.bn > 1.0 ? bblur2Fx : null
                     live: true
                     visible: false
                 }
@@ -575,7 +619,7 @@ Scope {
                         console.log("[macbar-glass] shader status:", status, "(0 = compiled, 1 = uncompiled, 2 = error)", log);
                         if (status === ShaderEffect.Error) g.shaderError();
                     }
-                    property variant src: bblur2
+                    property variant src: lg.bn > 1.0 ? bblur2 : bblur
                     property real padPx: lg.p
                     property vector2d itemSize: Qt.vector2d(width, height)
                     property vector2d glassSize: Qt.vector2d(g.width, g.height)
@@ -805,6 +849,57 @@ Scope {
         }
     }
 
+    // one device row of the sound popover: round icon (accent when it is the active device), name, optional second line
+    component AudioRow: Item {
+        id: ar
+        required property var t
+        property string title: ""
+        property string sub: ""
+        property string kind: "speaker"
+        property bool selected: false
+        signal clicked()
+        width: parent ? parent.width : 300
+        height: 46
+        Rectangle {
+            anchors.fill: parent
+            radius: 12
+            color: ar.t.hover
+            opacity: arMa.containsMouse ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 90 } }
+        }
+        Rectangle {
+            x: 8
+            anchors.verticalCenter: parent.verticalCenter
+            width: 32; height: 32; radius: 16
+            color: ar.selected ? ar.t.accent : ar.t.btnOff
+            Behavior on color { ColorAnimation { duration: 120 } }
+            Glyph { anchors.centerIn: parent; width: 16; height: 16; kind: ar.kind; level: 3; color: ar.selected ? "white" : ar.t.fg }
+        }
+        Column {
+            x: 50
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width - 50 - 14
+            spacing: 1
+            Text {
+                width: parent.width
+                elide: Text.ElideRight
+                text: ar.title
+                color: ar.t.fg
+                font.family: ar.t.fam; font.pixelSize: 13
+                font.weight: ar.selected ? Font.DemiBold : Font.Normal
+            }
+            Text {
+                visible: ar.sub !== ""
+                width: parent.width
+                elide: Text.ElideRight
+                text: ar.sub
+                color: ar.t.fg2
+                font.family: ar.t.fam; font.pixelSize: 11
+            }
+        }
+        MouseArea { id: arMa; anchors.fill: parent; hoverEnabled: true; onClicked: ar.clicked() }
+    }
+
     // ── notification card contents (used by the popups and by the notification centre) ──
     component NotifBody: Item {
         id: nb
@@ -853,6 +948,7 @@ Scope {
             Text {
                 width: parent.width
                 text: nb.urgency === 2 ? "TIME SENSITIVE" : nb.app
+                horizontalAlignment: /[\u0590-\u08ff]/.test(text) ? Text.AlignRight : Text.AlignLeft
                 visible: text !== ""
                 color: nb.urgency === 2 ? nb.t.fg2 : nb.t.fg
                 font.family: nb.t.fam; font.pixelSize: nb.urgency === 2 ? 12 : 14
@@ -863,6 +959,7 @@ Scope {
             Text {
                 width: parent.width
                 text: nb.summary
+                horizontalAlignment: /[\u0590-\u08ff]/.test(text) ? Text.AlignRight : Text.AlignLeft
                 visible: text !== ""
                 color: nb.t.fg
                 font.family: nb.t.fam; font.pixelSize: 14; font.weight: Font.Bold
@@ -871,6 +968,7 @@ Scope {
             Text {
                 width: parent.width
                 text: nb.body
+                horizontalAlignment: /[\u0590-\u08ff]/.test(text) ? Text.AlignRight : Text.AlignLeft
                 visible: text !== ""
                 color: nb.t.fg
                 font.family: nb.t.fam; font.pixelSize: 13
@@ -1057,7 +1155,49 @@ Scope {
     readonly property bool muted: (sink && sink.audio) ? sink.audio.muted : false
     function setVolume(v) { if (sink && sink.audio) { sink.audio.muted = false; sink.audio.volume = Math.max(0, Math.min(1, v)); } }
     function toggleMute() { if (sink && sink.audio) sink.audio.muted = !sink.audio.muted; }
+    readonly property var micSource: Pipewire.defaultAudioSource
+    PwObjectTracker { objects: [root.micSource] }
+    readonly property bool micMuted: (micSource && micSource.audio) ? micSource.audio.muted : true
+    function toggleMicMute() { if (micSource && micSource.audio) micSource.audio.muted = !micSource.audio.muted; }
     readonly property real volLevel: muted || volume <= 0.001 ? 0 : (volume < 0.34 ? 1 : (volume < 0.67 ? 2 : 3))
+    readonly property real micVolume: (micSource && micSource.audio) ? micSource.audio.volume : 0
+    function setMicVolume(v) { if (micSource && micSource.audio) { micSource.audio.muted = false; micSource.audio.volume = Math.max(0, Math.min(1, v)); } }
+
+    // Device lists come straight from the PipeWire graph, so plugging in headphones / a headset updates the picker at once.
+    PwObjectTracker { objects: Pipewire.nodes.values }
+    function audioDevices(wantOutput) {
+        var ns = Pipewire.nodes.values, out = [];
+        for (var i = 0; i < ns.length; i++) {
+            var n = ns[i];
+            if (!n || !n.audio || n.isStream) continue;
+            var isOut = n.type !== undefined ? ((n.type & PwNodeType.Sink) !== 0 && (n.type & PwNodeType.Source) === 0) : n.isSink;
+            var isIn = n.type !== undefined ? ((n.type & PwNodeType.Source) !== 0 && (n.type & PwNodeType.Sink) === 0) : !n.isSink;
+            if (wantOutput ? isOut : isIn) out.push(n);
+        }
+        out.sort(function (a, b) { return String(a.description || a.name).localeCompare(String(b.description || b.name)); });
+        return out;
+    }
+    readonly property var audioOutputs: audioDevices(true)
+    readonly property var audioInputs: audioDevices(false)
+    function audioKind(n, isOut) {
+        if (!isOut) return "mic";
+        var p = n.properties || {}, f = String(p["device.form-factor"] || "").toLowerCase();
+        var t = (String(n.description) + " " + String(n.name)).toLowerCase();
+        if (f === "headphone" || f === "headset" || /headphone|headset|airpods|buds|bluez/.test(t)) return "headphones";
+        if (f === "hdmi" || f === "tv" || f === "monitor" || /hdmi|displayport|display port/.test(t)) return "monitor";
+        return "speaker";
+    }
+    // "Family 17h HD Audio Controller Analog Stereo" -> ["Family 17h HD Audio Controller", "Analog Stereo"]
+    function audioSplit(d) {
+        d = String(d || "");
+        var m = /^(.*?)\s+((?:Analog|Digital|Pro|Stereo|Mono|Speaker|Headphones|Headset|Microphone|Line|HDMI|DisplayPort|S\/PDIF|Surround)\b.*)$/i.exec(d);
+        return (m && m[1].length > 2) ? [m[1], m[2]] : [d, ""];
+    }
+    function chooseAudio(n) {      // make this device the default; wpctl ships with WirePlumber, pactl is the fallback
+        if (!n) return;
+        Quickshell.execDetached(["sh", "-c", "wpctl set-default \"$1\" 2>/dev/null || pactl \"$3\" \"$2\"", "sh", String(n.id), String(n.name),
+                                 (n.type !== undefined ? ((n.type & PwNodeType.Sink) !== 0) : n.isSink) ? "set-default-sink" : "set-default-source"]);
+    }
 
     // battery
     readonly property var bat: UPower.displayDevice
@@ -1198,7 +1338,33 @@ Scope {
         sh("nmcli -t -f DEVICE,TYPE dev | grep ':wifi$' | cut -d: -f1 | head -n1 | xargs -r nmcli dev disconnect");
         wifiAfter.restart();
     }
-    Timer { id: wifiAfter; interval: 1200; onTriggered: { root.scanWifi(); root.refreshWifi(); } }
+    Timer { id: wifiAfter; interval: 1200; onTriggered: { root.scanWifi(); root.refreshWifi(); root.refreshConnections(); } }
+    function refreshConnections() { if (!connProc.running) connProc.running = true; }
+    Process {
+        id: connProc
+        command: ["sh", "-c", "nmcli -t -f NAME,TYPE,DEVICE connection show 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var rows = [], lines = text.split("\n");
+                for (var i = 0; i < lines.length; i++) {
+                    if (!lines[i]) continue;
+                    var f = root.splitNm(lines[i]);
+                    if (f.length < 3) continue;
+                    var type = f[1];
+                    if (type !== "vpn" && type !== "802-3-ethernet") continue;
+                    rows.push({ name: f[0], type: type, device: f[2] === "--" ? "" : f[2], active: f[2] !== "--" });
+                }
+                rows.sort(function (a,b) { return (b.active?1:0)-(a.active?1:0); });
+                root.otherConnections = rows;
+            }
+        }
+    }
+    function toggleConnection(c) {
+        if (!c) return;
+        var args = c.active ? ["nmcli", "connection", "down", "id", c.name] : ["nmcli", "connection", "up", "id", c.name];
+        Quickshell.execDetached(args); connectionRefresh.restart();
+    }
+    Timer { id: connectionRefresh; interval: 1200; onTriggered: root.refreshConnections() }
 
     // bluetooth
     property bool btOn: false
@@ -1248,6 +1414,151 @@ Scope {
         onTriggered: Quickshell.execDetached(["brightnessctl", "-q", "set", Math.max(1, Math.round(root.brightness * 100)) + "%"])
     }
     function setBrightness(v) { brightness = Math.max(0.01, Math.min(1, v)); brightApply.restart(); }
+    Timer { interval: 850; repeat: true; running: true; onTriggered: root.refreshBrightness() }
+    // ═════════════ KEYBOARD LAYOUT ═════════════
+    // Hyprland announces every change with an `activelayout` event, so the label updates immediately (no polling).
+    // `hyprctl devices` is only read at start-up and after a config reload, to learn which layouts are configured.
+    readonly property var kbNames: ({
+        us: "English (US)", gb: "English (UK)", ca: "Canadian", au: "English (Australian)", ie: "Irish", in: "Indian",
+        ru: "Russian", ua: "Ukrainian", by: "Belarusian", bg: "Bulgarian", rs: "Serbian", hr: "Croatian", si: "Slovenian", mk: "Macedonian",
+        de: "German", at: "German (Austria)", ch: "Swiss", fr: "French", be: "Belgian", es: "Spanish", latam: "Spanish (Latin American)",
+        it: "Italian", pt: "Portuguese", br: "Portuguese (Brazil)", nl: "Dutch", se: "Swedish", no: "Norwegian", dk: "Danish", fi: "Finnish",
+        is: "Icelandic", pl: "Polish", cz: "Czech", sk: "Slovak", hu: "Hungarian", ro: "Romanian", gr: "Greek", tr: "Turkish",
+        il: "Hebrew", ara: "Arabic", ir: "Persian", pk: "Urdu", bd: "Bangla", th: "Thai", vn: "Vietnamese", jp: "Japanese", kr: "Korean",
+        cn: "Chinese", tw: "Taiwanese", mn: "Mongolian", ge: "Georgian", am: "Armenian", kz: "Kazakh", ee: "Estonian", lv: "Latvian", lt: "Lithuanian"
+    })
+    function refreshKeyboardLayout() { if (!kbdProc.running) kbdProc.running = true; }
+    Process {
+        id: kbdProc
+        command: ["hyprctl", "-j", "devices"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var d = JSON.parse(text), ks = d.keyboards || [], k = null, i;
+                    for (i = 0; i < ks.length; i++) if (ks[i].main) { k = ks[i]; break; }
+                    if (!k && ks.length) k = ks[0];
+                    if (!k) return;
+                    var codes = String(k.layout || "").split(",");
+                    var list = [];
+                    for (i = 0; i < codes.length; i++) {
+                        var c = codes[i].trim();
+                        if (c !== "") list.push({ code: c, name: root.kbNames[c] || c.toUpperCase() });
+                    }
+                    root.kbMain = k.name || "";
+                    root.kbLayouts = list;
+                    root.kbSetActive(k.active_keymap || "", k.active_layout_index);
+                } catch (err) { }
+            }
+        }
+    }
+    function kbSetActive(name, idx) {
+        var L = kbLayouts, found = -1, i;
+        var n = String(name || "").toLowerCase();
+        if (idx !== undefined && idx !== null && idx >= 0 && idx < L.length) found = idx;
+        for (i = 0; found < 0 && i < L.length; i++) if (L[i].name.toLowerCase() === n) found = i;
+        for (i = 0; found < 0 && i < L.length; i++) if (n !== "" && n.indexOf(L[i].name.toLowerCase().split(" ")[0]) === 0) found = i;
+        if (found >= 0) {
+            kbIndex = found;
+            keyboardLayout = L[found].code.substring(0, 2).toUpperCase();
+        } else if (n !== "") {
+            keyboardLayout = String(name).replace(/[^A-Za-z]/g, "").substring(0, 2).toUpperCase() || "??";
+        }
+    }
+    function switchKeyboardLayout(i) {
+        var n = kbLayouts.length;
+        if (n < 2) return;
+        i = ((i % n) + n) % n;
+        kbIndex = i; keyboardLayout = kbLayouts[i].code.substring(0, 2).toUpperCase();    // show it right away, the event confirms it
+        Quickshell.execDetached(["hyprctl", "switchxkblayout", "all", String(i)]);
+    }
+    function cycleKeyboardLayout(step) { switchKeyboardLayout(kbIndex + (step === undefined ? 1 : step)); }
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (event.name === "activelayout") {
+                var d = String(event.data), c = d.indexOf(",");
+                if (c < 0) return;
+                if (root.kbMain !== "" && d.substring(0, c) !== root.kbMain) return;
+                root.kbSetActive(d.substring(c + 1), undefined);
+            } else if (event.name === "configreloaded") root.refreshKeyboardLayout();
+        }
+    }
+
+    // ═════════════ PRIVACY INDICATORS ═════════════
+    // Computed from the live PipeWire graph: a link only counts while it is Active, so the dots appear the moment an app starts
+    // using the microphone / a camera / a screen-share and vanish as soon as it stops. No polling, no pw-dump.
+    PwObjectTracker { objects: Pipewire.linkGroups.values }
+    function computePrivacy() {
+        var mic = [], cam = [], share = [], L = Pipewire.linkGroups.values;
+        function add(list, name) { if (list.indexOf(name) < 0) list.push(name); }
+        for (var i = 0; i < L.length; i++) {
+            var g = L[i];
+            if (!g || g.state !== PwLinkState.Active) continue;
+            var s = g.source, t = g.target;
+            if (!s || !t || s.type === undefined) continue;
+            var tp = t.properties || {}, sp = s.properties || {};
+            var who = String(tp["application.name"] || tp["node.description"] || t.description || tp["node.name"] || t.name || "An app")
+                .replace(/\s+(input|output)$/i, "");
+            if ((t.type & PwNodeType.AudioInStream) === PwNodeType.AudioInStream) {
+                // an app is recording from a real source (a monitor of a sink is "listening to the computer", not a microphone)
+                if ((s.type & PwNodeType.Sink) !== 0) continue;
+                if (String(tp["media.name"]).toLowerCase() === "peak detect" || String(tp["application.id"]).indexOf("pavucontrol") >= 0) continue;
+                add(mic, who);
+            } else if ((t.type & PwNodeType.Video) !== 0 && (s.type & PwNodeType.Video) !== 0) {
+                var isCam = sp["device.api"] !== undefined || String(sp["media.role"]) === "Camera"
+                            || String(sp["node.name"]).indexOf("v4l2") === 0 || String(sp["node.name"]).indexOf("libcamera") === 0;
+                add(isCam ? cam : share, who);
+            }
+        }
+        return { mic: mic, cam: cam, share: share };
+    }
+    readonly property var privacy: computePrivacy()
+    readonly property bool privacyAny: privacy.mic.length > 0 || privacy.cam.length > 0 || privacy.share.length > 0 || recording
+    readonly property var privacyDots: {
+        var a = [];
+        if (privacy.mic.length > 0) a.push("#FF9F0A");
+        if (privacy.cam.length > 0) a.push("#30D158");
+        if (privacy.share.length > 0 || recording) a.push("#BF5AF2");
+        return a;
+    }
+    readonly property var privacyRows: {
+        var a = [];
+        if (privacy.mic.length > 0) a.push({ k: "mic", glyph: "mic", c: "#FF9F0A", title: "Microphone", sub: privacy.mic.join(", ") });
+        if (privacy.cam.length > 0) a.push({ k: "cam", glyph: "camera", c: "#30D158", title: "Camera", sub: privacy.cam.join(", ") });
+        if (privacy.share.length > 0) a.push({ k: "share", glyph: "monitor", c: "#BF5AF2", title: "Screen Sharing", sub: privacy.share.join(", ") });
+        if (recording) a.push({ k: "rec", glyph: "monitor", c: "#BF5AF2", title: "Screen Recording", sub: "macshell" });
+        return a;
+    }
+    Process {
+        id: recordProc
+        // `exec` makes wf-recorder the process itself, so stopping the Process really stops the recording (and finalises the file)
+        command: ["sh", "-c", "mkdir -p \"$HOME/Videos\"; exec wf-recorder -f \"$1\"", "sh", root.recordFile]
+        running: root.recording
+        onExited: (code, status) => {
+            if (root.recording) root.recording = false;
+            Quickshell.execDetached(["sh", "-c", "if [ -s \"$1\" ]; then notify-send -a macbar 'Screen Recording Saved' \"$1\"; "
+                + "else notify-send -a macbar 'Screen Recording Failed' 'Is wf-recorder installed?'; fi", "sh", root.recordFile]);
+        }
+    }
+    function toggleRecording() {
+        if (!recording) recordFile = Quickshell.env("HOME") + "/Videos/Screen-Recording-" + Qt.formatDateTime(new Date(), "yyyyMMdd-HHmmss") + ".mp4";
+        recording = !recording;
+    }
+    function pickColor() { sh("c=$(hyprpicker -a) && [ -n \"$c\" ] && notify-send -a macbar 'Color copied' \"$c\""); }
+    Process {
+        id: fileSearchProc
+        command: ["sh", "-c", "find \"$HOME\" -type f -iname \"*$1*\" -not -path '*/.cache/*' -not -path '*/.local/share/Trash/*' 2>/dev/null | head -n 8", "sh", root.fileQuery]
+        stdout: StdioCollector { onStreamFinished: {
+            var a=text.trim().split("\n").filter(function(x){return x!=="";});
+            if (root.fileSearchFor === root.fileQuery) { root.fileHits=a; root.fileSearchPending=false; }
+            else fileDebounce.restart();
+        } }
+        onExited: if (root.fileSearchFor !== root.fileQuery) fileDebounce.restart()
+    }
+    Timer { id: fileDebounce; interval: 260; onTriggered: {
+        if (root.fileQuery.length > 0 && !fileSearchProc.running) { root.fileSearchFor=root.fileQuery; root.fileSearchPending=true; fileSearchProc.running=true; }
+    } }
+    function updateFileSearch(q) { fileQuery=q; fileHits=[]; fileSearchPending=true; fileDebounce.restart(); }
 
     // focus / night shift / keep awake
     property bool dnd: false
@@ -1720,14 +2031,54 @@ Scope {
         }
         return out;
     }
-    function homeItems(q) {
-        var out = appItems(q, 7), s = (q || "").trim().toLowerCase();
-        if (s.length >= 2) {
-            var acts = actionItems(q);
-            for (var i = 0; i < acts.length && out.length < 8; i++)
-                if (acts[i].title.toLowerCase().indexOf(s) === 0) out.push(acts[i]);
+    function calcValue(expr) {
+        var t=String(expr || "").replace(/[xX×]/g, "*").replace(/÷/g, "/");
+        if (!/^[0-9+\-*/%.()\s]+$/.test(t) || !/[0-9]/.test(t)) return null;
+        var i=0;
+        function ws(){ while(i<t.length && /\s/.test(t[i])) i++; }
+        function atom(){ ws(); if(t[i]==="+"){i++;return atom();} if(t[i]==="-"){i++;return -atom();} if(t[i]==="("){i++;var v=sum();ws();if(t[i]!==")")throw 0;i++;return v;} var m=t.substring(i).match(/^(?:\d+(?:\.\d*)?|\.\d+)/);if(!m)throw 0;i+=m[0].length;return Number(m[0]); }
+        function term(){ var v=atom(); for(;;){ws();var op=t[i];if(op!=="*"&&op!=="/"&&op!=="%")break;i++;var r=atom();if((op==="/"||op==="%")&&r===0)throw 0;v=op==="*"?v*r:(op==="/"?v/r:v%r);}return v; }
+        function sum(){var v=term();for(;;){ws();var op=t[i];if(op!=="+"&&op!=="-")break;i++;var r=term();v=op==="+"?v+r:v-r;}return v;}
+        try { var v=sum(); ws(); return i===t.length && isFinite(v) ? v : null; } catch(e){ return null; }
+    }
+    function conversion(q) {
+        var m=(q||"").trim().match(/^(-?\d+(?:\.\d+)?)\s*([a-z°]+)\s+(?:to|in)\s+([a-z°]+)$/i); if(!m)return null;
+        var val=Number(m[1]), a=m[2].toLowerCase(), b=m[3].toLowerCase();
+        var units={mm:["len",.001],cm:["len",.01],m:["len",1],km:["len",1000],in:["len",.0254],ft:["len",.3048],mi:["len",1609.344],g:["mass",.001],kg:["mass",1],lb:["mass",.45359237],oz:["mass",.0283495],ml:["vol",.001],l:["vol",1],gal:["vol",3.78541],ms:["time",.001],s:["time",1],min:["time",60],h:["time",3600],c:["temp",1],"°c":["temp",1],f:["temp",1],"°f":["temp",1]};
+        if(!units[a]||!units[b]||units[a][0]!==units[b][0])return null;
+        var result;
+        if(units[a][0]==="temp") result=(a==="f"||a==="°f")?(val-32)*5/9:val, result=(b==="f"||b==="°f")?result*9/5+32:result;
+        else result=val*units[a][1]/units[b][1];
+        return {title:Number(result.toPrecision(7))+" "+b,sub:"Unit conversion",glyph:"link",run:function(){Quickshell.execDetached(["wl-copy",String(result)]);}};
+    }
+    function windowItems(q) {
+        var out=[], s=(q||"").trim().toLowerCase(); if(!s)return out;
+        var ts=Hyprland.toplevels.values;
+        for(var i=0;i<ts.length&&out.length<4;i++){
+            var t=ts[i], o=t.lastIpcObject||{}, title=String(o.title||t.title||""), cls=String(o["class"]||t.appId||""), app=root.lookup(cls), label=title||app&&app.name||cls;
+            if((label+" "+cls+" "+(app?app.name:" ")).toLowerCase().indexOf(s)<0)continue;
+            var addr=String(o.address||t.address||""); if(addr!=="" && addr.indexOf("0x")!==0) addr="0x"+addr;
+            (function(win,addr,workspace,cl,name,icon){out.push({title:name,sub:"Open Window",icon:icon||"",glyph:"layers",run:function(){root.swPending={addr:addr,ws:workspace,cls:cl};swFocusTimer.restart();}});})(t,addr,o.workspace&&o.workspace.id>0?o.workspace.id:0,cls,label,app?root.iconSrc(app.icon):"");
         }
         return out;
+    }
+    function fileItems(q) {
+        var out=[]; for(var i=0;i<fileHits.length&&out.length<5;i++){var path=fileHits[i];out.push({title:path.substring(path.lastIndexOf("/")+1)||path,sub:path,glyph:"folder",run:(function(p){return function(){Quickshell.execDetached(["xdg-open",p]);};})(path)});} return out;
+    }
+    function homeItems(q) {
+        var out = [], s = (q || "").trim().toLowerCase();
+        if (s.indexOf("file ") === 0 || s.indexOf("find ") === 0) {
+            var fq=s.replace(/^(file|find)\s+/,"").trim(); if(fq!=="" && fileQuery!==fq) updateFileSearch(fq);
+            out=fileItems(fq); if(out.length===0) out.push({title:fileSearchPending?"Searching files…":"No matching files",sub:"Files",glyph:"folder",run:function(){}});
+            return out;
+        }
+        if(s.length>0) out=appItems(q,4);
+        var cv=conversion(s); if(cv) out.unshift(cv);
+        else { var expr=s.replace(/^=\s*/,""); var v=calcValue(expr); if(v!==null && (s.charAt(0)==="=" || /[+*/%xX×÷()]/.test(s))) out.unshift({title:String(Number(v.toPrecision(10))),sub:"Calculator · Return to copy",glyph:"search",run:function(){Quickshell.execDetached(["wl-copy",String(v)]);}}); }
+        var wins=windowItems(q); for(var j=0;j<wins.length&&out.length<6;j++)out.push(wins[j]);
+        var acts=actionItems(q); for(var k=0;k<acts.length&&out.length<6;k++)if(acts[k].title.toLowerCase().indexOf(s)===0)out.push(acts[k]);
+        if(s.length>0 && out.length<7) out.push({title:"Search the web for “"+q.trim()+"”",sub:"Web Search · Return to open",glyph:"search",run:function(){Quickshell.execDetached(["xdg-open","https://search.brave.com/search?q="+encodeURIComponent(q.trim())]);}});
+        return out.slice(0,8);
     }
 
     function menuModelFor(name) {
@@ -1799,6 +2150,8 @@ Scope {
                 if (aw) m.push(mi("Screenshot Window", "", function () { root.shotWindow(aw); }));
                 m.push(mi("Screenshot Selection\u2026", "", function () { root.shot("sel"); }));
                 m.push(mi("Screenshot Screen", "", function () { root.shot(""); }));
+                m.push(mi(root.recording ? "Stop Screen Recording" : "Start Screen Recording", "", function () { root.toggleRecording(); }));
+                m.push(mi("Pick Color", "", function () { root.pickColor(); }));
             } else if (name === "edit") {
                 if (has && term) {
                     m.push(mi("Copy", "Ctrl+Shift+C", keys(["ctrl", "shift"], "c")));
@@ -2109,9 +2462,10 @@ Scope {
     }
     function resetSettings() {
         barEnabled = true;
-        darkMode = true; accent = "#0a84ff"; fontFamily = "Inter"; glassOpacity = 0.42; glassBlur = 5;
+        darkMode = true; accent = "#0a84ff"; fontFamily = "Inter"; glassOpacity = 0.42; glassBlur = 5; glassRealtime = true;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
         showTray = true; showSearch = true;
+        barWidgets = ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "privacy", "controlCenter", "clock"];
         ccControls = ccDefault.slice();
     }
 
@@ -2193,12 +2547,12 @@ Scope {
     readonly property var glassClients: hub ? hub.glassClients : []
     property int popCount: 0
     onBarEnabledChanged: { if (!barEnabled) popCount = 0; clipStart(); }
-    Binding { target: root.hub; property: "barWantsGeo"; value: root.liquidActive && root.popCount > 0 }
-    // Window captures never start on a window younger than 1.5 s. Short-lived dialogs (Proton's "ProtonFixes" zenity popup) close
+    Binding { target: root.hub; property: "barWantsGeo"; value: root.liquidActive }
+    // Window captures never start on a window younger than 0.2 s (shorter than the open animation, so nobody sees it). Short-lived dialogs (Proton's "ProtonFixes" zenity popup) close
     // while their capture frame is still in flight, Hyprland drops the frame, and the shell's own destroy request then kills the
-    // whole Wayland connection ("invalid object NN").
+    // whole Wayland connection ("invalid object NN"). The timer fires exactly when the window turns 0.2 s old.
     property var tlBorn: ({})
-    Timer { id: tlYoung; interval: 1600; onTriggered: root.windowTick++ }
+    Timer { id: tlYoung; onTriggered: root.windowTick++ }
     function tlFor(addr) {
         var a = String(addr).replace(/^0x/, "");
         var ts = Hyprland.toplevels.values;
@@ -2206,7 +2560,11 @@ Scope {
             if (ts[i].address !== a) continue;
             var now = Date.now();
             if (tlBorn[a] === undefined) tlBorn[a] = now;
-            if (now - tlBorn[a] < 1500) { tlYoung.restart(); return null; }
+            var left = 200 - (now - tlBorn[a]);
+            if (left > 0) {
+                if (!tlYoung.running) { tlYoung.interval = left + 20; tlYoung.start(); }
+                return null;
+            }
             return ts[i].wayland;
         }
         return null;
@@ -2221,6 +2579,9 @@ Scope {
     Component.onCompleted: {
         Quickshell.execDetached(["mkdir", "-p", configDir]);
         refreshBrightness();
+        refreshWifi();
+        refreshKeyboardLayout();
+        refreshConnections();
     }
 
     // ═════════════ SETTINGS ═════════════
@@ -2401,7 +2762,7 @@ Scope {
         var script = cmd !== "" ? cmd.split("{}").join('"$1"') : [
             'p="$1"',
             // Noctalia (its settings.toml is where the glass wallpaper is read from): `noctalia msg wallpaper-set <path>`
-            'if command -v noctalia >/dev/null 2>&1 && noctalia msg wallpaper-set "$p"; then echo "applied with: noctalia"; exit 0; fi',
+            'if command -v noctalia >/dev/null 2>&1 && noctalia msg wallpaper-set "$p" >/dev/null 2>&1; then echo "applied with: noctalia"; exit 0; fi',
             // awww needs its daemon; start it if it is installed but not running yet
             'if command -v awww >/dev/null 2>&1; then',
             '  if ! awww query >/dev/null 2>&1; then',
@@ -2414,7 +2775,7 @@ Scope {
             '  if hyprctl hyprpaper wallpaper ",$p" >/dev/null 2>&1 || { hyprctl hyprpaper preload "$p" >/dev/null 2>&1; hyprctl hyprpaper wallpaper ",$p" >/dev/null 2>&1; }; then echo "applied with: hyprpaper"; exit 0; fi',
             'fi',
             // older Noctalia (QML): qs -c noctalia-shell ipc call wallpaper set <path> <monitor>
-            'if pgrep -f noctalia-shell >/dev/null 2>&1 && qs -c noctalia-shell ipc call wallpaper set "$p" ""; then echo "applied with: noctalia-shell (qs ipc)"; exit 0; fi',
+            'if pgrep -f noctalia-shell >/dev/null 2>&1 && qs -c noctalia-shell ipc call wallpaper set "$p" "" >/dev/null 2>&1; then echo "applied with: noctalia-shell (qs ipc)"; exit 0; fi',
             'if pgrep -x swaybg >/dev/null 2>&1; then pkill -x swaybg; setsid swaybg -i "$p" -m fill >/dev/null 2>&1 & echo "applied with: swaybg"; exit 0; fi',
             'echo "no wallpaper daemon accepted the image (tried noctalia, awww, swww, hyprpaper, noctalia-shell, swaybg)" >&2',
             'echo "running: $(ps -eo comm= | grep -E "^(noctalia|noctalia-shell|awww-daemon|swww-daemon|hyprpaper|swaybg|wpaperd)$" | sort -u | tr "\\n" " ")" >&2',
@@ -2674,6 +3035,7 @@ Scope {
                 // Spotlight state
                 property string spMode: "home"          // home | actions | apps
                 property string spQuery: ""
+                property string spHoverLabel: ""
                 property int spSel: 0
                 property var spExpanded: ({})
                 property bool clipMenu: false           // the round "..." menu of the Clipboard panel
@@ -2689,7 +3051,7 @@ Scope {
                                         : (spQuery.trim() === "" ? [] : root.homeItems(spQuery))))
 
                 function spSetMode(m) {
-                    spMode = m; spQuery = ""; spSel = 0; armed = ""; clipMenu = false;
+                    spMode = m; spQuery = ""; spHoverLabel = ""; spSel = 0; armed = ""; clipMenu = false;
                     spInput.text = ""; appsInput.text = ""; clipInput.text = ""; emojiInput.text = "";
                     if (m === "clip") root.clipRefresh();
                     if (m === "emoji") emCat = root.emojiRecent.length > 0 ? 0 : 1;
@@ -2764,15 +3126,16 @@ Scope {
                     function onActiveWinChanged() { if (ui.isMenu) ui.menuModel = root.menuModelFor(ui.pop); }
                 }
                 readonly property bool isMenu: ["apple", "app", "file", "edit", "view", "window", "help"].indexOf(pop) >= 0
-                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible
+                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible || privPop.visible
                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
                 onPopChanged: {
                     armed = "";
                     wifiPrompt = "";
+                    spHoverLabel = "";
                     if (pop !== "cc") ccEdit = false;
                     root.notifOpen = (pop === "notif");
-                    if (pop === "notif") root.notifUnread = 0;
-                    if (pop === "wifi") { root.wifiError = ""; root.scanWifi(); }
+                    if (root.notifOpen) root.notifUnread = 0;
+                    if (pop === "wifi") { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); }
                     if (pop === "spot") {
                         spMode = "home"; spQuery = ""; spSel = 0; spExpanded = ({}); clipMenu = false;
                         spInput.text = ""; appsInput.text = ""; clipInput.text = ""; emojiInput.text = "";
@@ -2829,15 +3192,28 @@ Scope {
                 readonly property var calData: { clock.date; return calCells(); }
 
                 // ── Liquid Glass backdrop: wallpaper + live windows behind the popovers, in screen coordinates ──
+                // The backdrop (wallpaper + one capture per window) used to be built from scratch every time a popover opened,
+                // which is the "wallpaper first, windows a moment later" delay. It now stays alive, so a popover opens on
+                // ready-made, current window pixels.
                 Loader {
                     id: glassBackdrop
-                    active: root.liquidActive && (ui.anyVisible || ui.toastsShown)
+                    active: root.liquidActive
                     sourceComponent: backdropComp
+                }
+                // keeps the (otherwise unseen) backdrop rendering so its window captures stay valid; draws one 1%-opaque pixel
+                ShaderEffectSource {
+                    sourceItem: glassBackdrop.item
+                    hideSource: true
+                    live: true
+                    width: 1; height: 1
+                    opacity: 0.01
+                    sourceRect: Qt.rect(0, 0, 1, 1)
                 }
                 Component {
                     id: backdropComp
                     Item {
                         id: bd
+                        property bool hostShown: true      // false while the window hosting this backdrop is hidden (set by its Loader)
                         x: 0; y: 0
                         width: win.modelData.width
                         height: win.modelData.height
@@ -2875,9 +3251,23 @@ Scope {
                                 x: wx; y: wy; width: ww; height: wh; z: wz
                                 readonly property var tl: { root.windowTick; return root.tlFor(addr); }
                                 ScreencopyView {
+                                    id: sv
                                     anchors.fill: parent
                                     captureSource: gw.tl
-                                    live: ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible
+                                    // REAL-TIME: with glassRealtime every capture stays live all the time, so a popover opens on
+                                    // frames that are already current and nothing is torn down / restarted when it opens (the restart
+                                    // is what used to show the bare wallpaper first). Backdrops that live in a window which is
+                                    // hidden right now (Spotlight, switcher, ...) are only kept warm with slow single captures.
+                                    live: bd.hostShown && (root.glassRealtime || ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible)
+                                    onCaptureSourceChanged: {
+                                        // a brand-new capture grabs its first frame immediately instead of waiting for the timer
+                                        if (captureSource !== null && !live && typeof captureFrame === "function") captureFrame();
+                                    }
+                                    Timer {
+                                        interval: bd.hostShown ? 250 : 500; repeat: true
+                                        running: !sv.live && sv.captureSource !== null
+                                        onTriggered: { if (typeof sv.captureFrame === "function") sv.captureFrame(); }
+                                    }
                                 }
                             }
                         }
@@ -2948,7 +3338,9 @@ Scope {
                         x: 8
                         height: parent.height
                         Repeater {
-                            model: root.menuTitles
+                            model: root.menuTitles.filter(function (item) {
+                                return item.id === "apple" ? root.barWidgetEnabled("appleMenu") : root.barWidgetEnabled("appMenus");
+                            })
                             delegate: Item {
                                 id: mt
                                 required property var modelData
@@ -2992,6 +3384,7 @@ Scope {
                     // ── centre: workspaces (minimal, text only) ──
                     Row {
                         id: wsRow
+                        visible: root.barWidgetEnabled("workspaces")
                         anchors.horizontalCenter: parent.horizontalCenter
                         height: parent.height
                         spacing: 0
@@ -3086,14 +3479,15 @@ Scope {
                         // bluetooth
                         Item {
                             visible: root.btOn
-                            width: 26; height: barBg.height
+                            width: root.btOn ? 26 : 0; height: barBg.height
                             Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: "bluetooth"; color: root.btConnected > 0 ? pal.fg : pal.fg2 }
                             MouseArea { anchors.fill: parent; onClicked: ui.openPop("cc", 0) }
                         }
                         // volume (opens a popover with just the volume slider)
                         Item {
                             id: volBtn
-                            width: 28; height: barBg.height
+                            visible: root.barWidgetEnabled("volume")
+                            width: root.barWidgetEnabled("volume") ? 28 : 0; height: barBg.height
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
@@ -3106,10 +3500,38 @@ Scope {
                                 onWheel: wheel => root.setVolume(root.volume + (wheel.angleDelta.y > 0 ? 0.03 : -0.03))
                             }
                         }
+                        // keyboard layout: click = next layout, right-click = pick from a list, scroll = cycle
+                        Item {
+                            id: kbBtn
+                            visible: root.barWidgetEnabled("keyboard") && root.kbLayouts.length !== 1
+                            width: root.barWidgetEnabled("keyboard") && root.kbLayouts.length !== 1 ? 34 : 0; height: barBg.height
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width - 2; height: parent.height - 6; radius: 6
+                                color: (ui.pop === "kb" || kbMouse.containsMouse) ? pal.hover : "transparent"
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: root.keyboardLayout
+                                color: pal.fg
+                                font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
+                            }
+                            MouseArea {
+                                id: kbMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: mouse => {
+                                    if (mouse.button === Qt.RightButton) ui.openPop("kb", kbBtn.mapToItem(ui, 0, 0).x + kbBtn.width / 2);
+                                    else root.cycleKeyboardLayout(1);
+                                }
+                                onWheel: wheel => root.cycleKeyboardLayout(wheel.angleDelta.y > 0 ? -1 : 1)
+                            }
+                        }
                         // battery
                         Item {
                             visible: root.hasBattery
-                            width: batRow.width + 14; height: barBg.height
+                            width: root.hasBattery ? batRow.width + 14 : 0; height: barBg.height
                             Row {
                                 id: batRow
                                 anchors.centerIn: parent
@@ -3153,7 +3575,8 @@ Scope {
                         // notification system (bell)
                         Item {
                             id: bellBtn
-                            width: 28; height: barBg.height
+                            visible: root.barWidgetEnabled("notifications")
+                            width: root.barWidgetEnabled("notifications") ? 28 : 0; height: barBg.height
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
@@ -3171,7 +3594,8 @@ Scope {
                         // wifi
                         Item {
                             id: wifiBtn
-                            width: 28; height: barBg.height
+                            visible: root.barWidgetEnabled("wifi")
+                            width: root.barWidgetEnabled("wifi") ? 28 : 0; height: barBg.height
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
@@ -3183,14 +3607,42 @@ Scope {
                         // search
                         Item {
                             visible: root.showSearch
-                            width: 28; height: barBg.height
+                            width: root.showSearch ? 28 : 0; height: barBg.height
                             Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: "search"; color: pal.fg }
                             MouseArea { anchors.fill: parent; onClicked: { if (root.launcher !== "") { ui.pop = ""; root.search(); } else ui.openPop("spot", 0); } }
+                        }
+                        // privacy indicators (next to Control Center): orange = microphone, green = camera, purple = screen capture
+                        Item {
+                            id: privBtn
+                            visible: root.privacyAny && root.barWidgetEnabled("privacy")
+                            width: root.privacyAny && root.barWidgetEnabled("privacy") ? privRow.width + 14 : 0; height: barBg.height
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width - 2; height: parent.height - 6; radius: 6
+                                color: ui.pop === "priv" ? pal.hover : "transparent"
+                            }
+                            Row {
+                                id: privRow
+                                anchors.centerIn: parent
+                                spacing: 5
+                                Repeater {
+                                    model: root.privacyDots
+                                    delegate: Rectangle {
+                                        required property string modelData
+                                        width: 9; height: 9; radius: 4.5
+                                        color: modelData
+                                        border.width: 1
+                                        border.color: Qt.rgba(0, 0, 0, 0.18)
+                                    }
+                                }
+                            }
+                            MouseArea { anchors.fill: parent; onClicked: ui.openPop("priv", privBtn.mapToItem(ui, 0, 0).x + privBtn.width / 2) }
                         }
                         // control center
                         Item {
                             id: ccBtn
-                            width: 30; height: barBg.height
+                            visible: root.barWidgetEnabled("controlCenter")
+                            width: root.barWidgetEnabled("controlCenter") ? 30 : 0; height: barBg.height
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
@@ -3202,7 +3654,8 @@ Scope {
                         // clock
                         Item {
                             id: clockBtn
-                            width: clockText.implicitWidth + 16
+                            visible: root.barWidgetEnabled("clock")
+                            width: root.barWidgetEnabled("clock") ? clockText.implicitWidth + 16 : 0
                             height: barBg.height
                             Rectangle {
                                 anchors.centerIn: parent
@@ -3222,12 +3675,11 @@ Scope {
                     }
                 }
 
-                // ═════════ volume popover (speaker icon): just the volume slider ═════════
                 Item {
                     id: volPop
                     z: 10
-                    width: 250
-                    height: 52
+                    width: 330
+                    height: Math.min(volCol.height + 28, ui.height - root.barHeight - 40)
                     x: Math.max(6, Math.min(ui.width - width - 8, ui.menuX - width / 2))
                     y: root.barHeight + 6
                     opacity: ui.pop === "vol" ? 1 : 0
@@ -3236,7 +3688,6 @@ Scope {
                     transformOrigin: Item.Top
                     Behavior on opacity { NumberAnimation { duration: 110 } }
                     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-
                     LGlass {
                         anchors.fill: parent
                         backdrop: glassBackdrop.item
@@ -3255,14 +3706,240 @@ Scope {
                         onShaderError: root.glassState = "failed"
                     }
                     MouseArea { anchors.fill: parent }      // clicks inside don't close the popover
-                    CCSlider {
-                        t: pal
-                        x: 14; y: 12
-                        width: parent.width - 28
-                        value: root.muted ? 0 : root.volume
-                        leftKind: "speaker"; leftLevel: 1
-                        rightKind: "speaker"; rightLevel: 3
-                        onMoved: v => root.setVolume(v)
+                    Flickable {
+                        id: volFlick
+                        x: 0; y: 14
+                        width: parent.width
+                        height: parent.height - 28
+                        contentWidth: width
+                        contentHeight: volCol.height
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        interactive: contentHeight > height
+                        Column {
+                            id: volCol
+                            x: 14
+                            width: volFlick.width - 28
+                            spacing: 3
+
+                            Text { x: 4; text: "Output"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold; bottomPadding: 3 }
+                            Item {
+                                width: parent.width; height: 32
+                                CCSlider {
+                                    t: pal
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width
+                                    value: root.muted ? 0 : root.volume
+                                    leftKind: "speaker"; leftLevel: root.volLevel
+                                    rightKind: "speaker"; rightLevel: 3
+                                    onMoved: v => root.setVolume(v)
+                                }
+                                MouseArea { width: 28; height: parent.height; onClicked: root.toggleMute() }     // the left speaker icon mutes
+                            }
+                            Repeater {
+                                model: root.audioOutputs
+                                delegate: AudioRow {
+                                    required property var modelData
+                                    t: pal
+                                    readonly property var parts: root.audioSplit(modelData.description || modelData.name)
+                                    title: parts[0]
+                                    sub: parts[1]
+                                    kind: root.audioKind(modelData, true)
+                                    selected: root.sink !== null && root.sink !== undefined && root.sink.id === modelData.id
+                                    onClicked: root.chooseAudio(modelData)
+                                }
+                            }
+                            Text { visible: root.audioOutputs.length === 0; x: 4; text: "No output devices"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12; topPadding: 4; bottomPadding: 4 }
+
+                            Item { width: 1; height: 5 }
+                            Rectangle { width: parent.width; height: 1; color: pal.sep }
+                            Item { width: 1; height: 5 }
+
+                            Item {
+                                width: parent.width; height: 32
+                                Text { x: 4; anchors.verticalCenter: parent.verticalCenter; text: "Input"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
+                                Rectangle {
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 30; height: 30; radius: 15
+                                    color: root.micMuted ? pal.btnOff : pal.accent
+                                    Behavior on color { ColorAnimation { duration: 120 } }
+                                    Glyph { anchors.centerIn: parent; width: 16; height: 16; kind: "mic"; flag: root.micMuted; color: root.micMuted ? pal.fg : "white" }
+                                    MouseArea { anchors.fill: parent; onClicked: root.toggleMicMute() }
+                                }
+                            }
+                            Item {
+                                width: parent.width; height: 32
+                                CCSlider {
+                                    t: pal
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width
+                                    value: root.micMuted ? 0 : root.micVolume
+                                    leftKind: "mic"; rightKind: "mic"
+                                    onMoved: v => root.setMicVolume(v)
+                                }
+                            }
+                            Repeater {
+                                model: root.audioInputs
+                                delegate: AudioRow {
+                                    required property var modelData
+                                    t: pal
+                                    readonly property var parts: root.audioSplit(modelData.description || modelData.name)
+                                    title: parts[0]
+                                    sub: parts[1]
+                                    kind: "mic"
+                                    selected: root.micSource !== null && root.micSource !== undefined && root.micSource.id === modelData.id
+                                    onClicked: root.chooseAudio(modelData)
+                                }
+                            }
+                            Text { visible: root.audioInputs.length === 0; x: 4; text: "No input devices"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12; topPadding: 4; bottomPadding: 4 }
+                        }
+                    }
+                }
+
+                // ═════════ keyboard layout popover (right-click the layout label) ═════════
+                Item {
+                    id: kbPop
+                    z: 10
+                    width: 250
+                    height: kbCol.height + 16
+                    x: Math.max(6, Math.min(ui.width - width - 8, ui.menuX - width / 2))
+                    y: root.barHeight + 6
+                    opacity: ui.pop === "kb" ? 1 : 0
+                    visible: opacity > 0
+                    scale: ui.pop === "kb" ? 1 : 0.96
+                    transformOrigin: Item.Top
+                    Behavior on opacity { NumberAnimation { duration: 110 } }
+                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: glassBackdrop.item
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.darkMode
+                        bx: kbPop.x; by: kbPop.y
+                        cornerR: 22
+                        tint: root.glassOpacity
+                        thickness: 22
+                        strength: 0.7 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: root.glassBlur
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                    }
+                    MouseArea { anchors.fill: parent }
+                    Column {
+                        id: kbCol
+                        x: 8; y: 8
+                        width: parent.width - 16
+                        Repeater {
+                            model: root.kbLayouts
+                            delegate: Item {
+                                id: kr
+                                required property var modelData
+                                required property int index
+                                width: parent.width; height: 40
+                                Rectangle { anchors.fill: parent; radius: 12; color: pal.hover; opacity: krMa.containsMouse ? 1 : 0 }
+                                Text {
+                                    x: 12
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width - 84
+                                    elide: Text.ElideRight
+                                    text: kr.modelData.name
+                                    color: pal.fg
+                                    font.family: pal.fam; font.pixelSize: 13
+                                    font.weight: kr.index === root.kbIndex ? Font.DemiBold : Font.Normal
+                                }
+                                Text {
+                                    anchors.right: parent.right; anchors.rightMargin: 40
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: kr.modelData.code.toUpperCase()
+                                    color: pal.fg2
+                                    font.family: pal.fam; font.pixelSize: 11
+                                }
+                                Glyph {
+                                    visible: kr.index === root.kbIndex
+                                    anchors.right: parent.right; anchors.rightMargin: 12
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 16; height: 16
+                                    kind: "check"; color: pal.fg
+                                }
+                                MouseArea { id: krMa; anchors.fill: parent; hoverEnabled: true; onClicked: { root.switchKeyboardLayout(kr.index); ui.pop = ""; } }
+                            }
+                        }
+                    }
+                }
+
+                // ═════════ privacy popover (click the coloured dots): which apps are using what ═════════
+                Item {
+                    id: privPop
+                    z: 10
+                    width: 300
+                    height: privCol.height + 20
+                    x: Math.max(6, Math.min(ui.width - width - 8, ui.menuX - width / 2))
+                    y: root.barHeight + 6
+                    opacity: ui.pop === "priv" ? 1 : 0
+                    visible: opacity > 0
+                    scale: ui.pop === "priv" ? 1 : 0.96
+                    transformOrigin: Item.Top
+                    Behavior on opacity { NumberAnimation { duration: 110 } }
+                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: glassBackdrop.item
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.darkMode
+                        bx: privPop.x; by: privPop.y
+                        cornerR: 22
+                        tint: root.glassOpacity
+                        thickness: 22
+                        strength: 0.7 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: root.glassBlur
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                    }
+                    MouseArea { anchors.fill: parent }
+                    Connections { target: root; function onPrivacyAnyChanged() { if (!root.privacyAny && ui.pop === "priv") ui.pop = ""; } }
+                    Column {
+                        id: privCol
+                        x: 10; y: 10
+                        width: parent.width - 20
+                        Repeater {
+                            model: root.privacyRows
+                            delegate: Item {
+                                id: pr
+                                required property var modelData
+                                width: parent.width; height: 52
+                                Rectangle {
+                                    x: 6
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 34; height: 34; radius: 17
+                                    color: pr.modelData.c
+                                    Glyph { anchors.centerIn: parent; width: 17; height: 17; kind: pr.modelData.glyph; color: "white" }
+                                }
+                                Column {
+                                    x: 52
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width - 52 - (pr.modelData.k === "rec" ? 76 : 8)
+                                    spacing: 1
+                                    Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.title; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                    Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.sub; color: pal.fg2; font.family: pal.fam; font.pixelSize: 11 }
+                                }
+                                Rectangle {
+                                    visible: pr.modelData.k === "rec"
+                                    anchors.right: parent.right; anchors.rightMargin: 6
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 60; height: 26; radius: 13
+                                    color: "#FF453A"
+                                    Text { anchors.centerIn: parent; text: "Stop"; color: "white"; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
+                                    MouseArea { anchors.fill: parent; onClicked: { root.toggleRecording(); ui.pop = ""; } }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -3837,6 +4514,21 @@ Scope {
                             }
                         }
                         Rectangle { width: parent.width; height: 1; color: pal.sep }
+                        Text { visible: root.otherConnections.length>0; width:parent.width; leftPadding:6; text:"Ethernet & VPN"; color:pal.fg2; font.family:pal.fam; font.pixelSize:11; font.weight:Font.DemiBold }
+                        Column {
+                            width: parent.width
+                            Repeater {
+                                model: root.otherConnections.slice(0,5)
+                                delegate: Item {
+                                    required property var modelData
+                                    width: parent.width; height: 30
+                                    Rectangle { anchors.fill:parent; radius:8; color:connMa.containsMouse?pal.hover:"transparent" }
+                                    Glyph { x:8; anchors.verticalCenter:parent.verticalCenter; width:14; height:14; kind:modelData.type==="vpn"?"lock":"wifi"; color:pal.fg }
+                                    Text { x:30; anchors.verticalCenter:parent.verticalCenter; width:parent.width-42; elide:Text.ElideRight; text:modelData.name+(modelData.active?" · Connected":""); color:pal.fg; font.family:pal.fam; font.pixelSize:12 }
+                                    MouseArea { id:connMa; anchors.fill:parent; hoverEnabled:true; onClicked:root.toggleConnection(modelData) }
+                                }
+                            }
+                        }
 
                         Text {
                             visible: !root.wifiOn
@@ -4211,13 +4903,13 @@ Scope {
                     // second Gaussian pass: only active when the slider goes past a single pass's 64 px limit
                     ShaderEffectSource {
                         id: ccBlur2
-                        sourceItem: ccBlur2Fx
+                        sourceItem: (ccg.blur * ccg.blurMul) * 1.4 / 64.0 > 1.0 ? ccBlur2Fx : null
                         live: true
                         visible: false
                     }
                     GlassCtx {
                         id: ccg
-                        src: ccBlur2
+                        src: (blur * blurMul) * 1.4 / 64.0 > 1.0 ? ccBlur2 : ccBlur
                         srcRect: ccSrc.sourceRect
                         frame: ui
                         liquid: root.liquidActive
@@ -4710,8 +5402,9 @@ Scope {
 
                 Loader {
                     id: swBackdrop
-                    active: root.liquidActive && swWin.visible
+                    active: root.liquidActive          // stays loaded (warm) so the window opens on ready-made frames
                     sourceComponent: backdropComp
+                    onLoaded: item.hostShown = Qt.binding(function () { return swWin.visible; })
                 }
                 MouseArea { anchors.fill: parent; onPressed: root.swCancel() }      // click outside cancels
 
@@ -4838,8 +5531,9 @@ Scope {
 
                 Loader {
                     id: wpBackdrop
-                    active: root.liquidActive && wpWin.visible
+                    active: root.liquidActive          // stays loaded (warm) so the window opens on ready-made frames
                     sourceComponent: backdropComp
+                    onLoaded: item.hostShown = Qt.binding(function () { return wpWin.visible; })
                 }
                 MouseArea { anchors.fill: parent; onPressed: root.wpOpen = false }      // click outside closes
 
@@ -5181,8 +5875,9 @@ Scope {
 
                 Loader {
                     id: spotBackdrop
-                    active: root.liquidActive && spotWin.visible
+                    active: root.liquidActive          // stays loaded (warm) so the window opens on ready-made frames
                     sourceComponent: backdropComp
+                    onLoaded: item.hostShown = Qt.binding(function () { return spotWin.visible; })
                 }
 
                 // click outside Spotlight closes it
@@ -5313,11 +6008,13 @@ Scope {
                             }
                             Text {
                                 x: spInput.x + 3
+                                width: spInput.width
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: spInput.text === ""
-                                text: ui.spMode === "actions" ? "Actions" : "Spotlight Search"
+                                text: ui.spHoverLabel !== "" ? ui.spHoverLabel : "Spotlight Search"
                                 color: pal.fg2
                                 font.family: pal.fam; font.pixelSize: 17
+                                elide: Text.ElideRight
                             }
                             TextInput {
                                 id: spInput
@@ -5329,14 +6026,15 @@ Scope {
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
                                 font.family: pal.fam; font.pixelSize: 17
-                                onTextChanged: { if (!ui.spFull) { ui.spQuery = text; ui.spSel = 0; ui.armed = ""; } }
+                                horizontalAlignment: /[\u0590-\u08ff]/.test(text) ? Text.AlignRight : Text.AlignLeft
+                                onTextChanged: { if (!ui.spFull) { ui.spQuery = text; ui.spSel = 0; ui.armed = ""; if (/^(file|find)\s+/i.test(text)) root.updateFileSearch(text.replace(/^(file|find)\s+/i, "").trim()); } }
                                 Keys.onPressed: event => ui.spKey(event)
                             }
                         }
                         Repeater {
                             model: [
-                                { k: "appstore", id: "apps" }, { k: "folder", id: "files" },
-                                { k: "layers", id: "actions" }, { k: "clipboard", id: "clip" }, { k: "smile", id: "emoji" }
+                                { k: "appstore", id: "apps", label: "Apps" }, { k: "folder", id: "files", label: "Files" },
+                                { k: "layers", id: "actions", label: "Actions" }, { k: "clipboard", id: "clip", label: "Clipboard" }, { k: "smile", id: "emoji", label: "Emoji" }
                             ]
                             delegate: CCBtn {
                                 required property var modelData
@@ -5346,6 +6044,12 @@ Scope {
                                 shadow: 0.45
                                 kind: modelData.k
                                 on: ui.spMode === modelData.id
+                                HoverHandler {
+                                    onHoveredChanged: {
+                                        if (hovered) ui.spHoverLabel = modelData.label;
+                                        else if (ui.spHoverLabel === modelData.label) ui.spHoverLabel = "";
+                                    }
+                                }
                                 onClicked: {
                                     if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
                                     else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");

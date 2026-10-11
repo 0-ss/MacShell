@@ -54,6 +54,7 @@ Scope {
     property real glassRim: 0.45
     property real glassGrain: 0.03
     property real glassLiquid: 1.0
+    readonly property bool glassRT: bar ? bar.glassRealtime : true     // real-time glass (Menu Bar settings)
     property real glassBlur: 5            // Liquid Glass backdrop blur radius, px (settings slider)
     property bool glassDebug: false       // settings.json only: draw the raw Liquid Glass backdrop texture
     property string wallpaperPath: ""    // optional override for the wallpaper the Liquid Glass refracts
@@ -998,21 +999,66 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Show tray icons"
+                        title: "Real-time glass"
+                        subtitle: "Keep window captures live so popovers, Spotlight and the Dock open on current pixels. Turn off to save GPU."
                         SSwitch {
                             t: pal
-                            checked: root.bar ? root.bar.showTray : false
-                            onToggled: v => { if (root.bar) root.bar.showTray = v; }
+                            checked: root.bar ? root.bar.glassRealtime : true
+                            onToggled: v => { if (root.bar) root.bar.glassRealtime = v; }
                         }
                     }
+                }
+
+                SLabel { t: pal; header: true; text: "Top Bar Widgets" }
+                SCard {
+                    t: pal
                     SRow {
-                        t: pal
-                        title: "Show search icon"
-                        SSwitch {
-                            t: pal
-                            checked: root.bar ? root.bar.showSearch : false
-                            onToggled: v => { if (root.bar) root.bar.showSearch = v; }
-                        }
+                        t: pal; title: "Apple menu"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appleMenu") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appleMenu", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Application menus"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appMenus") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appMenus", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Workspace switcher"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("workspaces") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("workspaces", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "System tray"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.showTray : true; onToggled: v => { if (root.bar) root.bar.showTray = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Volume"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("volume") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("volume", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Keyboard layout"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("keyboard") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("keyboard", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Notifications"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("notifications") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("notifications", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Wi-Fi and network"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("wifi") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("wifi", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Spotlight search"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.showSearch : true; onToggled: v => { if (root.bar) root.bar.showSearch = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Privacy indicators"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("privacy") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("privacy", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Control Center"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("controlCenter") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("controlCenter", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Clock and calendar"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("clock") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("clock", v); } }
                     }
                 }
 
@@ -1821,7 +1867,7 @@ Scope {
         for (var i = 0; i < winIdList.length; i++) if (winIdList[i].tl === tl) return Date.now() - winIdList[i].born;
         return 0;
     }
-    Timer { id: youngWin; interval: 1600; onTriggered: root.rebuild() }
+    Timer { id: youngWin; interval: 250; onTriggered: root.rebuild() }
 
     function iconSrc(icon) {
         if (!icon) return Quickshell.iconPath("application-x-executable");
@@ -2002,7 +2048,7 @@ Scope {
                 var e3 = lookup(tl.appId);
                 var wid = winIdFor(tl);
                 liveWins.push(tl);
-                if (winAge(tl) < 1500) { youngWin.restart(); continue; }     // no preview (= no capture) for brand-new windows
+                if (winAge(tl) < 200) { if (!youngWin.running) youngWin.start(); continue; }     // no preview (= no capture) for brand-new windows
                 winItems.push({ kind: "win", key: "win:" + wid, tl: tl,
                                 name: e3 ? e3.name : tl.appId,
                                 icon: e3 ? e3.icon : tl.appId.toLowerCase(),
@@ -2095,11 +2141,11 @@ Scope {
     // live window geometry for the backdrop compositor (polled only while Liquid Glass is on)
     readonly property var glassClients: hub ? hub.glassClients : []
     Binding { target: root.hub; property: "dockWantsGeo"; value: root.liquidActive && root.dockEnabled }
-    // Window captures never start on a window younger than 1.5 s. Short-lived dialogs (Proton's "ProtonFixes" zenity popup) close
+    // Window captures never start on a window younger than 0.2 s (shorter than the open animation, so nobody sees it). Short-lived dialogs (Proton's "ProtonFixes" zenity popup) close
     // while their capture frame is still in flight, Hyprland drops the frame, and the shell's own destroy request then kills the
-    // whole Wayland connection ("invalid object NN").
+    // whole Wayland connection ("invalid object NN"). The timer fires exactly when the window turns 0.2 s old.
     property var tlBorn: ({})
-    Timer { id: tlYoung; interval: 1600; onTriggered: root.windowTick++ }
+    Timer { id: tlYoung; onTriggered: root.windowTick++ }
     function tlFor(addr) {
         var a = String(addr).replace(/^0x/, "");
         var ts = Hyprland.toplevels.values;
@@ -2107,7 +2153,11 @@ Scope {
             if (ts[i].address !== a) continue;
             var now = Date.now();
             if (tlBorn[a] === undefined) tlBorn[a] = now;
-            if (now - tlBorn[a] < 1500) { tlYoung.restart(); return null; }
+            var left = 200 - (now - tlBorn[a]);
+            if (left > 0) {
+                if (!tlYoung.running) { tlYoung.interval = left + 20; tlYoung.start(); }
+                return null;
+            }
             return ts[i].wayland;
         }
         return null;
@@ -2163,7 +2213,7 @@ Scope {
         target: Hyprland
         function onRawEvent(event) { busyDebounce.restart(); tickDebounce.restart(); }
     }
-    Timer { id: busyDebounce; interval: 60; onTriggered: root.refreshBusy() }
+    Timer { id: busyDebounce; interval: 120; onTriggered: root.refreshBusy() }
 
     Component.onCompleted: {
         Quickshell.execDetached(["mkdir", "-p", configDir]);
@@ -2353,10 +2403,12 @@ Scope {
                                 x: wx; y: wy; width: ww; height: wh; z: wz
                                 readonly property var tl: { root.windowTick; return root.tlFor(addr); }
                                 // only keep capturing windows that actually reach the Dock (+ refraction margin)
-                                readonly property bool nearNow: !ui.tucked
+                                // real-time: EVERY visible window stays captured (also while the Dock is tucked and for windows far from the Dock), so a window
+                                // dragged over the Dock or a revealed Dock never starts from the bare wallpaper
+                                readonly property bool nearNow: root.glassRT || (!ui.tucked
                                     && x < dock.x + dock.width + 48 && x + width > dock.x - 48
                                     && y < dock.y + bd.height - ui.height + dock.height + 48
-                                    && y + height > dock.y + bd.height - ui.height - 48
+                                    && y + height > dock.y + bd.height - ui.height - 48)
                                 // a capture is only torn down 2.5 s after the window left the dock area: creating / destroying
                                 // live window captures every time a window brushes past the dock is what the compositor can choke on
                                 property bool near: false
@@ -2368,7 +2420,8 @@ Scope {
                                     active: gw.near
                                     sourceComponent: ScreencopyView {
                                         captureSource: gw.tl
-                                        live: true
+                                        live: root.glassRT || !ui.tucked
+                                        onCaptureSourceChanged: { if (captureSource !== null && !live && typeof captureFrame === "function") captureFrame(); }
                                     }
                                 }
                             }
@@ -2398,10 +2451,7 @@ Scope {
                                 else { wm.set(j, want[a]); delete want[a]; }
                             }
                             for (var k in want) wm.append(want[k]);
-                            if (wm.count !== bd.lastCount) {
-                                bd.lastCount = wm.count;
-                                console.log("[macdock-glass] windows behind the dock on", win.modelData.name + ":", wm.count);
-                            }
+                            bd.lastCount = wm.count;
                         }
                         property int lastCount: -1
                         Connections {
@@ -2435,6 +2485,10 @@ Scope {
                         anchors.fill: parent
                         active: root.liquidActive
                         sourceComponent: Item {
+                            id: dg
+                            // blurring at half resolution is visually identical for radii >= 8 px and costs a quarter of the GPU work
+                            readonly property real ds: root.glassBlur >= 8 ? 0.5 : 1.0
+                            readonly property real bn: root.glassBlur * 1.4 * ds / 64.0
                             readonly property real margin: 72      // extra backdrop captured around the Dock (refraction + blur reach)
                             readonly property real padPx: 10       // shader item padding (drop shadow)
                             ShaderEffectSource {
@@ -2447,14 +2501,15 @@ Scope {
                                                     dock.y + (win.modelData.height - ui.height) - parent.padPx - parent.margin,
                                                     dock.width + 2 * (parent.padPx + parent.margin),
                                                     dock.height + 2 * (parent.padPx + parent.margin))
+                                textureSize: Qt.size(Math.max(1, Math.round(sourceRect.width * dg.ds)), Math.max(1, Math.round(sourceRect.height * dg.ds)))
                             }
                             MultiEffect {
                                 id: bblurFx
                                 source: bsrc
-                                width: bsrc.sourceRect.width; height: bsrc.sourceRect.height
+                                width: bsrc.sourceRect.width * dg.ds; height: bsrc.sourceRect.height * dg.ds
                                 blurEnabled: true
                                 blurMax: 64
-                                blur: Math.min(1.0, (root.glassBlur) * 1.4 / 64.0)
+                                blur: Math.min(1.0, dg.bn)
                                 autoPaddingEnabled: false
                                 visible: false
                             }
@@ -2469,17 +2524,18 @@ Scope {
                             MultiEffect {
                                 id: bblur2Fx
                                 source: bblur
-                                width: bsrc.sourceRect.width; height: bsrc.sourceRect.height
-                                blurEnabled: (root.glassBlur) * 1.4 / 64.0 > 1.0
+                                width: bsrc.sourceRect.width * dg.ds; height: bsrc.sourceRect.height * dg.ds
+                                blurEnabled: dg.bn > 1.0
                                 blurMax: 64
-                                blur: Math.max(0.0, Math.min(1.0, (root.glassBlur) * 1.4 / 64.0 - 1.0))
+                                blur: Math.max(0.0, Math.min(1.0, dg.bn - 1.0))
                                 autoPaddingEnabled: false
                                 visible: false
                             }
                             // second Gaussian pass: only active when the slider goes past a single pass's 64 px limit
                             ShaderEffectSource {
                                 id: bblur2
-                                sourceItem: bblur2Fx
+                                // the 2nd pass is a pure copy unless the blur radius exceeds one pass: skip it then (same pixels, one GPU pass less)
+                                sourceItem: dg.bn > 1.0 ? bblur2Fx : null
                                 live: !ui.tucked
                                 visible: false
                             }
@@ -2494,7 +2550,7 @@ Scope {
                                     if (status === ShaderEffect.Error) root.glassState = "failed";
                                 }
 
-                                property variant src: bblur2
+                                property variant src: dg.bn > 1.0 ? bblur2 : bblur
                                 property real padPx: parent.padPx
                                 property vector2d itemSize: Qt.vector2d(width, height)
                                 property vector2d glassSize: Qt.vector2d(dock.width, dock.height)

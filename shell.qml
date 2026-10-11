@@ -19,6 +19,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 
 ShellRoot {
     Scope {
@@ -47,16 +48,61 @@ ShellRoot {
             command: ["sh", "-c", "printf '{\"m\":'; hyprctl -j monitors; printf ',\"c\":'; hyprctl -j clients; printf '}'"]
             stdout: StdioCollector {
                 onStreamFinished: {
+                    if (text === sharedHub.geoLast) return;          // nothing moved: no JSON parse, no re-sync of every backdrop
+                    sharedHub.geoLast = text;
+                    sharedHub.geoHot = true; geoCool.restart();      // something changed: keep polling fast for a moment
                     try { var o = JSON.parse(text); sharedHub.monData = o.m; sharedHub.glassClients = o.c; } catch (err) { }
                 }
             }
         }
+        // Fast (90 ms, exactly as before) while windows are opening / moving / being dragged, relaxed (250 ms) once
+        // nothing has changed for 1.5 s. Every poll spawns three processes, so an idle desktop now costs ~1/4 of before.
+        property bool geoHot: true
+        property string geoLast: ""
+        Timer { id: geoCool; interval: 1500; onTriggered: sharedHub.geoHot = false }
+        Connections {
+            target: Hyprland
+            function onRawEvent(event) { sharedHub.geoHot = true; geoCool.restart(); }
+        }
+        // Fallback path (hyprctl, three processes per poll). Only used while the fast path below is not available.
         Timer {
-            interval: 90
+            interval: sharedHub.geoHot ? 90 : 250
             repeat: true
-            running: sharedHub.barWantsGeo || sharedHub.dockWantsGeo
+            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo) && !sharedHub.ipcOk
             triggeredOnStart: true
             onTriggered: if (!geoProc.running) geoProc.running = true
+        }
+
+        // Fast path: ask Hyprland over Quickshell's own IPC socket (no process spawns), so the glass follows windows every
+        // ~16 ms while they open / move / resize and the backdrop is real-time. Falls back to the hyprctl poller above
+        // when this Quickshell build can't provide the data.
+        property bool ipcOk: false
+        property bool ipcBroken: false
+        function ipcPoll() {
+            var ts, ms, i, o, m, cl = [], mo = [];
+            try {
+                ts = Hyprland.toplevels.values;
+                ms = Hyprland.monitors.values;
+                for (i = 0; i < ts.length; i++) { o = ts[i].lastIpcObject; if (o && o.address !== undefined) cl.push(o); }
+                for (i = 0; i < ms.length; i++) { m = ms[i].lastIpcObject; if (m && m.name !== undefined) mo.push(m); }
+                Hyprland.refreshToplevels();      // the answer lands in lastIpcObject and is read on the next tick
+                Hyprland.refreshMonitors();
+            } catch (err) { ipcBroken = true; ipcOk = false; return; }
+            if (mo.length === 0 || (ts.length > 0 && cl.length === 0)) { ipcOk = false; return; }
+            ipcOk = true;
+            var key = JSON.stringify([mo, cl]);
+            if (key === geoLast) return;
+            geoLast = key;
+            geoHot = true; geoCool.restart();
+            monData = mo;
+            glassClients = cl;
+        }
+        Timer {
+            interval: sharedHub.geoHot ? 16 : 100
+            repeat: true
+            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo) && !sharedHub.ipcBroken
+            triggeredOnStart: true
+            onTriggered: sharedHub.ipcPoll()
         }
 
         // wallpaper the glass refracts (Noctalia settings.toml -> awww/swww/hyprpaper)
