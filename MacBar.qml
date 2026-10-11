@@ -32,6 +32,11 @@
 //   bind = ALT, space, exec, qs -c macbar ipc call spotlight toggle
 // Hyprland (Lua):
 //   hl.bind("ALT + Space", hl.dsp.exec_cmd("qs -c macbar ipc call spotlight toggle"))
+// Wallpapers: Ctrl+Alt+W opens the wallpaper picker (Liquid Glass). Bind it with:
+//   hl.bind("CTRL + ALT + W", hl.dsp.exec_cmd("qs -c macbar ipc call wallpapers toggle"))
+//   (hyprlang:  bind = CTRL ALT, W, exec, qs -c macbar ipc call wallpapers toggle)
+// Folder: ~/Pictures/Wallpapers by default (change it inside the picker, or "wallpaperDir" in settings.json).
+// Star a wallpaper to pin it to the top. Applied through Noctalia / awww / swww / hyprpaper, or your own "wallpaperCmd" ({} = image path).
 // Its Clipboard button uses cliphist + wl-copy (command: clipboardCmd), Files runs filesCmd.
 
 import QtQuick
@@ -86,7 +91,7 @@ Scope {
     readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
         "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch", "weekStartsMonday", "terminal", "launcher",
-        "filesCmd", "clipboardCmd", "appUsage", "nightTemp", "ccControls"]
+        "filesCmd", "clipboardCmd", "appUsage", "nightTemp", "ccControls", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
     readonly property var accentChoices: [
         { name: "Blue", c: "#0a84ff" }, { name: "Purple", c: "#bf5af2" }, { name: "Pink", c: "#ff375f" },
         { name: "Red", c: "#ff453a" }, { name: "Orange", c: "#ff9f0a" }, { name: "Yellow", c: "#ffd60a" },
@@ -173,6 +178,11 @@ Scope {
     readonly property int popRoom: 620
 
     function sh(cmd) { Quickshell.execDetached(["sh", "-c", cmd]); }
+    // Log out of Hyprland. 0.55+ (Lua) takes a Lua expression; UWSM sessions are stopped through uwsm so the session ends cleanly.
+    function logOut() {
+        sh('if command -v uwsm >/dev/null 2>&1 && uwsm check is-active >/dev/null 2>&1; then uwsm stop; '
+           + 'else hyprctl dispatch "hl.dsp.exit()" || hyprctl dispatch exit; fi');
+    }
 
     // ═════════════ PALETTE ═════════════
     QtObject {
@@ -1209,7 +1219,9 @@ Scope {
     function mi(label, shortcut, run) { return { kind: "item", label: label, shortcut: shortcut || "", run: run }; }
     function mc(label, run) { return { kind: "item", label: label, shortcut: "", run: run, confirm: true }; }
     function msep() { return { kind: "sep" }; }
-    function disp(cmd) { return function () { Hyprland.dispatch(cmd); }; }
+    // Hyprland 0.55+ is configured and driven in Lua: `hyprctl dispatch` takes a Lua expression (the old "killactive" style strings fail).
+    function hlx(expr) { Quickshell.execDetached(["hyprctl", "dispatch", expr]); }
+    function disp(expr) { return function () { root.hlx(expr); }; }
     // Menu shortcuts are sent to the focused window with Hyprland's sendshortcut (no extra tool needed).
     // If some app ignores them, set this to true to type them with wtype instead.
     readonly property bool keysViaWtype: false
@@ -1222,8 +1234,8 @@ Scope {
                 for (i = mods.length - 1; i >= 0; i--) a.push("-m", mods[i]);
                 Quickshell.execDetached(a);
             } else {
-                var m = mods.map(function (x) { return x.toUpperCase(); }).join(" ");
-                Hyprland.dispatch("sendshortcut " + m + ", " + k + ", activewindow");
+                var m = mods.map(function (x) { return x.toUpperCase(); }).join(" + ");
+                root.hlx('hl.dsp.send_shortcut({ mods = "' + m + '", key = "' + k + '" })');
             }
         };
     }
@@ -1384,7 +1396,7 @@ Scope {
             { title: "Lock Screen", glyph: "lock", run: function () { sh("loginctl lock-session"); } },
             { title: "Sleep", glyph: "moon", run: function () { sh("systemctl suspend"); } },
             { title: "System Settings\u2026", glyph: "gear", run: function () { openSettings(); } },
-            { title: "Log Out", glyph: "logout", confirm: true, run: function () { Hyprland.dispatch("exit"); } },
+            { title: "Log Out", glyph: "logout", confirm: true, run: function () { root.logOut(); } },
             { title: "Restart", glyph: "restart", confirm: true, run: function () { sh("systemctl reboot"); } },
             { title: "Shut Down", glyph: "power", confirm: true, run: function () { sh("systemctl poweroff"); } }
         ];
@@ -1419,7 +1431,7 @@ Scope {
             m.push(mc("Restart\u2026", function () { sh("systemctl reboot"); }));
             m.push(mc("Shut Down\u2026", function () { sh("systemctl poweroff"); }));
             m.push(msep());
-            m.push(mc("Log Out\u2026", function () { Hyprland.dispatch("exit"); }));
+            m.push(mc("Log Out\u2026", function () { root.logOut(); }));
         } else {
             var id = activeAppId.toLowerCase(), kind = appKind(id), has = activeAppId !== "";
             var aw = (has && activeWin && String(activeWin["class"]).toLowerCase() === id) ? activeWin : null;
@@ -1440,8 +1452,8 @@ Scope {
                         m.push(mi("Preferences\u2026", "Ctrl+,", keys(["ctrl"], "comma")));
                     }
                     m.push(msep());
-                    m.push(mi("Hide " + n, "", disp("movetoworkspacesilent special:hidden")));
-                    m.push(mi("Show Hidden Windows", "", disp("togglespecialworkspace hidden")));
+                    m.push(mi("Hide " + n, "", disp('hl.dsp.window.move({ workspace = "special:hidden", follow = false })')));
+                    m.push(mi("Show Hidden Windows", "", disp('hl.dsp.workspace.toggle_special("hidden")')));
                     m.push(msep());
                     m.push(mi("Quit " + n, "Ctrl+Q", function () { root.quitActive(); }));
                     m.push(mc("Force Quit " + n, function () { root.forceQuitActive(aw); }));
@@ -1469,7 +1481,7 @@ Scope {
                     m.push(msep());
                     if (browser || files || editor) m.push(mi("Close Tab", "Ctrl+W", keys(["ctrl"], "w")));
                     if (term) m.push(mi("Close Tab", "Ctrl+Shift+W", keys(["ctrl", "shift"], "w")));
-                    m.push(mi("Close Window", "", disp("killactive")));
+                    m.push(mi("Close Window", "", disp('hl.dsp.window.close()')));
                 }
                 m.push(msep());
                 if (aw) m.push(mi("Screenshot Window", "", function () { root.shotWindow(aw); }));
@@ -1496,12 +1508,12 @@ Scope {
                 m.push(mi("Emoji & Symbols", "", function () { root.emoji(); }));
             } else if (name === "view") {
                 if (has) {
-                    m.push(mi(fsMode === 2 ? "Exit Full Screen" : "Enter Full Screen", "", disp("fullscreen 0")));
+                    m.push(mi(fsMode === 2 ? "Exit Full Screen" : "Enter Full Screen", "", disp('hl.dsp.window.fullscreen({ mode = "fullscreen", action = "toggle" })')));
                     m.push(msep());
-                    m.push(mchk("Floating", "", floating, disp("togglefloating")));
-                    m.push(dis(mchk("Pin to All Workspaces", "", aw && aw.pinned === true, disp("pin")), !floating));
-                    m.push(dis(mi("Center Window", "", disp("centerwindow")), !floating));
-                    m.push(dis(mi("Toggle Split Direction", "", disp("layoutmsg togglesplit")), floating));
+                    m.push(mchk("Floating", "", floating, disp('hl.dsp.window.float({ action = "toggle" })')));
+                    m.push(dis(mchk("Pin to All Workspaces", "", aw && aw.pinned === true, disp('hl.dsp.window.pin({ action = "toggle" })')), !floating));
+                    m.push(dis(mi("Center Window", "", disp('hl.dsp.window.center()')), !floating));
+                    m.push(dis(mi("Toggle Split Direction", "", disp('hl.dsp.layout("togglesplit")')), floating));
                     if (!term) {
                         m.push(msep());
                         m.push(mi("Actual Size", "Ctrl+0", keys(["ctrl"], "0")));
@@ -1521,21 +1533,21 @@ Scope {
                 m.push(mchk("Dark Mode", "", root.darkMode, function () { root.darkMode = !root.darkMode; }));
             } else if (name === "window") {
                 if (has) {
-                    m.push(mi("Minimize", "", disp("movetoworkspace special:minimized")));
-                    m.push(mchk("Zoom", "", fsMode === 1, disp("fullscreen 1")));
-                    m.push(mi(floating ? "Tile Window" : "Float Window", "", disp("togglefloating")));
+                    m.push(mi("Minimize", "", disp('hl.dsp.window.move({ workspace = "special:minimized", follow = false })')));
+                    m.push(mchk("Zoom", "", fsMode === 1, disp('hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })')));
+                    m.push(mi(floating ? "Tile Window" : "Float Window", "", disp('hl.dsp.window.float({ action = "toggle" })')));
                     m.push(msep());
-                    m.push(mi("Move Window Left", "", disp("movewindow l")));
-                    m.push(mi("Move Window Right", "", disp("movewindow r")));
-                    m.push(mi("Make Wider", "", disp("resizeactive 100 0")));
-                    m.push(mi("Make Narrower", "", disp("resizeactive -100 0")));
-                    if (Quickshell.screens.length > 1) m.push(mi("Move to Next Monitor", "", disp("movewindow mon:+1")));
-                    m.push(mi("Move to Next Workspace", "", disp("movetoworkspace +1")));
-                    m.push(mi("Move to Previous Workspace", "", disp("movetoworkspace -1")));
+                    m.push(mi("Move Window Left", "", disp('hl.dsp.window.move({ direction = "left" })')));
+                    m.push(mi("Move Window Right", "", disp('hl.dsp.window.move({ direction = "right" })')));
+                    m.push(mi("Make Wider", "", disp('hl.dsp.window.resize({ x = 100, y = 0, relative = true })')));
+                    m.push(mi("Make Narrower", "", disp('hl.dsp.window.resize({ x = -100, y = 0, relative = true })')));
+                    if (Quickshell.screens.length > 1) m.push(mi("Move to Next Monitor", "", disp('hl.dsp.window.move({ monitor = "+1" })')));
+                    m.push(mi("Move to Next Workspace", "", disp('hl.dsp.window.move({ workspace = "+1" })')));
+                    m.push(mi("Move to Previous Workspace", "", disp('hl.dsp.window.move({ workspace = "-1" })')));
                     m.push(msep());
                 }
-                m.push(mi("Show Hidden Windows", "", disp("togglespecialworkspace hidden")));
-                m.push(mi("Show Minimized Windows", "", disp("togglespecialworkspace minimized")));
+                m.push(mi("Show Hidden Windows", "", disp('hl.dsp.workspace.toggle_special("hidden")')));
+                m.push(mi("Show Minimized Windows", "", disp('hl.dsp.workspace.toggle_special("minimized")')));
                 var tls = ToplevelManager.toplevels.values;
                 if (tls.length > 0) m.push(msep());
                 for (i = 0; i < tls.length && i < 8; i++) {
@@ -1693,7 +1705,7 @@ Scope {
     // ═════════════ NOTIFICATIONS ═════════════
     // Receives org.freedesktop.Notifications on D-Bus (stop dunst / mako / swaync first — only one daemon can own the name).
     property bool notifDnd: false            // Do Not Disturb: still stored in the centre, but no popups
-    property real notifBlur: 20              // blur of the notification glass (smooth two-pass Gaussian, same method as the Blur slider)
+    property real notifBlur: 64              // blur of the notification glass (smooth two-pass Gaussian, same method as the Blur slider)
     property int notifUnread: 0
     property int notifSeq: 0
     property var notifRefs: ({})
@@ -1775,6 +1787,160 @@ Scope {
         notifToastRemove(id);
     }
 
+    // ═════════════ WALLPAPER PICKER (CTRL + ALT + W) ═════════════
+    //   hl.bind("CTRL + ALT + W", hl.dsp.exec_cmd("qs -c macbar ipc call wallpapers toggle"))
+    property string wallpaperDir: ""          // "" = ~/Pictures/Wallpapers
+    property var wallpaperFavs: []            // favourite image paths, shown first
+    property string wallpaperCmd: ""          // "" = auto (awww / swww / hyprpaper); or your own command, {} = the image path
+    property real wpBlur: 40                  // blur of the picker glass
+    property bool wpOpen: false
+    property string wpStatus: ""
+    property var wpDirList: []                // images found in the folder
+    property var wpFavOk: ({})                // favourites that still exist on disk
+    property var wpFiles: []                  // favourites first, then the rest { path, name, fav }
+    property string wpQuery: ""               // search filter
+    readonly property var wpShown: {          // what the grid shows (wpFiles filtered by the search)
+        var q = root.wpQuery.trim().toLowerCase(), f = root.wpFiles;
+        if (q === "") return f;
+        var out = [];
+        for (var i = 0; i < f.length; i++) if (f[i].name.toLowerCase().indexOf(q) >= 0) out.push(f[i]);
+        return out;
+    }
+    function wpResolveDir() {
+        var d = (root.wallpaperDir || "").trim();
+        if (d === "") d = "~/Pictures/Wallpapers";
+        if (d.indexOf("~") === 0) d = Quickshell.env("HOME") + d.substring(1);
+        while (d.length > 1 && d.charAt(d.length - 1) === "/") d = d.substring(0, d.length - 1);
+        return d;
+    }
+    readonly property string wpDirEff: { root.wallpaperDir; return root.wpResolveDir(); }
+    function wpName(path) {
+        var n = path.substring(path.lastIndexOf("/") + 1);
+        var k = n.lastIndexOf(".");
+        return k > 0 ? n.substring(0, k) : n;
+    }
+    function wpRebuild() {
+        var favs = root.wallpaperFavs || [], inDir = {}, seen = {}, out = [], i;
+        for (i = 0; i < root.wpDirList.length; i++) inDir[root.wpDirList[i]] = true;
+        for (i = 0; i < favs.length; i++) {
+            if (!(inDir[favs[i]] || root.wpFavOk[favs[i]]) || seen[favs[i]]) continue;
+            seen[favs[i]] = true;
+            out.push({ path: favs[i], name: root.wpName(favs[i]), fav: true });
+        }
+        for (i = 0; i < root.wpDirList.length; i++) {
+            var f = root.wpDirList[i];
+            if (seen[f]) continue;
+            out.push({ path: f, name: root.wpName(f), fav: false });
+        }
+        root.wpFiles = out;
+    }
+    function wpParse(text) {
+        var lines = text.split("\n"), dir = [], ok = {};
+        for (var i = 0; i < lines.length; i++) {
+            var l = lines[i];
+            if (l.indexOf("A:") === 0) dir.push(l.substring(2));
+            else if (l.indexOf("F:") === 0) ok[l.substring(2)] = true;
+        }
+        root.wpDirList = dir;
+        root.wpFavOk = ok;
+        root.wpRebuild();
+    }
+    function wpRefresh() {
+        if (wpScan.running) return;
+        var script = [
+            'd="$1"; mk="$2"; shift 2',
+            '[ "$mk" = "1" ] && [ ! -d "$d" ] && mkdir -p "$d" 2>/dev/null',
+            'if [ -d "$d" ]; then find -L "$d" -maxdepth 3 -type f 2>/dev/null | grep -iE "[.](jpe?g|png|webp|bmp|gif)$" | sort -V | sed "s/^/A:/"; fi',
+            'for f in "$@"; do [ -f "$f" ] && echo "F:$f"; done',
+            'exit 0'
+        ].join("\n");
+        wpScan.command = ["sh", "-c", script, "sh", root.wpDirEff, (root.wallpaperDir || "").trim() === "" ? "1" : "0"].concat(root.wallpaperFavs || []);
+        wpScan.running = true;
+    }
+    function wpSetDir(d) {
+        root.wallpaperDir = (d || "").trim();
+        root.wpStatus = "";
+        root.wpRefresh();
+    }
+    function wpToggleFav(path) {
+        var f = (root.wallpaperFavs || []).slice(), i = f.indexOf(path);
+        if (i >= 0) f.splice(i, 1); else f.push(path);
+        root.wallpaperFavs = f;
+        root.wpRebuild();
+    }
+    function wpApply(path) {
+        root.wallpaperPath = path;                                            // the glass refracts the new image straight away
+        try { if (root.hub && root.hub.dock) root.hub.dock.wallpaperPath = path; } catch (e) {}
+        var cmd = (root.wallpaperCmd || "").trim();
+        var script = cmd !== "" ? cmd.split("{}").join('"$1"') : [
+            'p="$1"',
+            // Noctalia (its settings.toml is where the glass wallpaper is read from): `noctalia msg wallpaper-set <path>`
+            'if command -v noctalia >/dev/null 2>&1 && noctalia msg wallpaper-set "$p"; then echo "applied with: noctalia"; exit 0; fi',
+            // awww needs its daemon; start it if it is installed but not running yet
+            'if command -v awww >/dev/null 2>&1; then',
+            '  if ! awww query >/dev/null 2>&1; then',
+            '    if command -v awww-daemon >/dev/null 2>&1; then setsid awww-daemon >/dev/null 2>&1 & fi',
+            '    for i in 1 2 3 4 5 6 7 8 9 10; do awww query >/dev/null 2>&1 && break; sleep 0.3; done',
+            '  fi',
+            '  if awww img "$p" --transition-type fade --transition-duration 0.7; then echo "applied with: awww"; exit 0; fi',
+            'fi',            'if command -v swww >/dev/null 2>&1 && swww query >/dev/null 2>&1 && swww img "$p" --transition-type fade --transition-duration 0.7; then echo "applied with: swww"; exit 0; fi',
+            'if pgrep -x hyprpaper >/dev/null 2>&1; then',
+            '  if hyprctl hyprpaper wallpaper ",$p" >/dev/null 2>&1 || { hyprctl hyprpaper preload "$p" >/dev/null 2>&1; hyprctl hyprpaper wallpaper ",$p" >/dev/null 2>&1; }; then echo "applied with: hyprpaper"; exit 0; fi',
+            'fi',
+            // older Noctalia (QML): qs -c noctalia-shell ipc call wallpaper set <path> <monitor>
+            'if pgrep -f noctalia-shell >/dev/null 2>&1 && qs -c noctalia-shell ipc call wallpaper set "$p" ""; then echo "applied with: noctalia-shell (qs ipc)"; exit 0; fi',
+            'if pgrep -x swaybg >/dev/null 2>&1; then pkill -x swaybg; setsid swaybg -i "$p" -m fill >/dev/null 2>&1 & echo "applied with: swaybg"; exit 0; fi',
+            'echo "no wallpaper daemon accepted the image (tried noctalia, awww, swww, hyprpaper, noctalia-shell, swaybg)" >&2',
+            'echo "running: $(ps -eo comm= | grep -E "^(noctalia|noctalia-shell|awww-daemon|swww-daemon|hyprpaper|swaybg|wpaperd)$" | sort -u | tr "\\n" " ")" >&2',
+            'notify-send "Wallpaper" "Could not set it: no supported wallpaper daemon found. Set wallpaperCmd in settings.json." 2>/dev/null',
+            'exit 1'
+        ].join("\n");
+        wpApplyProc.command = ["sh", "-c", script, "sh", path];
+        wpApplyProc.running = true;
+    }
+    Process {
+        id: wpApplyProc
+        stdout: StdioCollector { onStreamFinished: if (text.trim() !== "") console.log("[wallpaper]", text.trim()) }
+        stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") console.log("[wallpaper] error:", text.trim()) }
+    }
+    function wpToggle() {
+        root.wpOpen = !root.wpOpen;
+        if (root.wpOpen) root.wpRefresh();
+    }
+    function wpPickFolder() {
+        var script = [
+            'd="$1"; [ -d "$d" ] || d="$HOME"',
+            'if command -v zenity >/dev/null 2>&1; then zenity --file-selection --directory --filename="$d/" --title="Wallpaper folder" 2>/dev/null',
+            'elif command -v kdialog >/dev/null 2>&1; then kdialog --getexistingdirectory "$d" 2>/dev/null',
+            'elif command -v yad >/dev/null 2>&1; then yad --file --directory --filename="$d/" 2>/dev/null',
+            'else echo "!nopicker"; fi',
+            'exit 0'
+        ].join("\n");
+        wpPick.command = ["sh", "-c", script, "sh", root.wpDirEff];
+        root.wpOpen = false;                       // the overlay would sit on top of the dialog, so hide it meanwhile
+        wpPick.running = true;
+    }
+    Process { id: wpScan; stdout: StdioCollector { onStreamFinished: root.wpParse(text) } }
+    Process {
+        id: wpPick
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var r = text.trim();
+                if (r === "!nopicker") root.wpStatus = "No folder dialog found (install zenity or kdialog) - type the path instead.";
+                else if (r !== "") root.wpSetDir(r);
+                root.wpOpen = true;
+                root.wpRefresh();
+            }
+        }
+    }
+    onWallpaperFavsChanged: if (wpOpen) wpRebuild()
+    IpcHandler {
+        target: "wallpapers"
+        function toggle(): void { root.wpToggle(); }
+        function open(): void { if (!root.wpOpen) root.wpToggle(); }
+        function close(): void { root.wpOpen = false; }
+    }
+
     // ═════════════ WORKSPACES (centre of the bar) ═════════════
     function hlWorkspace(sel) {      // Hyprland 0.55+ (Lua) workspace switch
         Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + sel + "\" })"]);
@@ -1805,7 +1971,7 @@ Scope {
     //   bindrt = ALT, Alt_L, exec, qs -c macshell ipc call switcher commit     # optional safety net: switch on ALT release
     // (use the same `qs ...` prefix you use for the Spotlight bind). Hold ALT, tap TAB to cycle, release ALT to switch.
     // Layer namespace: "macswitch" (only needed for a blur layerrule if you are NOT using the Liquid Glass style).
-    property real switcherBlur: 20           // blur of the switcher glass (smooth Gaussian; less than Spotlight / notifications)
+    property real switcherBlur: 40           // blur of the switcher glass (smooth Gaussian; less than Spotlight / notifications)
     property bool swOpen: false
     property var swApps: []                  // open apps, most recently used first: { appId, name, icon, win, count }
     property int swIndex: 0
@@ -2139,7 +2305,7 @@ Scope {
                                 ScreencopyView {
                                     anchors.fill: parent
                                     captureSource: gw.tl
-                                    live: ui.anyVisible || spotWin.visible || swWin.visible
+                                    live: ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible
                                 }
                             }
                         }
@@ -3625,7 +3791,7 @@ Scope {
                             Rectangle {
                                 id: art
                                 x: 12; y: 12
-                                width: 52; height: 52; radius: 9
+                                width: 52; height: 52; radius: 5
                                 color: pal.btnOff
                                 Glyph { visible: artImg.status !== Image.Ready; anchors.centerIn: parent; width: 22; height: 22; kind: "note"; color: pal.fg2 }
                                 // `clip: true` only clips to a plain rectangle, so the cover is masked with a rounded shape instead
@@ -4064,6 +4230,358 @@ Scope {
                         x: Math.max(10, Math.min(swPanel.width - width - 10, swPanel.pad + root.swIndex * swPanel.cw + swPanel.cw / 2 - width / 2))
                         y: swPanel.padY + swPanel.cellH + 3
                         Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                    }
+                }
+            }
+        }
+
+        // ═════════ Wallpaper picker (CTRL + ALT + W) lives in its OWN layer (namespace "macwall") ═════════
+        PanelWindow {
+            id: wpWin
+            screen: perScreen.modelData
+            visible: (root.wpOpen && ui.toastScreen) || wpPanel.opacity > 0
+            onVisibleChanged: root.popCount += (visible ? 1 : -1)     // keeps the window-geometry poller running while it is open
+            anchors { left: true; right: true; top: true; bottom: true }
+            color: "transparent"
+            exclusionMode: ExclusionMode.Ignore
+
+            WlrLayershell.namespace: "macwall"
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.keyboardFocus: (root.wpOpen && ui.toastScreen) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+            Item {
+                id: wpRoot
+                anchors.fill: parent
+                focus: true
+                Keys.onEscapePressed: event => { if (root.wpQuery !== "") root.wpQuery = ""; else root.wpOpen = false; event.accepted = true; }
+                Connections {
+                    target: root
+                    function onWpOpenChanged() { if (root.wpOpen) { root.wpQuery = ""; wpGrid.currentIndex = 0; wpGrid.forceActiveFocus(); } }
+                    function onWpQueryChanged() {
+                        if (wpSearch.text !== root.wpQuery) wpSearch.text = root.wpQuery;
+                        wpGrid.currentIndex = 0;
+                        wpGrid.positionViewAtBeginning();
+                    }
+                }
+
+                Loader {
+                    id: wpBackdrop
+                    active: root.liquidActive && wpWin.visible
+                    sourceComponent: backdropComp
+                }
+                MouseArea { anchors.fill: parent; onPressed: root.wpOpen = false }      // click outside closes
+
+                Item {
+                    id: wpPanel
+                    z: 10
+                    width: Math.min(980, wpRoot.width - 120)
+                    height: Math.min(640, wpRoot.height - 160)
+                    x: Math.round((wpRoot.width - width) / 2)
+                    y: Math.round((wpRoot.height - height) / 2)
+                    opacity: (root.wpOpen && ui.toastScreen) ? 1 : 0
+                    visible: opacity > 0
+                    scale: (root.wpOpen && ui.toastScreen) ? 1 : 0.96
+                    transformOrigin: Item.Center
+                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: wpBackdrop.item
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.darkMode
+                        bx: wpPanel.x; by: wpPanel.y
+                        cornerR: 28
+                        tint: root.glassOpacity
+                        thickness: 22
+                        strength: 0.75 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: root.wpBlur
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                    }
+
+                    // ── header: title, folder path, Choose… ──
+                    Item {
+                        id: wpHead
+                        x: 22; y: 14
+                        width: parent.width - 44; height: 34
+                        Text {
+                            id: wpTitle
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Wallpapers"
+                            color: pal.fg
+                            font.family: pal.fam; font.pixelSize: 15; font.weight: Font.DemiBold
+                        }
+                        Rectangle {
+                            id: wpChoose
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 84; height: 30; radius: 10
+                            color: wpChooseMa.containsMouse ? pal.btnHover : pal.btnOff
+                            Text { anchors.centerIn: parent; text: "Choose\u2026"; color: pal.fg; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.Medium }
+                            MouseArea { id: wpChooseMa; anchors.fill: parent; hoverEnabled: true; onClicked: root.wpPickFolder() }
+                        }
+                        Rectangle {
+                            anchors.left: wpTitle.right; anchors.leftMargin: 18
+                            anchors.right: wpChoose.left; anchors.rightMargin: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            height: 30; radius: 10
+                            color: pal.tile
+                            border.width: 1
+                            border.color: dirInput.activeFocus ? pal.accent : pal.tileBorder
+                            TextInput {
+                                id: dirInput
+                                anchors.fill: parent
+                                anchors.leftMargin: 10; anchors.rightMargin: 10
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                selectByMouse: true
+                                color: pal.fg
+                                selectionColor: pal.accent
+                                font.family: pal.fam; font.pixelSize: 12
+                                text: root.wpDirEff
+                                onAccepted: { root.wpSetDir(text); wpGrid.forceActiveFocus(); }
+                                Connections { target: root; function onWpDirEffChanged() { dirInput.text = root.wpDirEff; } }
+                            }
+                        }
+                    }
+                    // ── search + status ──
+                    Rectangle {
+                        id: wpSearchBox
+                        x: 22; y: 54
+                        width: Math.min(260, parent.width * 0.4); height: 28; radius: 10
+                        color: pal.tile
+                        border.width: 1
+                        border.color: wpSearch.activeFocus ? pal.accent : pal.tileBorder
+                        Glyph { x: 9; anchors.verticalCenter: parent.verticalCenter; width: 13; height: 13; kind: "search"; color: pal.fg2 }
+                        TextInput {
+                            id: wpSearch
+                            anchors.fill: parent
+                            anchors.leftMargin: 30; anchors.rightMargin: 26
+                            verticalAlignment: TextInput.AlignVCenter
+                            clip: true
+                            selectByMouse: true
+                            color: pal.fg
+                            selectionColor: pal.accent
+                            font.family: pal.fam; font.pixelSize: 12
+                            onTextChanged: if (root.wpQuery !== text) root.wpQuery = text
+                            Keys.onDownPressed: wpGrid.forceActiveFocus()
+                            Keys.onReturnPressed: {
+                                if (root.wpShown.length > 0) { root.wpApply(root.wpShown[Math.max(0, wpGrid.currentIndex)].path); root.wpOpen = false; }
+                            }
+                            Text {
+                                visible: wpSearch.text === "" && !wpSearch.activeFocus
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Search"
+                                color: pal.fg3
+                                font.family: pal.fam; font.pixelSize: 12
+                            }
+                        }
+                        Rectangle {
+                            visible: root.wpQuery !== ""
+                            anchors.right: parent.right; anchors.rightMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 16; height: 16; radius: 8
+                            color: pal.btnOff
+                            Text { anchors.centerIn: parent; text: "\u00d7"; color: pal.fg; font.pixelSize: 12 }
+                            MouseArea { anchors.fill: parent; onClicked: { root.wpQuery = ""; wpGrid.forceActiveFocus(); } }
+                        }
+                    }
+                    Text {
+                        id: wpSub
+                        anchors.left: wpSearchBox.right; anchors.leftMargin: 14
+                        anchors.right: parent.right; anchors.rightMargin: 22
+                        y: 54; height: 28
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                        text: root.wpStatus !== "" ? root.wpStatus
+                              : (root.wpShown.length + (root.wpShown.length === 1 ? " image" : " images")
+                                 + ((root.wallpaperFavs || []).length > 0 ? "  \u00b7  \u2605 first" : "")
+                                 + "  \u00b7  Type to search, Enter apply, Space favourite")
+                        color: pal.fg3
+                        font.family: pal.fam; font.pixelSize: 11
+                    }
+
+                    // ── grid ──
+                    GridView {
+                        id: wpGrid
+                        x: 16; y: 94
+                        width: parent.width - 38; height: parent.height - 94 - 14
+                        clip: true
+                        readonly property int cols: Math.max(2, Math.floor(width / 210))
+                        cellWidth: Math.floor(width / cols)
+                        cellHeight: Math.round(cellWidth * 0.64)
+                        model: root.wpShown
+                        currentIndex: 0
+                        keyNavigationEnabled: true
+                        highlightMoveDuration: 0
+                        Keys.onPressed: event => {
+                            var ok = currentIndex >= 0 && currentIndex < root.wpShown.length;
+                            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && ok) {
+                                root.wpApply(root.wpShown[currentIndex].path); root.wpOpen = false; event.accepted = true;
+                            } else if (event.key === Qt.Key_Space && ok) {
+                                root.wpToggleFav(root.wpShown[currentIndex].path); event.accepted = true;
+                            } else if (event.key === Qt.Key_Slash || (event.text.length === 1 && event.text > " " && event.text !== "\u007f"
+                                       && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)))) {
+                                // typing anywhere starts a search
+                                wpSearch.forceActiveFocus();
+                                if (event.key !== Qt.Key_Slash) root.wpQuery += event.text;
+                                wpSearch.cursorPosition = wpSearch.length;
+                                event.accepted = true;
+                            }
+                        }
+
+                        delegate: Item {
+                            id: wc
+                            required property int index
+                            required property var modelData
+                            width: wpGrid.cellWidth; height: wpGrid.cellHeight
+                            readonly property bool sel: wpGrid.currentIndex === index
+                            readonly property bool cur: root.wallpaperPath === modelData.path
+                            Item {
+                                id: wcBox
+                                anchors.fill: parent
+                                anchors.margins: 5
+                                Item {
+                                    id: wcMask
+                                    anchors.fill: parent
+                                    visible: false
+                                    layer.enabled: true
+                                    layer.smooth: true
+                                    Rectangle { anchors.fill: parent; radius: 12; color: "black" }
+                                }
+                                Item {
+                                    anchors.fill: parent
+                                    layer.enabled: true
+                                    layer.smooth: true
+                                    layer.effect: MultiEffect {
+                                        maskEnabled: true
+                                        maskSource: wcMask
+                                        maskThresholdMin: 0.5
+                                        maskSpreadAtMin: 1.0
+                                    }
+                                    Rectangle { anchors.fill: parent; color: pal.btnOff }
+                                    Image {
+                                        anchors.fill: parent
+                                        source: root.fileUrl(wc.modelData.path)
+                                        sourceSize.width: 420
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        cache: true
+                                        smooth: true
+                                    }
+                                    Rectangle {
+                                        anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+                                        height: 26
+                                        color: Qt.rgba(0, 0, 0, 0.5)
+                                        opacity: (wc.sel || wcMa.containsMouse) ? 1 : 0
+                                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                                        Text {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 10; anchors.rightMargin: 36
+                                            verticalAlignment: Text.AlignVCenter
+                                            elide: Text.ElideRight
+                                            text: wc.modelData.name
+                                            color: "white"
+                                            font.family: pal.fam; font.pixelSize: 11
+                                        }
+                                    }
+                                }
+                                // selection / current-wallpaper ring
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 12
+                                    color: "transparent"
+                                    border.width: wc.sel ? 3 : (wc.cur ? 2 : 0)
+                                    border.color: wc.sel ? pal.accent : "white"
+                                }
+                                MouseArea {
+                                    id: wcMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onPositionChanged: wpGrid.currentIndex = wc.index      // real mouse movement only, so the keyboard keeps control
+                                    onClicked: { root.wpApply(wc.modelData.path); root.wpOpen = false; }
+                                }
+                                // favourite star
+                                Rectangle {
+                                    anchors.right: parent.right; anchors.top: parent.top
+                                    anchors.margins: 7
+                                    width: 26; height: 26; radius: 13
+                                    visible: wc.modelData.fav || wcMa.containsMouse || wcStarMa.containsMouse
+                                    color: Qt.rgba(0, 0, 0, wcStarMa.containsMouse ? 0.62 : 0.45)
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: wc.modelData.fav ? "\u2605" : "\u2606"
+                                        color: wc.modelData.fav ? "#ffd60a" : "white"
+                                        font.pixelSize: 15
+                                    }
+                                    MouseArea {
+                                        id: wcStarMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        onClicked: root.wpToggleFav(wc.modelData.path)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // ── scrollbar ──
+                    Item {
+                        id: wpTrack
+                        visible: wpGrid.contentHeight > wpGrid.height + 1
+                        x: parent.width - 16; y: wpGrid.y + 2
+                        width: 10; height: wpGrid.height - 4
+                        readonly property real ratio: Math.min(1, wpGrid.visibleArea.heightRatio)
+                        readonly property real thumbH: Math.max(32, ratio * height)
+                        readonly property real maxY: Math.max(1, height - thumbH)
+                        Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 4; height: parent.height; radius: 2; color: pal.track; opacity: 0.6 }
+                        MouseArea {                      // click the track to jump
+                            anchors.fill: parent
+                            onPressed: mouse => wpTrack.jumpTo(mouse.y - wpTrack.thumbH / 2)
+                        }
+                        function jumpTo(ty) {
+                            var f = Math.max(0, Math.min(1, ty / wpTrack.maxY));
+                            wpGrid.contentY = wpGrid.originY + f * Math.max(0, wpGrid.contentHeight - wpGrid.height);
+                        }
+                        Rectangle {
+                            id: wpThumb
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: wpThumbMa.containsMouse || wpThumbMa.drag.active ? 7 : 5
+                            height: wpTrack.thumbH
+                            radius: width / 2
+                            color: wpThumbMa.drag.active ? pal.fg2 : pal.fg3
+                            Behavior on width { NumberAnimation { duration: 100 } }
+                            Binding {
+                                target: wpThumb; property: "y"
+                                when: !wpThumbMa.drag.active
+                                value: (1 - wpTrack.ratio) > 0.0001 ? Math.max(0, Math.min(wpTrack.maxY, wpGrid.visibleArea.yPosition / (1 - wpTrack.ratio) * wpTrack.maxY)) : 0
+                            }
+                            MouseArea {
+                                id: wpThumbMa
+                                anchors.fill: parent
+                                anchors.margins: -4
+                                hoverEnabled: true
+                                drag.target: wpThumb
+                                drag.axis: Drag.YAxis
+                                drag.minimumY: 0
+                                drag.maximumY: wpTrack.maxY
+                                onPositionChanged: if (drag.active) wpTrack.jumpTo(wpThumb.y)
+                            }
+                        }
+                    }
+                    Text {
+                        visible: root.wpShown.length === 0
+                        anchors.centerIn: parent
+                        width: parent.width - 80
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: root.wpQuery !== "" ? "No wallpapers match \u201c" + root.wpQuery + "\u201d"
+                              : "No images in " + root.wpDirEff + "\nDrop some in, or pick another folder with Choose\u2026"
+                        color: pal.fg2
+                        font.family: pal.fam; font.pixelSize: 13
                     }
                 }
             }
