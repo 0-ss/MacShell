@@ -2194,10 +2194,21 @@ Scope {
     property int popCount: 0
     onBarEnabledChanged: { if (!barEnabled) popCount = 0; clipStart(); }
     Binding { target: root.hub; property: "barWantsGeo"; value: root.liquidActive && root.popCount > 0 }
+    // Window captures never start on a window younger than 1.5 s. Short-lived dialogs (Proton's "ProtonFixes" zenity popup) close
+    // while their capture frame is still in flight, Hyprland drops the frame, and the shell's own destroy request then kills the
+    // whole Wayland connection ("invalid object NN").
+    property var tlBorn: ({})
+    Timer { id: tlYoung; interval: 1600; onTriggered: root.windowTick++ }
     function tlFor(addr) {
         var a = String(addr).replace(/^0x/, "");
         var ts = Hyprland.toplevels.values;
-        for (var i = 0; i < ts.length; i++) if (ts[i].address === a) return ts[i].wayland;
+        for (var i = 0; i < ts.length; i++) {
+            if (ts[i].address !== a) continue;
+            var now = Date.now();
+            if (tlBorn[a] === undefined) tlBorn[a] = now;
+            if (now - tlBorn[a] < 1500) { tlYoung.restart(); return null; }
+            return ts[i].wayland;
+        }
         return null;
     }
     property int windowTick: 0
@@ -5393,7 +5404,7 @@ Scope {
                                         Image {
                                             visible: rr.modelData.icon !== ""
                                             anchors.fill: parent
-                                            source: rr.modelData.icon
+                                            source: rr.modelData ? rr.modelData.icon : ""
                                             sourceSize: Qt.size(64, 64)
                                             fillMode: Image.PreserveAspectFit
                                             asynchronous: true
@@ -5403,7 +5414,7 @@ Scope {
                                             visible: rr.modelData.icon === ""
                                             anchors.centerIn: parent
                                             width: 20; height: 20
-                                            kind: rr.modelData.glyph
+                                            kind: rr.modelData ? rr.modelData.glyph : ""
                                             color: rr.sel ? "white" : pal.fg
                                         }
                                     }
@@ -5412,7 +5423,7 @@ Scope {
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: parent.width - 54 - 140
                                         elide: Text.ElideRight
-                                        text: rr.armedNow ? "Press Return again to confirm" : rr.modelData.title
+                                        text: rr.armedNow ? "Press Return again to confirm" : (rr.modelData ? rr.modelData.title : "")
                                         color: rr.sel ? "white" : pal.fg
                                         font.family: pal.fam; font.pixelSize: 14
                                     }
@@ -5420,7 +5431,7 @@ Scope {
                                         anchors.right: parent.right
                                         anchors.rightMargin: 16
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: rr.modelData.sub
+                                        text: rr.modelData ? rr.modelData.sub : ""
                                         color: rr.sel ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
                                         font.family: pal.fam; font.pixelSize: 12
                                     }
@@ -5591,7 +5602,7 @@ Scope {
                                     x: 62; y: 9
                                     width: parent.width - 62 - 56
                                     elide: Text.ElideRight
-                                    text: cr.modelData.title
+                                    text: cr.modelData ? cr.modelData.title : ""
                                     color: cr.sel ? "white" : pal.fg
                                     font.family: pal.fam; font.pixelSize: 14
                                 }
@@ -5599,7 +5610,7 @@ Scope {
                                     x: 62; y: 31
                                     width: parent.width - 62 - 56
                                     elide: Text.ElideRight
-                                    text: cr.modelData.sub
+                                    text: cr.modelData ? cr.modelData.sub : ""
                                     color: cr.sel ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
                                     font.family: pal.fam; font.pixelSize: 12
                                 }
@@ -5829,7 +5840,7 @@ Scope {
                                 }
                                 Text {
                                     anchors.centerIn: parent
-                                    text: ec.modelData[0]
+                                    text: ec.modelData ? ec.modelData[0] : ""
                                     font.family: root.emojiFont; font.pixelSize: 36
                                 }
                                 MouseArea {

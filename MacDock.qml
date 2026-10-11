@@ -1814,9 +1814,14 @@ Scope {
     function winIdFor(tl) {
         for (var i = 0; i < winIdList.length; i++) if (winIdList[i].tl === tl) return winIdList[i].id;
         var id = winIdNext++;
-        winIdList.push({ tl: tl, id: id });
+        winIdList.push({ tl: tl, id: id, born: Date.now() });
         return id;
     }
+    function winAge(tl) {
+        for (var i = 0; i < winIdList.length; i++) if (winIdList[i].tl === tl) return Date.now() - winIdList[i].born;
+        return 0;
+    }
+    Timer { id: youngWin; interval: 1600; onTriggered: root.rebuild() }
 
     function iconSrc(icon) {
         if (!icon) return Quickshell.iconPath("application-x-executable");
@@ -1997,6 +2002,7 @@ Scope {
                 var e3 = lookup(tl.appId);
                 var wid = winIdFor(tl);
                 liveWins.push(tl);
+                if (winAge(tl) < 1500) { youngWin.restart(); continue; }     // no preview (= no capture) for brand-new windows
                 winItems.push({ kind: "win", key: "win:" + wid, tl: tl,
                                 name: e3 ? e3.name : tl.appId,
                                 icon: e3 ? e3.icon : tl.appId.toLowerCase(),
@@ -2089,10 +2095,21 @@ Scope {
     // live window geometry for the backdrop compositor (polled only while Liquid Glass is on)
     readonly property var glassClients: hub ? hub.glassClients : []
     Binding { target: root.hub; property: "dockWantsGeo"; value: root.liquidActive && root.dockEnabled }
+    // Window captures never start on a window younger than 1.5 s. Short-lived dialogs (Proton's "ProtonFixes" zenity popup) close
+    // while their capture frame is still in flight, Hyprland drops the frame, and the shell's own destroy request then kills the
+    // whole Wayland connection ("invalid object NN").
+    property var tlBorn: ({})
+    Timer { id: tlYoung; interval: 1600; onTriggered: root.windowTick++ }
     function tlFor(addr) {
         var a = String(addr).replace(/^0x/, "");
         var ts = Hyprland.toplevels.values;
-        for (var i = 0; i < ts.length; i++) if (ts[i].address === a) return ts[i].wayland;
+        for (var i = 0; i < ts.length; i++) {
+            if (ts[i].address !== a) continue;
+            var now = Date.now();
+            if (tlBorn[a] === undefined) tlBorn[a] = now;
+            if (now - tlBorn[a] < 1500) { tlYoung.restart(); return null; }
+            return ts[i].wayland;
+        }
         return null;
     }
 
@@ -2336,10 +2353,16 @@ Scope {
                                 x: wx; y: wy; width: ww; height: wh; z: wz
                                 readonly property var tl: { root.windowTick; return root.tlFor(addr); }
                                 // only keep capturing windows that actually reach the Dock (+ refraction margin)
-                                readonly property bool near: !ui.tucked
+                                readonly property bool nearNow: !ui.tucked
                                     && x < dock.x + dock.width + 48 && x + width > dock.x - 48
                                     && y < dock.y + bd.height - ui.height + dock.height + 48
                                     && y + height > dock.y + bd.height - ui.height - 48
+                                // a capture is only torn down 2.5 s after the window left the dock area: creating / destroying
+                                // live window captures every time a window brushes past the dock is what the compositor can choke on
+                                property bool near: false
+                                onNearNowChanged: { if (nearNow) { nearHold.stop(); near = true; } else nearHold.restart(); }
+                                Component.onCompleted: near = nearNow
+                                Timer { id: nearHold; interval: 2500; onTriggered: gw.near = gw.nearNow }
                                 Loader {
                                     anchors.fill: parent
                                     active: gw.near
