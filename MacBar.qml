@@ -77,6 +77,8 @@ Scope {
 
     // shared helpers from shell.qml (window geometry poller, wallpaper lookup)
     property var hub: null
+    // true while a screen recording / screen share runs: the glass's live window captures sit out (see shell.qml: hub.captureQuiet)
+    readonly property bool captureQuiet: hub ? hub.captureQuiet : recording
 
     // ───────────── CONFIG (all persisted to settings.json) ─────────────
     property bool barEnabled: true           // false = no menu bar / Spotlight / Control Center at all
@@ -550,16 +552,45 @@ Scope {
         property real rim: 0.45
         property real grain: 0.03
         property real blur: 5               // backdrop blur radius, px (settings slider)
+        property bool blurFallback: false   // keep selected surfaces backdrop-blurred if the liquid shader is unavailable
         property bool debug: false
         signal shaderError()
 
-        Rectangle {
+        Item {
             visible: !g.liquid
             anchors.fill: parent
-            radius: g.cornerR
-            color: g.dark ? Qt.rgba(0.12, 0.12, 0.13, 0.30 + g.tint * 0.9) : Qt.rgba(1, 1, 1, 0.30 + g.tint * 0.7)
-            border.width: 1
-            border.color: g.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.55)
+            ShaderEffectSource {
+                id: fallbackSrc
+                sourceItem: g.blurFallback ? g.backdrop : null
+                hideSource: true
+                live: g.blurFallback && g.backdrop !== null
+                visible: false
+                sourceRect: Qt.rect(g.bx, g.by, g.width, g.height)
+                textureSize: Qt.size(Math.max(1, Math.round(g.width)), Math.max(1, Math.round(g.height)))
+            }
+            MultiEffect {
+                anchors.fill: parent
+                visible: g.blurFallback && g.backdrop !== null
+                source: fallbackSrc
+                blurEnabled: g.blurFallback
+                blurMax: 64
+                blur: Math.max(0.0, Math.min(1.0, g.blur / 64.0))
+                autoPaddingEnabled: false
+                maskEnabled: true
+                maskSource: Rectangle {
+                    width: g.width; height: g.height; radius: g.cornerR
+                    color: "white"
+                }
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: g.cornerR
+                color: g.blurFallback
+                       ? (g.dark ? Qt.rgba(0.12, 0.12, 0.13, 0.18 + g.tint * 0.24) : Qt.rgba(1, 1, 1, 0.14 + g.tint * 0.22))
+                       : (g.dark ? Qt.rgba(0.12, 0.12, 0.13, 0.30 + g.tint * 0.9) : Qt.rgba(1, 1, 1, 0.30 + g.tint * 0.7))
+                border.width: 1
+                border.color: g.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.55)
+            }
         }
         Loader {
             anchors.fill: parent
@@ -1539,23 +1570,62 @@ Scope {
         if (recording) a.push({ k: "rec", glyph: "monitor", c: "#BF5AF2", title: "Screen Recording", sub: "Recording " + recTime() });
         return a;
     }
+    // ── screen recording ──
+    // A recorder and the glass's live window captures all pull frames from Hyprland; together they made it cut our Wayland
+    // connection ("invalid object NN") and the shell died. So the window captures sit out while recording (hub.captureQuiet),
+    // the recorder starts only after they have settled, and it can never outlive the shell: before, every crash left a
+    // wf-recorder behind that kept recording (that is where the extra wf-recorder processes came from).
+    property bool recRun: false                 // wf-recorder is allowed to run (it follows `recording` after a short delay)
+    property real recGuardUntil: 0
+    Timer { id: recStartDelay; interval: 900; onTriggered: if (root.recording) root.recRun = true }
     Process {
         id: recordProc
-        // `exec` makes wf-recorder the process itself, so stopping the Process really stops the recording (and finalises the file)
-        command: ["sh", "-c", "mkdir -p \"$HOME/Videos\"; exec wf-recorder -f \"$1\"", "sh", root.recordFile]
-        running: root.recording
+        command: ["sh", "-c", [
+            'f="$1"; pf="${XDG_RUNTIME_DIR:-/tmp}/macbar-recorder.pid"',
+            'mkdir -p "$(dirname "$f")"',
+            '# a recorder left behind by an earlier crash would record forever: finish it first',
+            'if [ -f "$pf" ]; then op=$(cat "$pf" 2>/dev/null); if [ -n "$op" ] && [ "$(cat /proc/$op/comm 2>/dev/null)" = wf-recorder ]; then kill -INT "$op" 2>/dev/null; sleep 0.6; fi; fi',
+            'echo $$ > "$pf"',
+            'set -- -f "$f" -p preset=veryfast -p crf=20',
+            '# wf-recorder records at the monitor refresh rate (144 fps on a 144 Hz screen): cap it at 60',
+            'if wf-recorder --help 2>&1 | grep -q -- "--framerate"; then set -- "$@" -r 60; fi',
+            '# --pdeathsig: if the shell dies, the recorder is told to finish (and close the file) instead of running on',
+            'if command -v setpriv >/dev/null 2>&1; then exec setpriv --pdeathsig INT wf-recorder "$@"; fi',
+            'exec wf-recorder "$@"'
+        ].join("\n"), "sh", root.recordFile]
+        running: root.recRun
         onExited: (code, status) => {
+            root.recRun = false;
             if (root.recording) root.recording = false;
-            Quickshell.execDetached(["sh", "-c", "if [ -s \"$1\" ]; then notify-send -a macbar 'Screen Recording Saved' \"$1\"; "
+            Quickshell.execDetached(["sh", "-c", "rm -f \"${XDG_RUNTIME_DIR:-/tmp}/macbar-recorder.pid\"; if [ -s \"$1\" ]; then notify-send -a macbar 'Screen Recording Saved' \"$1\"; "
                 + "else notify-send -a macbar 'Screen Recording Failed' 'Is wf-recorder installed?'; fi", "sh", root.recordFile]);
         }
     }
     function toggleRecording() {
-        if (!recording) recordFile = Quickshell.env("HOME") + "/Videos/Screen-Recording-" + Qt.formatDateTime(new Date(), "yyyyMMdd-HHmmss") + ".mp4";
-        recSecs = 0;
-        recording = !recording;
+        if (Date.now() < recGuardUntil) return;          // a double click must not start two recorders
+        recGuardUntil = Date.now() + 1500;
+        if (!recording) {
+            recordFile = Quickshell.env("HOME") + "/Videos/Screen-Recording-" + Qt.formatDateTime(new Date(), "yyyyMMdd-HHmmss") + ".mp4";
+            recSecs = 0;
+            recording = true;                            // the glass captures go quiet right away ...
+            recStartDelay.restart();                     // ... and the recorder follows once they have
+        } else {
+            recStartDelay.stop();
+            recording = false;
+            if (recRun) {
+                // ask the recorder to finish (SIGINT: it writes the end of the file); recRun goes false when it has exited
+                Quickshell.execDetached(["sh", "-c", "kill -INT \"$(cat \"${XDG_RUNTIME_DIR:-/tmp}/macbar-recorder.pid\" 2>/dev/null)\" 2>/dev/null || pkill -INT -x wf-recorder"]);
+                recKill.restart();
+            }
+        }
     }
-    Timer { interval: 1000; repeat: true; running: root.recording; onTriggered: root.recSecs++ }
+    Timer { id: recKill; interval: 10000; onTriggered: root.recRun = false }      // it did not finish by itself: stop the process
+    Timer { interval: 1000; repeat: true; running: root.recRun; onTriggered: root.recSecs++ }
+    // recorders orphaned by an earlier crash of this shell (their parent is gone) would keep recording: finish them once at start-up
+    Process {
+        running: true
+        command: ["sh", "-c", "for p in $(pgrep -x wf-recorder); do pp=$(ps -o ppid= -p \"$p\" | tr -d ' '); c=$(cat /proc/$pp/comm 2>/dev/null); case \"$c\" in systemd|init) kill -INT \"$p\";; esac; done; exit 0"]
+    }
     function recTime() {
         var m = Math.floor(recSecs / 60), r = recSecs % 60;
         return m + ":" + (r < 10 ? "0" : "") + r;
@@ -2569,33 +2639,7 @@ Scope {
     property int popCount: 0
     onBarEnabledChanged: { if (!barEnabled) popCount = 0; clipStart(); }
     Binding { target: root.hub; property: "barWantsGeo"; value: root.liquidActive }
-    // Window captures never start on a window younger than 0.2 s (shorter than the open animation, so nobody sees it). Short-lived dialogs (Proton's "ProtonFixes" zenity popup) close
-    // while their capture frame is still in flight, Hyprland drops the frame, and the shell's own destroy request then kills the
-    // whole Wayland connection ("invalid object NN"). The timer fires exactly when the window turns 0.2 s old.
-    property var tlBorn: ({})
-    Timer { id: tlYoung; onTriggered: root.windowTick++ }
-    function tlFor(addr) {
-        var a = String(addr).replace(/^0x/, "");
-        var ts = Hyprland.toplevels.values;
-        for (var i = 0; i < ts.length; i++) {
-            if (ts[i].address !== a) continue;
-            var now = Date.now();
-            if (tlBorn[a] === undefined) tlBorn[a] = now;
-            var left = 200 - (now - tlBorn[a]);
-            if (left > 0) {
-                if (!tlYoung.running) { tlYoung.interval = left + 20; tlYoung.start(); }
-                return null;
-            }
-            return ts[i].wayland;
-        }
-        return null;
-    }
-    property int windowTick: 0
-    Connections {
-        target: Hyprland
-        function onRawEvent(event) { tickDebounce.restart(); }
-    }
-    Timer { id: tickDebounce; interval: 120; onTriggered: root.windowTick++ }
+    // window captures are admitted by the shared gate in shell.qml (hub.tlFor): 0.2 s after a window appears, one every 110 ms
 
     Component.onCompleted: {
         Quickshell.execDetached(["mkdir", "-p", configDir]);
@@ -3146,6 +3190,17 @@ Scope {
                     target: root
                     function onActiveWinChanged() { if (ui.isMenu) ui.menuModel = root.menuModelFor(ui.pop); }
                 }
+                // bounding box of all glass that is on screen right now (popovers, notification popups) + a refraction margin
+                readonly property rect glassRect: {
+                    var items = [menuPop, cc, cal, wifiPop, trayPop, notifPop, toastArea, volPop, kbPop], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+                    for (var i = 0; i < items.length; i++) {
+                        var it = items[i];
+                        if (!it.visible) continue;
+                        any = true;
+                        x0 = Math.min(x0, it.x); y0 = Math.min(y0, it.y); x1 = Math.max(x1, it.x + it.width); y1 = Math.max(y1, it.y + it.height);
+                    }
+                    return any ? Qt.rect(x0 - 64, y0 - 64, x1 - x0 + 128, y1 - y0 + 128) : Qt.rect(0, 0, 0, 0);
+                }
                 readonly property bool isMenu: ["apple", "app", "file", "edit", "view", "window", "help"].indexOf(pop) >= 0
                 readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible
                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
@@ -3218,8 +3273,9 @@ Scope {
                 // ready-made, current window pixels.
                 Loader {
                     id: glassBackdrop
-                    active: root.liquidActive
+                    active: root.liquidActive || ui.toastsShown || ui.pop === "notif"
                     sourceComponent: backdropComp
+                    onLoaded: item.region = Qt.binding(function () { return ui.glassRect; })
                 }
                 // keeps the (otherwise unseen) backdrop rendering so its window captures stay valid; draws one 1%-opaque pixel
                 ShaderEffectSource {
@@ -3235,6 +3291,7 @@ Scope {
                     Item {
                         id: bd
                         property bool hostShown: true      // false while the window hosting this backdrop is hidden (set by its Loader)
+                        property rect region: Qt.rect(0, 0, 0, 0)      // the glass that is on screen right now (set by its Loader); windows behind it stay live while recording
                         x: 0; y: 0
                         width: win.modelData.width
                         height: win.modelData.height
@@ -3269,24 +3326,48 @@ Scope {
                                 required property real ww
                                 required property real wh
                                 required property real wz
+                                required property bool gone      // window closed: capture is released first, the item is swept shortly after
                                 x: wx; y: wy; width: ww; height: wh; z: wz
-                                readonly property var tl: { root.windowTick; return root.tlFor(addr); }
+                                readonly property var tl: { if (!root.hub || gone) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
+                                // behind the glass that is on screen right now (popover / panel + refraction margin)?
+                                readonly property bool onGlass: bd.region.width > 0 && x < bd.region.x + bd.region.width && x + width > bd.region.x
+                                                                && y < bd.region.y + bd.region.height && y + height > bd.region.y
                                 ScreencopyView {
                                     id: sv
                                     anchors.fill: parent
                                     captureSource: gw.tl
+                                    // While a screen recording / screen share runs the window captures sit out (root.captureQuiet). `hush` follows it
+                                    // with a random 0.6 s spread, so dozens of captures never start or stop in the same instant (that burst, with a
+                                    // recorder pulling frames at the same time, is what the compositor choked on).
+                                    property bool hush: root.captureQuiet
+                                    Connections {
+                                        target: root
+                                        function onCaptureQuietChanged() { hushT.interval = 20 + Math.random() * 600; hushT.restart(); }
+                                    }
+                                    Timer { id: hushT; onTriggered: sv.hush = root.captureQuiet }
                                     // REAL-TIME: with glassRealtime every capture stays live all the time, so a popover opens on
                                     // frames that are already current and nothing is torn down / restarted when it opens (the restart
                                     // is what used to show the bare wallpaper first). Backdrops that live in a window which is
                                     // hidden right now (Spotlight, switcher, ...) are only kept warm with slow single captures.
-                                    live: bd.hostShown && (root.glassRealtime || ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible)
+                                    // While recording only the windows behind visible glass stay live (so the glass is real-time exactly where you see it,
+                                    // e.g. a video behind the Control Center), every other window sits out.
+                                    live: !gw.gone && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible)
                                     onCaptureSourceChanged: {
                                         // a brand-new capture grabs its first frame immediately instead of waiting for the timer
-                                        if (captureSource !== null && !live && typeof captureFrame === "function") captureFrame();
+                                        // (a short delay: asking before the capture context exists only logged "no recording context is ready")
+                                        if (captureSource !== null && !live && !sv.hush) firstShot.restart();
                                     }
                                     Timer {
-                                        interval: bd.hostShown ? 250 : 500; repeat: true
+                                        id: firstShot
+                                        interval: 90
+                                        onTriggered: { if (sv.captureSource !== null && !sv.live && typeof sv.captureFrame === "function") sv.captureFrame(); }
+                                    }
+                                    // single captures: hidden backdrops stay warm once a second (their window goes live the moment it opens);
+                                    // while recording only a backdrop that is actually on screen refreshes, slowly
+                                    Timer {
+                                        interval: sv.hush ? 1500 : (bd.hostShown ? 250 : 1000); repeat: true
                                         running: !sv.live && sv.captureSource !== null
+                                                 && (!sv.hush || (bd.hostShown && (ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible)))
                                         onTriggered: { if (typeof sv.captureFrame === "function") sv.captureFrame(); }
                                     }
                                 }
@@ -3309,14 +3390,20 @@ Scope {
                                 var x = cl.at[0] - mon.x, y = cl.at[1] - mon.y, w = cl.size[0], h = cl.size[1];
                                 if (x + w <= 0 || x >= bd.width || y + h <= 0 || y >= zoneBottom) continue;
                                 var z = cl.floating ? 100 - Math.min(cl.focusHistoryID, 90) : 0;
-                                want[cl.address] = { addr: cl.address, wx: x, wy: y, ww: w, wh: h, wz: z };
+                                want[cl.address] = { addr: cl.address, wx: x, wy: y, ww: w, wh: h, wz: z, gone: false };
                             }
                             for (var j = wm.count - 1; j >= 0; j--) {
                                 var a = wm.get(j).addr;
-                                if (want[a] === undefined) wm.remove(j);
+                                if (want[a] === undefined) { if (!wm.get(j).gone) { wm.setProperty(j, "gone", true); sweep.restart(); } }
                                 else { wm.set(j, want[a]); delete want[a]; }
                             }
                             for (var k in want) wm.append(want[k]);
+                        }
+                        // a closed window first lets go of its capture (gone → captureSource null), the item itself is removed a moment later
+                        Timer {
+                            id: sweep
+                            interval: 600
+                            onTriggered: { for (var q = wm.count - 1; q >= 0; q--) if (wm.get(q).gone) wm.remove(q); }
                         }
                         Connections {
                             target: root
@@ -3942,6 +4029,7 @@ Scope {
                                     backdrop: glassBackdrop.item
                                     shaderUrl: root.glassShaderUrl
                                     liquid: root.liquidActive
+                                    blurFallback: true
                                     dark: root.darkMode
                                     bx: toastArea.x + toast.x; by: toastArea.y + toast.y
                                     cornerR: 24
@@ -3992,6 +4080,7 @@ Scope {
                         backdrop: glassBackdrop.item
                         shaderUrl: root.glassShaderUrl
                         liquid: root.liquidActive
+                        blurFallback: true
                         dark: root.darkMode
                         bx: notifPop.x; by: notifPop.y
                         cornerR: 26
@@ -4086,8 +4175,27 @@ Scope {
                                     width: ncol.width
                                     height: hbody.height
                                     radius: 18
-                                    color: pal.tile
-                                    border.width: 1; border.color: pal.tileBorder
+                                    color: "transparent"
+                                    border.width: 0
+                                    LGlass {
+                                        anchors.fill: parent
+                                        backdrop: glassBackdrop.item
+                                        shaderUrl: root.glassShaderUrl
+                                        liquid: root.liquidActive
+                                        blurFallback: true
+                                        dark: root.darkMode
+                                        bx: hc.mapToItem(ui, 0, 0).x
+                                        by: hc.mapToItem(ui, 0, 0).y
+                                        cornerR: 18
+                                        tint: root.glassOpacity
+                                        thickness: 20
+                                        strength: 0.72 * root.glassLiquid
+                                        rim: root.glassRim
+                                        grain: root.glassGrain
+                                        blur: root.notifBlur
+                                        debug: root.glassDebug
+                                        onShaderError: root.glassState = "failed"
+                                    }
                                     HoverHandler { id: hhov }
                                     MouseArea {
                                         anchors.fill: parent
@@ -5412,7 +5520,8 @@ Scope {
                     id: swBackdrop
                     active: root.liquidActive          // stays loaded (warm) so the window opens on ready-made frames
                     sourceComponent: backdropComp
-                    onLoaded: item.hostShown = Qt.binding(function () { return swWin.visible; })
+                    onLoaded: { item.hostShown = Qt.binding(function () { return swWin.visible; });
+                                item.region = Qt.binding(function () { return Qt.rect(swPanel.x - 96, swPanel.y - 96, swPanel.width + 192, swPanel.height + 192); }); }
                 }
                 MouseArea { anchors.fill: parent; onPressed: root.swCancel() }      // click outside cancels
 
@@ -5541,7 +5650,8 @@ Scope {
                     id: wpBackdrop
                     active: root.liquidActive          // stays loaded (warm) so the window opens on ready-made frames
                     sourceComponent: backdropComp
-                    onLoaded: item.hostShown = Qt.binding(function () { return wpWin.visible; })
+                    onLoaded: { item.hostShown = Qt.binding(function () { return wpWin.visible; });
+                                item.region = Qt.binding(function () { return Qt.rect(wpPanel.x - 96, wpPanel.y - 96, wpPanel.width + 192, wpPanel.height + 192); }); }
                 }
                 MouseArea { anchors.fill: parent; onPressed: root.wpOpen = false }      // click outside closes
 
@@ -5885,7 +5995,8 @@ Scope {
                     id: spotBackdrop
                     active: root.liquidActive          // stays loaded (warm) so the window opens on ready-made frames
                     sourceComponent: backdropComp
-                    onLoaded: item.hostShown = Qt.binding(function () { return spotWin.visible; })
+                    onLoaded: { item.hostShown = Qt.binding(function () { return spotWin.visible; });
+                                item.region = Qt.binding(function () { return Qt.rect(spot.x - 128, spot.y - 128, spot.width + 256, spot.height + 256); }); }
                 }
 
                 // click outside Spotlight closes it
@@ -6105,6 +6216,7 @@ Scope {
                                     id: rr
                                     required property var modelData
                                     required property int index
+                                    readonly property string ico: (modelData && modelData.icon) ? String(modelData.icon) : ""
                                     readonly property bool sel: index === Math.min(ui.spSel, resPanel.items.length - 1)
                                     readonly property bool armedNow: modelData.confirm === true && ui.armed === modelData.title
                                     width: parent.width
@@ -6114,19 +6226,19 @@ Scope {
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: 30; height: 30
                                         Image {
-                                            visible: rr.modelData.icon !== ""
+                                            visible: rr.ico !== ""
                                             anchors.fill: parent
-                                            source: rr.modelData ? rr.modelData.icon : ""
+                                            source: rr.ico
                                             sourceSize: Qt.size(64, 64)
                                             fillMode: Image.PreserveAspectFit
                                             asynchronous: true
                                             smooth: true
                                         }
                                         Glyph {
-                                            visible: rr.modelData.icon === ""
+                                            visible: rr.ico === ""
                                             anchors.centerIn: parent
                                             width: 20; height: 20
-                                            kind: rr.modelData ? rr.modelData.glyph : ""
+                                            kind: (rr.modelData && rr.modelData.glyph) ? rr.modelData.glyph : ""
                                             color: rr.sel ? "white" : pal.fg
                                         }
                                     }

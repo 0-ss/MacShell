@@ -2199,27 +2199,7 @@ Scope {
     // live window geometry for the backdrop compositor (polled only while Liquid Glass is on)
     readonly property var glassClients: hub ? hub.glassClients : []
     Binding { target: root.hub; property: "dockWantsGeo"; value: root.liquidActive && root.dockEnabled }
-    // Window captures never start on a window younger than 0.2 s (shorter than the open animation, so nobody sees it). Short-lived dialogs (Proton's "ProtonFixes" zenity popup) close
-    // while their capture frame is still in flight, Hyprland drops the frame, and the shell's own destroy request then kills the
-    // whole Wayland connection ("invalid object NN"). The timer fires exactly when the window turns 0.2 s old.
-    property var tlBorn: ({})
-    Timer { id: tlYoung; onTriggered: root.windowTick++ }
-    function tlFor(addr) {
-        var a = String(addr).replace(/^0x/, "");
-        var ts = Hyprland.toplevels.values;
-        for (var i = 0; i < ts.length; i++) {
-            if (ts[i].address !== a) continue;
-            var now = Date.now();
-            if (tlBorn[a] === undefined) tlBorn[a] = now;
-            var left = 200 - (now - tlBorn[a]);
-            if (left > 0) {
-                if (!tlYoung.running) { tlYoung.interval = left + 20; tlYoung.start(); }
-                return null;
-            }
-            return ts[i].wayland;
-        }
-        return null;
-    }
+    // window captures are admitted by the shared gate in shell.qml (hub.tlFor): 0.2 s after a window appears, one every 110 ms
 
     // ── smart hide: which monitors have a non-floating window on their active workspace ──
     property var busyMonitors: ({})
@@ -2461,8 +2441,9 @@ Scope {
                                 required property real ww
                                 required property real wh
                                 required property real wz
+                                required property bool gone      // window closed: capture is released first, the item is swept shortly after
                                 x: wx; y: wy; width: ww; height: wh; z: wz
-                                readonly property var tl: { root.windowTick; return root.tlFor(addr); }
+                                readonly property var tl: { if (!root.hub || gone) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
                                 // only keep capturing windows that actually reach the Dock (+ refraction margin)
                                 // real-time: EVERY visible window stays captured (also while the Dock is tucked and for windows far from the Dock), so a window
                                 // dragged over the Dock or a revealed Dock never starts from the bare wallpaper
@@ -2478,11 +2459,17 @@ Scope {
                                 Timer { id: nearHold; interval: 2500; onTriggered: gw.near = gw.nearNow }
                                 Loader {
                                     anchors.fill: parent
-                                    active: gw.near
+                                    active: gw.near && !gw.gone
                                     sourceComponent: ScreencopyView {
+                                        id: sc
                                         captureSource: gw.tl
                                         live: root.glassRT || !ui.tucked
-                                        onCaptureSourceChanged: { if (captureSource !== null && !live && typeof captureFrame === "function") captureFrame(); }
+                                        onCaptureSourceChanged: { if (captureSource !== null && !live) firstShot.restart(); }
+                                        Timer {
+                                            id: firstShot
+                                            interval: 90
+                                            onTriggered: { if (sc.captureSource !== null && !sc.live && typeof sc.captureFrame === "function") sc.captureFrame(); }
+                                        }
                                     }
                                 }
                             }
@@ -2504,15 +2491,20 @@ Scope {
                                 var x = cl.at[0] - mon.x, y = cl.at[1] - mon.y, w = cl.size[0], h = cl.size[1];
                                 if (x + w <= 0 || x >= bd.width || y + h <= zoneTop || y >= bd.height) continue;
                                 var z = cl.floating ? 100 - Math.min(cl.focusHistoryID, 90) : 0;   // floating on top, most recently focused highest
-                                want[cl.address] = { addr: cl.address, wx: x, wy: y, ww: w, wh: h, wz: z };
+                                want[cl.address] = { addr: cl.address, wx: x, wy: y, ww: w, wh: h, wz: z, gone: false };
                             }
                             for (var j = wm.count - 1; j >= 0; j--) {
                                 var a = wm.get(j).addr;
-                                if (want[a] === undefined) wm.remove(j);
+                                if (want[a] === undefined) { if (!wm.get(j).gone) { wm.setProperty(j, "gone", true); sweep.restart(); } }
                                 else { wm.set(j, want[a]); delete want[a]; }
                             }
                             for (var k in want) wm.append(want[k]);
                             bd.lastCount = wm.count;
+                        }
+                        Timer {
+                            id: sweep
+                            interval: 600
+                            onTriggered: { for (var q = wm.count - 1; q >= 0; q--) if (wm.get(q).gone) wm.remove(q); bd.lastCount = wm.count; }
                         }
                         property int lastCount: -1
                         Connections {

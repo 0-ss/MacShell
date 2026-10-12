@@ -40,6 +40,16 @@ ShellRoot {
         property bool barWantsWallpaper: false
         property bool dockWantsWallpaper: false
 
+        // ── screen recording / screen sharing: the window captures sit out ──
+        // A recorder (wf-recorder, a screen share) and the glass's live ScreencopyViews all pull frames from Hyprland at the same
+        // time. With dozens of captures running, the compositor cut the Wayland connection ("invalid object NN") and the shell
+        // crashed. While something records, the glass keeps its last frames (and refreshes slowly, only while a popover is open);
+        // live capture resumes 1.5 s after the recording ends, spread over 0.6 s.
+        property bool captureQuiet: false
+        readonly property bool wantQuiet: macBar.recording || macBar.recRun || macBar.privacy.share.length > 0
+        onWantQuietChanged: { if (wantQuiet) { quietRelease.stop(); captureQuiet = true; } else quietRelease.restart(); }
+        Timer { id: quietRelease; interval: 1500; onTriggered: sharedHub.captureQuiet = false }
+
         function refreshWallpaper() { if (!wpProc.running) wpProc.running = true; }
 
         // window + monitor geometry for the Liquid Glass backdrops
@@ -62,7 +72,41 @@ ShellRoot {
         Timer { id: geoCool; interval: 1500; onTriggered: sharedHub.geoHot = false }
         Connections {
             target: Hyprland
-            function onRawEvent(event) { sharedHub.geoHot = true; geoCool.restart(); }
+            function onRawEvent(event) { sharedHub.geoHot = true; geoCool.restart(); tlDebounce.restart(); }
+        }
+
+        // ── window capture gate (shared by the Menu Bar and the Dock glass) ──
+        // A window is only handed to a ScreencopyView 0.2 s after it appeared (shorter than the open animation, so nobody sees it),
+        // and windows that appear together (opening a batch of apps, a game launcher...) are admitted ONE EVERY 110 ms instead of
+        // all at once. Hyprland answers every live capture with a frame request; starting a dozen of them in the same instant
+        // while a screen recorder is also pulling frames is what made the compositor drop frames and the Wayland connection
+        // die ("invalid object NN"). Short-lived dialogs that close while their first frame is in flight are covered by the 0.2 s.
+        property int tlTick: 0
+        property var tlState: ({ ready: {}, last: 0, next: 0 })     // plain bookkeeping: mutated inside bindings WITHOUT notifying (no binding loop)
+        Timer { id: tlYoung; onTriggered: { sharedHub.tlState.next = 0; sharedHub.tlTick++; } }
+        Timer { id: tlDebounce; interval: 120; onTriggered: sharedHub.tlTick++ }
+        function tlArm() {
+            var st = tlState, d = st.next - Date.now();
+            tlYoung.interval = Math.max(10, d) + 15;
+            tlYoung.restart();
+        }
+        function tlFor(addr) {
+            var a = String(addr).replace(/^0x/, "");
+            var ts = Hyprland.toplevels.values;
+            for (var i = 0; i < ts.length; i++) {
+                if (ts[i].address !== a) continue;
+                var st = tlState, now = Date.now();
+                if (st.ready[a] === undefined) {
+                    st.ready[a] = Math.max(now + 200, st.last + 110);
+                    st.last = st.ready[a];
+                }
+                if (st.ready[a] > now) {
+                    if (st.next === 0 || st.ready[a] < st.next) { st.next = st.ready[a]; Qt.callLater(tlArm); }
+                    return null;
+                }
+                return ts[i].wayland;
+            }
+            return null;
         }
         // Fallback path (hyprctl, three processes per poll). Only used while the fast path below is not available.
         Timer {
