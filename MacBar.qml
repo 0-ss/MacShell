@@ -116,8 +116,10 @@ Scope {
     property string spotWant: "home"          // which Spotlight panel the next request opens: home | clip | emoji | apps
     property int nightTemp: 4000
     // Control Center: ids of the enabled controls, in order (edit with Control Center → Edit Controls)
-    property var ccControls: ["wifi", "nowplaying", "bluetooth", "airplane", "focus", "nightshift", "keepawake", "display", "sound"]
+    property var ccControls: ["wifi", "nowplaying", "bluetooth", "airplane", "focus", "record", "nightshift", "keepawake", "display", "sound"]
+    property bool ccMigRec: false              // one-time: add the Screen Recording tile to an existing Control Center layout
     property bool recording: false
+    property int recSecs: 0
     property var otherConnections: []
     property string keyboardLayout: "EN"      // two-letter label shown in the bar
     property var kbLayouts: []                // configured layouts of the main keyboard: [{ code, name }]
@@ -132,7 +134,7 @@ Scope {
     readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
         "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch", "barWidgets", "weekStartsMonday", "terminal", "launcher",
-        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
+        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
     // Optional bar widgets; tray and Spotlight use their existing showTray/showSearch settings.
     property var barWidgets: ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "privacy", "controlCenter", "clock"]
     function barWidgetEnabled(id) { return barWidgets.indexOf(id) >= 0; }
@@ -159,11 +161,12 @@ Scope {
         { id: "nightshift", label: "Night Shift",   glyph: "nightshift", w: 1, h: 1 },
         { id: "keepawake",  label: "Keep Awake",    glyph: "coffee",     w: 1, h: 1 },
         { id: "darkmode",   label: "Dark Mode",     glyph: "contrast",   w: 1, h: 1 },
+        { id: "record",     label: "Screen Recording", glyph: "record",  w: 2, h: 1 },
         { id: "nowplaying", label: "Now Playing",   glyph: "note",       w: 2, h: 2 },
         { id: "display",    label: "Display",       glyph: "sun",        w: 4, h: 1 },
         { id: "sound",      label: "Sound",         glyph: "speaker",    w: 4, h: 1 }
     ]
-    readonly property var ccDefault: ["wifi", "nowplaying", "bluetooth", "airplane", "focus", "nightshift", "keepawake", "display", "sound"]
+    readonly property var ccDefault: ["wifi", "nowplaying", "bluetooth", "airplane", "focus", "record", "nightshift", "keepawake", "display", "sound"]
     function ccDef(id) {
         for (var i = 0; i < ccCatalog.length; i++) if (ccCatalog[i].id === id) return ccCatalog[i];
         return null;
@@ -383,6 +386,12 @@ Scope {
                         ctx.beginPath(); ctx.arc(9.2, 9, 2.4 + i2 * 3.0, -0.62, 0.62); ctx.stroke();
                     }
                 }
+            } else if (k === "record") {
+                circ(9, 9, 7); ctx.stroke();
+                circ(9, 9, 3.7); ctx.fill();
+            } else if (k === "stoprec") {
+                circ(9, 9, 7); ctx.stroke();
+                rrect(5.9, 5.9, 6.2, 6.2, 1.6); ctx.fill();
             } else if (k === "mic") {
                 rrect(6.5, 1.8, 5, 8.6, 2.5); ctx.stroke();
                 ctx.beginPath(); ctx.arc(9, 8.4, 5, 0.12, PI - 0.12, false); ctx.stroke();
@@ -779,6 +788,7 @@ Scope {
         property bool on: false
         property real level: 3
         property bool flag: false
+        property string onTint: ""
         property real d: 40
         property real shadow: 0
         signal clicked()
@@ -790,7 +800,7 @@ Scope {
         Rectangle {
             anchors.fill: parent
             radius: b.d / 2
-            color: b.on ? Qt.rgba(b.t.accent.r, b.t.accent.g, b.t.accent.b, 0.92)
+            color: b.on ? (b.onTint !== "" ? Qt.color(b.onTint) : Qt.rgba(b.t.accent.r, b.t.accent.g, b.t.accent.b, 0.92))
                         : (bma.containsMouse ? (b.t.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.34)) : Qt.rgba(1, 1, 1, 0))
             Behavior on color { ColorAnimation { duration: 120 } }
         }
@@ -1526,7 +1536,7 @@ Scope {
         if (privacy.mic.length > 0) a.push({ k: "mic", glyph: "mic", c: "#FF9F0A", title: "Microphone", sub: privacy.mic.join(", ") });
         if (privacy.cam.length > 0) a.push({ k: "cam", glyph: "camera", c: "#30D158", title: "Camera", sub: privacy.cam.join(", ") });
         if (privacy.share.length > 0) a.push({ k: "share", glyph: "monitor", c: "#BF5AF2", title: "Screen Sharing", sub: privacy.share.join(", ") });
-        if (recording) a.push({ k: "rec", glyph: "monitor", c: "#BF5AF2", title: "Screen Recording", sub: "macshell" });
+        if (recording) a.push({ k: "rec", glyph: "monitor", c: "#BF5AF2", title: "Screen Recording", sub: "Recording " + recTime() });
         return a;
     }
     Process {
@@ -1542,7 +1552,13 @@ Scope {
     }
     function toggleRecording() {
         if (!recording) recordFile = Quickshell.env("HOME") + "/Videos/Screen-Recording-" + Qt.formatDateTime(new Date(), "yyyyMMdd-HHmmss") + ".mp4";
+        recSecs = 0;
         recording = !recording;
+    }
+    Timer { interval: 1000; repeat: true; running: root.recording; onTriggered: root.recSecs++ }
+    function recTime() {
+        var m = Math.floor(recSecs / 60), r = recSecs % 60;
+        return m + ":" + (r < 10 ? "0" : "") + r;
     }
     function pickColor() { sh("c=$(hyprpicker -a) && [ -n \"$c\" ] && notify-send -a macbar 'Color copied' \"$c\""); }
     Process {
@@ -2490,10 +2506,15 @@ Scope {
         printErrors: false
         onLoaded: {
             try { root.applySettings(JSON.parse(text()), root.settingKeys); } catch (err) { }
+            if (!root.ccMigRec) {
+                root.ccMigRec = true;
+                var cl = root.ccControls.slice();
+                if (cl.indexOf("record") < 0) { var fi = cl.indexOf("focus"); cl.splice(fi >= 0 ? fi + 1 : cl.length, 0, "record"); root.ccControls = cl; }
+            }
             root.settingsReady = true;
             if (root.barStyle === "liquid") root.startGlass();
         }
-        onLoadFailed: { root.settingsReady = true; if (root.barStyle === "liquid") root.startGlass(); }
+        onLoadFailed: { root.ccMigRec = true; root.settingsReady = true; if (root.barStyle === "liquid") root.startGlass(); }
     }
 
     // ═════════════ LIQUID GLASS BACKEND (same pipeline as macdock) ═════════════
@@ -3126,7 +3147,7 @@ Scope {
                     function onActiveWinChanged() { if (ui.isMenu) ui.menuModel = root.menuModelFor(ui.pop); }
                 }
                 readonly property bool isMenu: ["apple", "app", "file", "edit", "view", "window", "help"].indexOf(pop) >= 0
-                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible || privPop.visible
+                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible
                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
                 onPopChanged: {
                     armed = "";
@@ -3611,44 +3632,38 @@ Scope {
                             Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: "search"; color: pal.fg }
                             MouseArea { anchors.fill: parent; onClicked: { if (root.launcher !== "") { ui.pop = ""; root.search(); } else ui.openPop("spot", 0); } }
                         }
-                        // privacy indicators (next to Control Center): orange = microphone, green = camera, purple = screen capture
-                        Item {
-                            id: privBtn
-                            visible: root.privacyAny && root.barWidgetEnabled("privacy")
-                            width: root.privacyAny && root.barWidgetEnabled("privacy") ? privRow.width + 14 : 0; height: barBg.height
-                            Rectangle {
-                                anchors.centerIn: parent
-                                width: parent.width - 2; height: parent.height - 6; radius: 6
-                                color: ui.pop === "priv" ? pal.hover : "transparent"
-                            }
-                            Row {
-                                id: privRow
-                                anchors.centerIn: parent
-                                spacing: 5
-                                Repeater {
-                                    model: root.privacyDots
-                                    delegate: Rectangle {
-                                        required property string modelData
-                                        width: 9; height: 9; radius: 4.5
-                                        color: modelData
-                                        border.width: 1
-                                        border.color: Qt.rgba(0, 0, 0, 0.18)
-                                    }
-                                }
-                            }
-                            MouseArea { anchors.fill: parent; onClicked: ui.openPop("priv", privBtn.mapToItem(ui, 0, 0).x + privBtn.width / 2) }
-                        }
                         // control center
                         Item {
                             id: ccBtn
                             visible: root.barWidgetEnabled("controlCenter")
-                            width: root.barWidgetEnabled("controlCenter") ? 30 : 0; height: barBg.height
+                            // the widget grows to the right while a privacy dot is showing, so the dot sits beside the icon
+                            readonly property bool dotsOn: root.privacyAny && root.barWidgetEnabled("privacy")
+                            width: root.barWidgetEnabled("controlCenter") ? 30 + (dotsOn ? ccDots.width + 2 : 0) : 0; height: barBg.height
+                            Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
                                 color: ui.pop === "cc" ? pal.hover : "transparent"
                             }
-                            Glyph { anchors.centerIn: parent; width: 16; height: 16; kind: "cc"; color: pal.fg }
+                            Glyph { x: 7; anchors.verticalCenter: parent.verticalCenter; width: 16; height: 16; kind: "cc"; color: pal.fg }
+                            // privacy dots like macOS: orange = microphone, green = camera, purple = screen sharing / recording
+                            Row {
+                                id: ccDots
+                                visible: ccBtn.dotsOn
+                                x: 27
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 3
+                                Repeater {
+                                    model: root.privacyDots
+                                    delegate: Rectangle {
+                                        required property string modelData
+                                        width: 7; height: 7; radius: 3.5
+                                        color: modelData
+                                        border.width: 0.5
+                                        border.color: Qt.rgba(0, 0, 0, 0.35)
+                                    }
+                                }
+                            }
                             MouseArea { anchors.fill: parent; onClicked: ui.openPop("cc", 0) }
                         }
                         // clock
@@ -3866,78 +3881,6 @@ Scope {
                                     kind: "check"; color: pal.fg
                                 }
                                 MouseArea { id: krMa; anchors.fill: parent; hoverEnabled: true; onClicked: { root.switchKeyboardLayout(kr.index); ui.pop = ""; } }
-                            }
-                        }
-                    }
-                }
-
-                // ═════════ privacy popover (click the coloured dots): which apps are using what ═════════
-                Item {
-                    id: privPop
-                    z: 10
-                    width: 300
-                    height: privCol.height + 20
-                    x: Math.max(6, Math.min(ui.width - width - 8, ui.menuX - width / 2))
-                    y: root.barHeight + 6
-                    opacity: ui.pop === "priv" ? 1 : 0
-                    visible: opacity > 0
-                    scale: ui.pop === "priv" ? 1 : 0.96
-                    transformOrigin: Item.Top
-                    Behavior on opacity { NumberAnimation { duration: 110 } }
-                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                    LGlass {
-                        anchors.fill: parent
-                        backdrop: glassBackdrop.item
-                        shaderUrl: root.glassShaderUrl
-                        liquid: root.liquidActive
-                        dark: root.darkMode
-                        bx: privPop.x; by: privPop.y
-                        cornerR: 22
-                        tint: root.glassOpacity
-                        thickness: 22
-                        strength: 0.7 * root.glassLiquid
-                        rim: root.glassRim
-                        grain: root.glassGrain
-                        blur: root.glassBlur
-                        debug: root.glassDebug
-                        onShaderError: root.glassState = "failed"
-                    }
-                    MouseArea { anchors.fill: parent }
-                    Connections { target: root; function onPrivacyAnyChanged() { if (!root.privacyAny && ui.pop === "priv") ui.pop = ""; } }
-                    Column {
-                        id: privCol
-                        x: 10; y: 10
-                        width: parent.width - 20
-                        Repeater {
-                            model: root.privacyRows
-                            delegate: Item {
-                                id: pr
-                                required property var modelData
-                                width: parent.width; height: 52
-                                Rectangle {
-                                    x: 6
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: 34; height: 34; radius: 17
-                                    color: pr.modelData.c
-                                    Glyph { anchors.centerIn: parent; width: 17; height: 17; kind: pr.modelData.glyph; color: "white" }
-                                }
-                                Column {
-                                    x: 52
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: parent.width - 52 - (pr.modelData.k === "rec" ? 76 : 8)
-                                    spacing: 1
-                                    Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.title; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                    Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.sub; color: pal.fg2; font.family: pal.fam; font.pixelSize: 11 }
-                                }
-                                Rectangle {
-                                    visible: pr.modelData.k === "rec"
-                                    anchors.right: parent.right; anchors.rightMargin: 6
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: 60; height: 26; radius: 13
-                                    color: "#FF453A"
-                                    Text { anchors.centerIn: parent; text: "Stop"; color: "white"; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
-                                    MouseArea { anchors.fill: parent; onClicked: { root.toggleRecording(); ui.pop = ""; } }
-                                }
                             }
                         }
                     }
@@ -4937,6 +4880,7 @@ Scope {
                         case "nowplaying": return cNowPlaying;
                         case "display": return cDisplay;
                         case "sound": return cSound;
+                        case "record": return cRecord;
                         }
                         return null;
                     }
@@ -5010,6 +4954,25 @@ Scope {
                                 spacing: 1
                                 Text { text: "Focus"; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
                                 Text { text: root.dnd ? "Do Not Disturb" : "Off"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12 }
+                            }
+                        }
+                    }
+                    Component {
+                        id: cRecord
+                        CCTile {
+                            t: pal; gx: ccg
+                            CCBtn {
+                                t: pal; gx: ccg
+                                x: 12; anchors.verticalCenter: parent.verticalCenter
+                                kind: root.recording ? "stoprec" : "record"; on: root.recording; onTint: "#FF453A"
+                                onClicked: root.toggleRecording()
+                            }
+                            Column {
+                                x: 62; anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 62 - 10
+                                spacing: 1
+                                Text { width: parent.width; elide: Text.ElideRight; text: root.recording ? "Stop" : "Record"; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { width: parent.width; elide: Text.ElideRight; text: root.recording ? root.recTime() : "Screen"; color: root.recording ? "#FF453A" : pal.fg2; font.family: pal.fam; font.pixelSize: 12 }
                             }
                         }
                     }
@@ -5199,6 +5162,51 @@ Scope {
                         x: 0; y: 0
                         width: parent.width
                         spacing: 10
+
+                        // ── privacy: which apps use the microphone / camera / screen (only while something is active) ──
+                        Item {
+                            id: ccPriv
+                            visible: root.privacyAny && root.barWidgetEnabled("privacy")
+                            width: parent.width
+                            height: visible ? root.privacyRows.length * 46 + 14 : 0
+                            CCTile { anchors.fill: parent; t: pal; gx: ccg; radius: 22 }
+                            Column {
+                                x: 8; y: 7
+                                width: parent.width - 16
+                                Repeater {
+                                    model: root.privacyRows
+                                    delegate: Item {
+                                        id: pr
+                                        required property var modelData
+                                        width: parent.width; height: 46
+                                        Rectangle {
+                                            x: 4
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 30; height: 30; radius: 15
+                                            color: pr.modelData.c
+                                            Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: pr.modelData.glyph; color: "white" }
+                                        }
+                                        Column {
+                                            x: 44
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: parent.width - 44 - (pr.modelData.k === "rec" ? 70 : 6)
+                                            spacing: 1
+                                            Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.title; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                            Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.sub; color: pal.fg2; font.family: pal.fam; font.pixelSize: 11 }
+                                        }
+                                        Rectangle {
+                                            visible: pr.modelData.k === "rec"
+                                            anchors.right: parent.right; anchors.rightMargin: 4
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 54; height: 24; radius: 12
+                                            color: "#FF453A"
+                                            Text { anchors.centerIn: parent; text: "Stop"; color: "white"; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
+                                            MouseArea { anchors.fill: parent; onClicked: root.toggleRecording() }
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         // ── the control grid ──
                         Item {

@@ -1801,7 +1801,7 @@ Scope {
         showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
-    onShowTrashChanged: rebuild()
+    onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
     onShowThumbsChanged: rebuild()
 
     function saveSettings() {
@@ -1874,6 +1874,59 @@ Scope {
         if (icon.charAt(0) === "/") return "file://" + icon;
         return Quickshell.iconPath(icon, "application-x-executable");
     }
+    // icon of a dock cell; the Trash switches to the "full" icon while there is something in it
+    function cellIconSrc(it) {
+        if (it && it.special === "trash" && trashFull) {
+            var p = Quickshell.iconPath("user-trash-full", true);
+            if (p !== "") return p;
+        }
+        return iconSrc(it ? it.icon : "");
+    }
+
+    // ── Trash state: the standard XDG trash (~/.local/share/Trash/files) is what Dolphin's trash:/ shows ──
+    // inotifywait (inotify-tools) reports changes at once; without it the folder is checked every 3 s.
+    property bool trashFull: false
+    property bool trashReady: false           // first check done (it also creates the folder, which inotifywait needs)
+    property bool trashPoll: false            // no inotifywait: poll instead
+    readonly property string trashDir: {
+        var x = Quickshell.env("XDG_DATA_HOME");
+        return ((x && x !== "") ? x : Quickshell.env("HOME") + "/.local/share") + "/Trash/files";
+    }
+    function trashCheck() { if (!trashCheckProc.running) trashCheckProc.running = true; }
+    Process {
+        id: trashCheckProc
+        command: ["sh", "-c", "mkdir -p \"$1\"; if [ -n \"$(ls -A \"$1\" 2>/dev/null | head -n 1)\" ]; then s=1; else s=0; fi; "
+                              + "if command -v inotifywait >/dev/null 2>&1; then w=w; else w=p; fi; echo \"$s $w\"", "sh", root.trashDir]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var t = text.trim().split(" ");
+                root.trashFull = t[0] === "1";
+                root.trashPoll = t[1] === "p";
+                root.trashReady = true;
+            }
+        }
+    }
+    Process {
+        id: trashWatch
+        running: root.showTrash && root.trashReady && !root.trashPoll
+        command: ["inotifywait", "-m", "-q", "-e", "create", "-e", "delete", "-e", "moved_to", "-e", "moved_from", root.trashDir]
+        stdout: SplitParser { onRead: data => trashDebounce.restart() }
+    }
+    // Empty Trash: KDE's ktrash when it exists (it also cleans trashes on other drives and keeps Dolphin's trash icon in sync),
+    // otherwise the standard XDG trash folder is cleared directly. (gio is not used: without gvfs it "succeeds" without doing anything.)
+    function emptyTrash() {
+        Quickshell.execDetached(["sh", "-c",
+            "command -v ktrash6 >/dev/null 2>&1 && ktrash6 --empty && exit 0; "
+            + "command -v ktrash5 >/dev/null 2>&1 && ktrash5 --empty && exit 0; "
+            + "d=\"${XDG_DATA_HOME:-$HOME/.local/share}/Trash\"; "
+            + "chmod -R u+w \"$d/files\" 2>/dev/null; "
+            + "find \"$d/files\" \"$d/info\" -mindepth 1 -delete 2>/dev/null; "
+            + "rm -f \"$d/directorysizes\""]);
+        trashAfterEmpty.restart();
+    }
+    Timer { id: trashAfterEmpty; interval: 900; onTriggered: root.trashCheck() }
+    Timer { id: trashDebounce; interval: 150; onTriggered: root.trashCheck() }
+    Timer { interval: 3000; repeat: true; running: root.showTrash && root.trashPoll; onTriggered: root.trashCheck() }
 
     // bumped (debounced) whenever windows open, close or change focus; thumbnails re-pick their window from it
     property int windowTick: 0
@@ -1898,7 +1951,11 @@ Scope {
     function activate(item, forceNew) {
         if (item.kind === "win") { if (item.tl) item.tl.activate(); return; }
         if (item.special === "trash") {
-            Quickshell.execDetached(["xdg-open", "trash:///"]);
+            // the file manager first (Dolphin understands trash:/ natively); xdg-open only as the last resort
+            Quickshell.execDetached(["sh", "-c",
+                "if command -v dolphin >/dev/null 2>&1; then exec dolphin trash:/; fi; "
+                + "for fm in nautilus thunar nemo pcmanfm-qt; do if command -v $fm >/dev/null 2>&1; then exec $fm trash:///; fi; done; "
+                + "exec xdg-open trash:///"]);
             return;
         }
         var wins = windowsFor(item.key);
@@ -1964,6 +2021,7 @@ Scope {
         }
         if (item.special === "trash") {
             m.push({ kind: "item", label: "Open", run: function () { activate(item, false); } });
+            m.push({ kind: "item", label: "Empty Trash", confirm: true, disabled: !trashFull, run: function () { root.emptyTrash(); } });
             m.push({ kind: "sep" });
             m.push({ kind: "item", label: "Settings\u2026", run: function() { root.openPrefs(); } });
             return m;
@@ -2219,6 +2277,7 @@ Scope {
         Quickshell.execDetached(["mkdir", "-p", configDir]);
         rebuild();
         refreshBusy();
+        trashCheck();
     }
 
     FileView {
@@ -2275,6 +2334,8 @@ Scope {
                 property bool revealed: false
                 property var menuItem: null
                 property var menuModel: []
+                property string armed: ""            // label of a confirm-type entry that was clicked once (e.g. Empty Trash)
+                onMenuItemChanged: armed = ""
                 property real menuCx: 0
                 readonly property bool menuOpen: menuItem !== null
                 readonly property bool wantsHide: root.hideMode === "always"
@@ -2667,7 +2728,7 @@ Scope {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     anchors.bottom: parent.bottom
                                     anchors.bottomMargin: lift
-                                    source: cell.isSep ? "" : root.iconSrc(cell.modelData.icon)
+                                    source: cell.isSep ? "" : root.cellIconSrc(cell.modelData)
                                     sourceSize: Qt.size(Math.ceil(root.iconSize * root.magnification * 1.25),
                                                         Math.ceil(root.iconSize * root.magnification * 1.25))
                                     fillMode: Image.PreserveAspectFit
@@ -2865,6 +2926,8 @@ Scope {
                                 id: mi
                                 required property var modelData
                                 readonly property bool isSep: modelData.kind === "sep"
+                                readonly property bool off: !isSep && modelData.disabled === true
+                                readonly property bool armedNow: !isSep && modelData.confirm === true && ui.armed === modelData.label
                                 width: menuCol.width
                                 height: isSep ? 9 : 26
 
@@ -2877,10 +2940,10 @@ Scope {
                                     color: Qt.rgba(1, 1, 1, 0.14)
                                 }
                                 Rectangle {
-                                    visible: !mi.isSep && mia.containsMouse
+                                    visible: !mi.isSep && !mi.off && mia.containsMouse
                                     anchors.fill: parent
                                     radius: 5
-                                    color: root.accent
+                                    color: mi.armedNow ? "#FF453A" : root.accent
                                 }
                                 Text {
                                     visible: !mi.isSep
@@ -2888,17 +2951,19 @@ Scope {
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: parent.width - 20
                                     elide: Text.ElideRight
-                                    text: mi.isSep ? "" : mi.modelData.label
-                                    color: "white"
+                                    text: mi.isSep ? "" : (mi.armedNow ? "Click again to confirm" : mi.modelData.label)
+                                    color: mi.off ? Qt.rgba(1, 1, 1, 0.4) : "white"
                                     font.pixelSize: 13
                                     font.family: root.fontFamily
                                 }
                                 MouseArea {
                                     id: mia
                                     anchors.fill: parent
-                                    enabled: !mi.isSep
+                                    enabled: !mi.isSep && !mi.off
                                     hoverEnabled: true
+                                    onContainsMouseChanged: if (!containsMouse && ui.armed === mi.modelData.label) ui.armed = ""
                                     onClicked: {
+                                        if (mi.modelData.confirm === true && ui.armed !== mi.modelData.label) { ui.armed = mi.modelData.label; return; }
                                         var run = mi.modelData.run;
                                         ui.menuItem = null;
                                         if (run) run();
