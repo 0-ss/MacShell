@@ -552,45 +552,16 @@ Scope {
         property real rim: 0.45
         property real grain: 0.03
         property real blur: 5               // backdrop blur radius, px (settings slider)
-        property bool blurFallback: false   // keep selected surfaces backdrop-blurred if the liquid shader is unavailable
         property bool debug: false
         signal shaderError()
 
-        Item {
+        Rectangle {
             visible: !g.liquid
             anchors.fill: parent
-            ShaderEffectSource {
-                id: fallbackSrc
-                sourceItem: g.blurFallback ? g.backdrop : null
-                hideSource: true
-                live: g.blurFallback && g.backdrop !== null
-                visible: false
-                sourceRect: Qt.rect(g.bx, g.by, g.width, g.height)
-                textureSize: Qt.size(Math.max(1, Math.round(g.width)), Math.max(1, Math.round(g.height)))
-            }
-            MultiEffect {
-                anchors.fill: parent
-                visible: g.blurFallback && g.backdrop !== null
-                source: fallbackSrc
-                blurEnabled: g.blurFallback
-                blurMax: 64
-                blur: Math.max(0.0, Math.min(1.0, g.blur / 64.0))
-                autoPaddingEnabled: false
-                maskEnabled: true
-                maskSource: Rectangle {
-                    width: g.width; height: g.height; radius: g.cornerR
-                    color: "white"
-                }
-            }
-            Rectangle {
-                anchors.fill: parent
-                radius: g.cornerR
-                color: g.blurFallback
-                       ? (g.dark ? Qt.rgba(0.12, 0.12, 0.13, 0.18 + g.tint * 0.24) : Qt.rgba(1, 1, 1, 0.14 + g.tint * 0.22))
-                       : (g.dark ? Qt.rgba(0.12, 0.12, 0.13, 0.30 + g.tint * 0.9) : Qt.rgba(1, 1, 1, 0.30 + g.tint * 0.7))
-                border.width: 1
-                border.color: g.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.55)
-            }
+            radius: g.cornerR
+            color: g.dark ? Qt.rgba(0.12, 0.12, 0.13, 0.30 + g.tint * 0.9) : Qt.rgba(1, 1, 1, 0.30 + g.tint * 0.7)
+            border.width: 1
+            border.color: g.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.55)
         }
         Loader {
             anchors.fill: parent
@@ -3273,7 +3244,7 @@ Scope {
                 // ready-made, current window pixels.
                 Loader {
                     id: glassBackdrop
-                    active: root.liquidActive || ui.toastsShown || ui.pop === "notif"
+                    active: root.liquidActive
                     sourceComponent: backdropComp
                     onLoaded: item.region = Qt.binding(function () { return ui.glassRect; })
                 }
@@ -4029,7 +4000,6 @@ Scope {
                                     backdrop: glassBackdrop.item
                                     shaderUrl: root.glassShaderUrl
                                     liquid: root.liquidActive
-                                    blurFallback: true
                                     dark: root.darkMode
                                     bx: toastArea.x + toast.x; by: toastArea.y + toast.y
                                     cornerR: 24
@@ -4080,7 +4050,6 @@ Scope {
                         backdrop: glassBackdrop.item
                         shaderUrl: root.glassShaderUrl
                         liquid: root.liquidActive
-                        blurFallback: true
                         dark: root.darkMode
                         bx: notifPop.x; by: notifPop.y
                         cornerR: 26
@@ -4175,27 +4144,8 @@ Scope {
                                     width: ncol.width
                                     height: hbody.height
                                     radius: 18
-                                    color: "transparent"
-                                    border.width: 0
-                                    LGlass {
-                                        anchors.fill: parent
-                                        backdrop: glassBackdrop.item
-                                        shaderUrl: root.glassShaderUrl
-                                        liquid: root.liquidActive
-                                        blurFallback: true
-                                        dark: root.darkMode
-                                        bx: hc.mapToItem(ui, 0, 0).x
-                                        by: hc.mapToItem(ui, 0, 0).y
-                                        cornerR: 18
-                                        tint: root.glassOpacity
-                                        thickness: 20
-                                        strength: 0.72 * root.glassLiquid
-                                        rim: root.glassRim
-                                        grain: root.glassGrain
-                                        blur: root.notifBlur
-                                        debug: root.glassDebug
-                                        onShaderError: root.glassState = "failed"
-                                    }
+                                    color: pal.tile
+                                    border.width: 1; border.color: pal.tileBorder
                                     HoverHandler { id: hhov }
                                     MouseArea {
                                         anchors.fill: parent
