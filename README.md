@@ -176,7 +176,12 @@ does not answer that frame, the shell then destroys it, and the compositor drops
 - The shell already pauses glass captures while windows open/close.
 - Auto-restart it: `sh -c 'while :; do qs -c macshell; sleep 1; done'` as the autostart command.
 
-Reproduced on Hyprland 0.56.2 / Quickshell 0.3.x; not yet reported upstream.
+Glitchy window capture
+Can be disabled on Settings:
+
+- Settings → Dock Behavior → turn **Live window capture** off.
+
+Reproduced on Hyprland 0.56.2 / Quickshell 0.3.2
 
 ## Credits
 
