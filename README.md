@@ -106,19 +106,15 @@ hl.layer_rule({ name = "macshot",  match = { namespace = "macshot"  }, no_anim =
 -- "macshell Settings" (see /usr/share/hypr/hyprland.lua for the window_rule syntax of your version).
 
 -- keybinds (the name after -c must match your folder name)
-qs = "qs -p /home/user/.config/quickshell/macshell/shell.qml ipc call switcher" <-- Put this on Top local 
-hl.bind("SUPER + V", hl.dsp.exec_cmd("qs -c /home/user/.config/quickshell/macshell ipc call spotlight clipboard"))
+local qs = "qs -c macshell ipc call " <-- put this on top
 
-hl.bind("SUPER + period", hl.dsp.exec_cmd("qs -c /home/user/.config/quickshell/macshell ipc call spotlight emoji"))
-
-hl.bind("SUPER+ Space",hl.dsp.exec_cmd("qs -p /home/user/.config/quickshell/macshell/shell.qml ipc call spotlight toggle"))
-
-hl.bind("ALT + TAB",         hl.dsp.exec_cmd(qs .. "next"))
-hl.bind("ALT + SHIFT + TAB", hl.dsp.exec_cmd(qs .. "prev"))
-
-hl.bind("CTRL + ALT + W", hl.dsp.exec_cmd("qs -c /home/user/.config/quickshell/macshell ipc call wallpapers toggle"))
-
-hl.bind("Print", hl.dsp.exec_cmd("qs -c /home/user/.config/quickshell/macshell ipc call screenshot region"))
+hl.bind("SUPER + V",         hl.dsp.exec_cmd(qs .. "spotlight clipboard"))
+hl.bind("SUPER + period",    hl.dsp.exec_cmd(qs .. "spotlight emoji"))
+hl.bind("SUPER + Space",     hl.dsp.exec_cmd(qs .. "spotlight toggle"))
+hl.bind("ALT + Tab",         hl.dsp.exec_cmd(qs .. "switcher next"))
+hl.bind("ALT + SHIFT + Tab", hl.dsp.exec_cmd(qs .. "switcher prev"))
+hl.bind("CTRL + ALT + W",    hl.dsp.exec_cmd(qs .. "wallpapers toggle"))
+hl.bind("Print",             hl.dsp.exec_cmd(qs .. "screenshot region"))
 ```
 
 Also make sure **blur is enabled** in your Hyprland `decoration` settings, or the "Normal Blur" style won't blur.
