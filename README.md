@@ -71,7 +71,7 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 1. Install the requirements above. On Arch, for example:
    ```sh
    sudo pacman -S hyprland quickshell qt6-declarative qt6-wayland qt6-shadertools qt6-svg \
-        grim wl-clipboard cliphist libnotify brightnessctl networkmanager bluez-utils inotify-tools \
+        grim wl-clipboard wf-recorder cliphist libnotify brightnessctl networkmanager bluez-utils inotify-tools \
         ttf-inter noto-fonts-emoji
    ```
    Other distros: install the equivalents. Fedora has a Quickshell COPR; Nix has `pkgs.quickshell`.
