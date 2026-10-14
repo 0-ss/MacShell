@@ -50,6 +50,34 @@ ShellRoot {
         onWantQuietChanged: { if (wantQuiet) { quietRelease.stop(); captureQuiet = true; } else quietRelease.restart(); }
         Timer { id: quietRelease; interval: 1500; onTriggered: sharedHub.captureQuiet = false }
 
+        // ── capture hold: the Dock's window PREVIEWS (thumbnails) are not captured while windows are being opened / closed ──
+        // (Liquid Glass backdrops are NOT affected: they capture exactly as in the older version, see tlFor below.)
+        // Crash: opening / closing many windows quickly ended with
+        //   wl_display#1: error 0: invalid object NNN
+        // (WAYLAND_DEBUG showed a hyprland_toplevel_export_frame_v1 destroyed by the shell while it was still in flight, i.e. before
+        // Hyprland answered ready / failed; the compositor then killed the whole Wayland connection.)
+        // Two stages, so an in-flight frame is never aborted:
+        //   stage 1 (captureHold): live capture stops, the current frame finishes;
+        //   stage 2 (captureCut, 0.5 s later): the capture source is released. A short hold never reaches stage 2.
+        // The hold starts on every openwindow / closewindow and ends 1.2 s after the last one; the previews then resume.
+        // windowCapture = false (Dock Preferences, or  qs -c <config> ipc call glass captures false) switches the window previews off.
+        readonly property bool windowCapture: macDock.windowCapture      // Dock Preferences -> "Live window capture" (saved in macdock/settings.json)
+        property bool churn: false
+        readonly property bool captureHold: churn || !windowCapture
+        // Liquid Glass: only stage 1, and only while windows open / close. Live capture pauses (the glass keeps its last frame, the capture
+        // source stays attached, so nothing goes blank), then resumes. Not tied to the previews switch, never cut.
+        readonly property bool glassHold: churn
+        property bool captureCut: false
+        onCaptureHoldChanged: { if (captureHold) cutDelay.restart(); else { cutDelay.stop(); captureCut = false; } }
+        Timer { id: cutDelay; interval: 500; onTriggered: sharedHub.captureCut = true }
+        Timer { id: churnRelease; interval: 1200; onTriggered: sharedHub.churn = false }
+        // forget admission records of windows that no longer exist (the table grew by one entry per window ever opened)
+        function tlPrune() {
+            var ts = Hyprland.toplevels.values, live = {}, k;
+            for (var i = 0; i < ts.length; i++) live[ts[i].address] = true;
+            for (k in tlState.ready) if (!live[k]) delete tlState.ready[k];
+        }
+
         function refreshWallpaper() { if (!wpProc.running) wpProc.running = true; }
 
         // window + monitor geometry for the Liquid Glass backdrops
@@ -72,7 +100,10 @@ ShellRoot {
         Timer { id: geoCool; interval: 1500; onTriggered: sharedHub.geoHot = false }
         Connections {
             target: Hyprland
-            function onRawEvent(event) { sharedHub.geoHot = true; geoCool.restart(); tlDebounce.restart(); }
+            function onRawEvent(event) {
+                if (event.name === "openwindow" || event.name === "closewindow") { sharedHub.churn = true; churnRelease.restart(); }
+                sharedHub.geoHot = true; geoCool.restart(); tlDebounce.restart();
+            }
         }
 
         // ── window capture gate (shared by the Menu Bar and the Dock glass) ──
@@ -84,7 +115,7 @@ ShellRoot {
         property int tlTick: 0
         property var tlState: ({ ready: {}, last: 0, next: 0 })     // plain bookkeeping: mutated inside bindings WITHOUT notifying (no binding loop)
         Timer { id: tlYoung; onTriggered: { sharedHub.tlState.next = 0; sharedHub.tlTick++; } }
-        Timer { id: tlDebounce; interval: 120; onTriggered: sharedHub.tlTick++ }
+        Timer { id: tlDebounce; interval: 120; onTriggered: { sharedHub.tlPrune(); sharedHub.tlTick++; } }
         function tlArm() {
             var st = tlState, d = st.next - Date.now();
             tlYoung.interval = Math.max(10, d) + 15;
@@ -208,5 +239,10 @@ ShellRoot {
     IpcHandler {
         target: "settings"
         function open(): void { macDock.openPrefs("general"); }
+    }
+    // qs -c <config> ipc call glass captures false   (true to switch window previews back on)
+    IpcHandler {
+        target: "glass"
+        function captures(on: bool): void { macDock.windowCapture = on; }
     }
 }

@@ -35,6 +35,9 @@ Scope {
     property var hub: null
     property bool dockEnabled: true      // false = no Dock at all (settings window stays available)
     readonly property var bar: hub ? hub.bar : null
+    readonly property bool captureCut: hub ? hub.captureCut : false
+    readonly property bool glassHold: hub ? hub.glassHold : false          // windows opening / closing: the glass's live captures pause, source stays attached
+    readonly property bool captureHold: hub ? hub.captureHold : false     // windows opening / closing: the dock PREVIEW capture stops (source released 0.5 s later); the glass is not affected
     // appearance values shared by Dock and Menu Bar
     function setLook(k, v) { root[k] = v; if (bar) bar[k] = v; }
 
@@ -69,6 +72,7 @@ Scope {
     property bool showIndicators: true   // dots under running apps
     property bool bounceOnLaunch: true
     property bool showThumbs: true       // open windows get a live preview cell next to the Trash
+    property bool windowCapture: true    // live window capture for those previews (off: the cells show the app icon, nothing is captured). Liquid Glass is not affected
     property int hideDelay: 450          // ms before the dock hides after the pointer leaves
     readonly property var accentChoices: [
         { name: "Blue",     c: "#0a84ff" }, { name: "Purple", c: "#bf5af2" },
@@ -1581,6 +1585,12 @@ Scope {
                     }
                     SRow {
                         t: pal
+                        title: "Live window capture"
+                        subtitle: "Capture open windows for the previews. Turn off and the previews show the app icon instead (Liquid Glass is not affected)"
+                        SSwitch { t: pal; checked: root.windowCapture; onToggled: v => root.windowCapture = v }
+                    }
+                    SRow {
+                        t: pal
                         title: "Show indicators for open applications"
                         SSwitch { t: pal; checked: root.showIndicators; onToggled: v => root.showIndicators = v }
                     }
@@ -1808,17 +1818,18 @@ Scope {
         spacing = 6; margin = 6; cornerRadius = 18;
         darkMode = true; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter";
         hideMode = "smart"; hideDelay = 450; monitor = "";
-        showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true;
+        showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true;
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
-        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs].join("|")
+        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
     onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
     onShowThumbsChanged: rebuild()
+    onWindowCaptureChanged: rebuild()
 
     function saveSettings() {
         var o = {
@@ -1829,7 +1840,7 @@ Scope {
             accent: String(accent), fontFamily: fontFamily,
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
             showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators,
-            bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs
+            bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture
         };
         settingsStore.setText(JSON.stringify(o, null, 2));
     }
@@ -1838,7 +1849,7 @@ Scope {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
-                    "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs"];
+                    "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
             try { root[keys[i]] = o[keys[i]]; } catch (err) { }
@@ -2119,6 +2130,8 @@ Scope {
             for (var w = 0; w < tls.length; w++) {
                 var tl = tls[w];
                 if (!tl.appId || tl.title === "macshell Settings") continue;
+                // live capture off: a preview cell is only an app icon, so a pinned app (its icon is already in the Dock) gets none; unpinned apps keep theirs
+                if (!windowCapture && seen[keyOf(tl.appId)]) continue;
                 var e3 = lookup(tl.appId);
                 var wid = winIdFor(tl);
                 liveWins.push(tl);
@@ -2479,12 +2492,12 @@ Scope {
                                     sourceComponent: ScreencopyView {
                                         id: sc
                                         captureSource: gw.tl
-                                        live: root.glassRT || !ui.tucked
-                                        onCaptureSourceChanged: { if (captureSource !== null && !live) firstShot.restart(); }
+                                        live: !root.glassHold && (root.glassRT || !ui.tucked)
+                                        onCaptureSourceChanged: { if (captureSource !== null && !live && !root.glassHold) firstShot.restart(); }
                                         Timer {
                                             id: firstShot
                                             interval: 90
-                                            onTriggered: { if (sc.captureSource !== null && !sc.live && typeof sc.captureFrame === "function") sc.captureFrame(); }
+                                            onTriggered: { if (sc.captureSource !== null && !sc.live && !root.glassHold && typeof sc.captureFrame === "function") sc.captureFrame(); }
                                         }
                                     }
                                 }
@@ -2775,8 +2788,8 @@ Scope {
                                     ScreencopyView {
                                         id: sv
                                         anchors.centerIn: parent
-                                        captureSource: cell.thumbWin
-                                        live: !ui.tucked          // only keep capturing while the dock is on screen
+                                        captureSource: root.captureCut ? null : cell.thumbWin
+                                        live: !ui.tucked && !root.captureHold          // only keep capturing while the dock is on screen
                                         readonly property real ar: (implicitWidth > 0 && implicitHeight > 0)
                                                                    ? implicitWidth / implicitHeight : 4 / 3
                                         width: Math.min(th.width, th.height * ar)

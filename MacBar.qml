@@ -83,6 +83,8 @@ Scope {
     property var hub: null
     // true while a screen recording / screen share runs: the glass's live window captures sit out (see shell.qml: hub.captureQuiet)
     readonly property bool captureQuiet: hub ? hub.captureQuiet : recording
+    // windows opening / closing: the glass's live captures pause (it keeps its last frame; the source stays attached) - see shell.qml: hub.glassHold
+    readonly property bool captureHeld: hub ? hub.glassHold : false
 
     // ───────────── CONFIG (all persisted to settings.json) ─────────────
     property bool barEnabled: true           // false = no menu bar / Spotlight / Control Center at all
@@ -3327,11 +3329,11 @@ Scope {
                                     // hidden right now (Spotlight, switcher, ...) are only kept warm with slow single captures.
                                     // While recording only the windows behind visible glass stay live (so the glass is real-time exactly where you see it,
                                     // e.g. a video behind the Control Center), every other window sits out.
-                                    live: !gw.gone && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible)
+                                    live: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible)
                                     onCaptureSourceChanged: {
                                         // a brand-new capture grabs its first frame immediately instead of waiting for the timer
                                         // (a short delay: asking before the capture context exists only logged "no recording context is ready")
-                                        if (captureSource !== null && !live && !sv.hush) firstShot.restart();
+                                        if (captureSource !== null && !live && !sv.hush && !root.captureHeld) firstShot.restart();
                                     }
                                     Timer {
                                         id: firstShot
@@ -3342,7 +3344,7 @@ Scope {
                                     // while recording only a backdrop that is actually on screen refreshes, slowly
                                     Timer {
                                         interval: sv.hush ? 1500 : (bd.hostShown ? 250 : 1000); repeat: true
-                                        running: !sv.live && sv.captureSource !== null
+                                        running: !root.captureHeld && !sv.live && sv.captureSource !== null
                                                  && (!sv.hush || (bd.hostShown && (ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible)))
                                         onTriggered: { if (typeof sv.captureFrame === "function") sv.captureFrame(); }
                                     }
