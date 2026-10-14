@@ -1,7 +1,7 @@
 // macbar — a macOS Tahoe style menu bar for Hyprland, built on Quickshell.
 //
-// Part of the combined macbar + macdock shell (see shell.qml). Keep this file, MacDock.qml, shell.qml and
-// liquidglass.frag together in ~/.config/quickshell/macbar/ and run:  qs -c macbar
+// Part of the combined macbar + macdock shell (see shell.qml). Keep this file, MacDock.qml, shell.qml,
+// liquidglass.frag and apple-logo-*.svg together in ~/.config/quickshell/macbar/ and run:  qs -c macbar
 //
 // Settings live in ~/.config/macbar/settings.json (Apple menu → System Settings…, or Control Center → Edit Controls).
 // On first run, appearance (dark mode, accent, font, glass tuning, wallpaper) is inherited from macdock's settings.json.
@@ -92,6 +92,8 @@ Scope {
     property color accent: "#0A84FF"
     property string fontFamily: "Inter"
     property int barHeight: 28
+    property string barLogoMode: "arch"       // "arch", "apple", or "custom"
+    property string barCustomLogoPath: ""     // absolute path, ~/path, or file URL for the custom menu-bar logo
     // The bar-size slider scales its widget groups while the left/right groups stay pinned to their corners.
     readonly property real barWidgetScale: Math.max(0.8, Math.min(1.55, barHeight / 28))
     readonly property real barPopupScale: Math.max(0.9, Math.min(1.25, 1 + (barHeight - 28) / 88))
@@ -145,11 +147,22 @@ Scope {
 
     readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
         "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "showDate",
-        "showSeconds", "showBatteryPercent", "showTray", "showSearch", "barWidgets", "weekStartsMonday", "terminal", "launcher",
+        "showSeconds", "showBatteryPercent", "showTray", "showSearch", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
     // Optional bar widgets; tray and Spotlight use their existing showTray/showSearch settings.
     property var barWidgets: ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "bluetooth", "privacy", "controlCenter", "clock"]
     function barWidgetEnabled(id) { return barWidgets.indexOf(id) >= 0; }
+    function resolvedBarLogoUrl() {
+        var p = String(barCustomLogoPath || "").trim();
+        if (p === "") return "";
+        if (p.indexOf("://") >= 0) return p;
+        var home = Quickshell.env("HOME") || "";
+        if (p === "~") p = home;
+        else if (p.indexOf("~/") === 0) p = home + p.substring(1);
+        else if (p.charAt(0) !== "/") p = home + "/" + p;
+        return "file://" + encodeURI(p).replace(/#/g, "%23").replace(/\?/g, "%3F");
+    }
+    readonly property string barCustomLogoUrl: resolvedBarLogoUrl()
     function setBarWidget(id, enabled) {
         var next = [];
         for (var i = 0; i < barWidgets.length; i++) if (barWidgets[i] !== id) next.push(barWidgets[i]);
@@ -2597,6 +2610,7 @@ Scope {
         darkMode = true; accent = "#0a84ff"; fontFamily = "Inter"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = true;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
         showTray = true; showSearch = true;
+        barLogoMode = "arch"; barCustomLogoPath = "";
         barWidgets = ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "bluetooth", "privacy", "controlCenter", "clock"];
         ccControls = ccDefault.slice();
     }
@@ -3571,7 +3585,36 @@ Scope {
                                     color: mt.open ? pal.hover : "transparent"
                                 }
                                 Glyph {
-                                    visible: mt.modelData.id === "apple"
+                                    visible: mt.modelData.id === "apple" && root.barLogoMode === "arch"
+                                    anchors.centerIn: parent
+                                    width: 15; height: 15
+                                    kind: "arch"
+                                    color: pal.fg
+                                }
+                                Image {
+                                    visible: mt.modelData.id === "apple" && root.barLogoMode === "apple"
+                                    anchors.centerIn: parent
+                                    width: 15; height: 15
+                                    source: root.darkMode ? Qt.resolvedUrl("apple-logo-white.svg") : Qt.resolvedUrl("apple-logo-black.svg")
+                                    sourceSize: Qt.size(128, 160)
+                                    fillMode: Image.PreserveAspectFit
+                                    smooth: true
+                                    mipmap: true
+                                }
+                                Image {
+                                    id: customBarLogo
+                                    visible: mt.modelData.id === "apple" && root.barLogoMode === "custom" && root.barCustomLogoUrl !== ""
+                                    anchors.centerIn: parent
+                                    width: 17; height: 17
+                                    source: root.barCustomLogoUrl
+                                    sourceSize: Qt.size(64, 64)
+                                    fillMode: Image.PreserveAspectFit
+                                    smooth: true
+                                    mipmap: true
+                                }
+                                Glyph {
+                                    visible: mt.modelData.id === "apple" && root.barLogoMode === "custom"
+                                             && (root.barCustomLogoUrl === "" || customBarLogo.status === Image.Error)
                                     anchors.centerIn: parent
                                     width: 15; height: 15
                                     kind: "arch"

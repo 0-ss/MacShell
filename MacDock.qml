@@ -980,6 +980,73 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
+                        title: "Menu Bar logo"
+                        subtitle: "Choose the Arch mark, Apple logo, or a custom image"
+                        SSegmented {
+                            t: pal
+                            model: ["Arch", "Apple", "Custom"]
+                            segWidth: 68
+                            current: !root.bar || root.bar.barLogoMode === "arch" ? 0 : (root.bar.barLogoMode === "apple" ? 1 : 2)
+                            onPicked: i => {
+                                if (root.bar) root.bar.barLogoMode = ["arch", "apple", "custom"][i];
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: root.bar && root.bar.barLogoMode === "custom"
+                        title: "Custom image path"
+                        subtitle: "Enter a local image path (PNG, SVG, or other supported format)"
+                        Row {
+                            spacing: 8
+                            Rectangle {
+                                width: 210; height: 26; radius: 6
+                                color: pal.ctrl
+                                border.width: 1
+                                border.color: pal.cardBorder
+                                TextInput {
+                                    id: barLogoPathInput
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8; anchors.rightMargin: 8
+                                    verticalAlignment: TextInput.AlignVCenter
+                                    clip: true
+                                    selectByMouse: true
+                                    color: pal.text
+                                    selectionColor: pal.accent
+                                    font.family: pal.fam
+                                    font.pixelSize: 12
+                                    text: root.bar ? root.bar.barCustomLogoPath : ""
+                                    onTextEdited: { if (root.bar) root.bar.barCustomLogoPath = text; }
+                                    Connections {
+                                        target: root.bar
+                                        function onBarCustomLogoPathChanged() {
+                                            if (root.bar && barLogoPathInput.text !== root.bar.barCustomLogoPath)
+                                                barLogoPathInput.text = root.bar.barCustomLogoPath;
+                                        }
+                                    }
+                                }
+                                Text {
+                                    visible: barLogoPathInput.text === ""
+                                    x: 8
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "~/Pictures/logo.png"
+                                    color: pal.text3
+                                    font.family: pal.fam
+                                    font.pixelSize: 12
+                                }
+                            }
+                            SButton {
+                                t: pal; text: "Clear"
+                                onClicked: { if (root.bar) root.bar.barCustomLogoPath = ""; }
+                            }
+                        }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
                         title: "Bar background"
                         subtitle: "A separate layer (macbarbg) so Hyprland can blur it. Needs: layerrule = blur, macbarbg"
                         SSlider {
