@@ -106,7 +106,7 @@ hl.layer_rule({ name = "macshot",  match = { namespace = "macshot"  }, no_anim =
 -- "macshell Settings" (see /usr/share/hypr/hyprland.lua for the window_rule syntax of your version).
 
 -- keybinds (the name after -c must match your folder name)
-qs = "qs -p /home/carl/.config/quickshell/macshell/shell.qml ipc call switcher" <-- Put this on Top local 
+qs = "qs -p /home/user/.config/quickshell/macshell/shell.qml ipc call switcher" <-- Put this on Top local 
 hl.bind("ALT + Space",      hl.dsp.exec_cmd("qs -c macshell ipc call spotlight toggle"))
 hl.bind("SUPER + V",        hl.dsp.exec_cmd("qs -c macshell ipc call spotlight clipboard"))
 hl.bind("SUPER + period",   hl.dsp.exec_cmd("qs -c macshell ipc call spotlight emoji"))
