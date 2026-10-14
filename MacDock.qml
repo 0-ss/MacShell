@@ -950,6 +950,22 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
+                        title: "Bar background"
+                        subtitle: "A separate layer (macbarbg) so Hyprland can blur it. Needs: layerrule = blur, macbarbg"
+                        SSlider {
+                            t: pal
+                            from: 0; to: 0.6; stepSize: 0.01
+                            value: root.bar ? root.bar.barBgOpacity : 0.10
+                            leftLabel: "Hidden"; rightLabel: "Tinted"
+                            onMoved: v => { if (root.bar) root.bar.barBgOpacity = v; }
+                        }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
                         title: "24-hour clock"
                         SSwitch {
                             t: pal

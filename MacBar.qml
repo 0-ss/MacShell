@@ -11,8 +11,12 @@
 //   windowrule = center, title:^(macbar Settings)$
 //   layerrule  = blur, macspot          (Spotlight is its own layer; the bar itself needs no blur rule)
 //   layerrule  = ignorealpha 0.05, macspot
+//   # the bar's background is its own layer ("macbarbg", under the bar): blur it with Hyprland like this
+//   layerrule  = blur, macbarbg
+//   layerrule  = ignorealpha 0.05, macbarbg
 // Hyprland (Lua):
 //   hl.layer_rule({ name = "macspot", match = { namespace = "macspot" }, blur = true, ignore_alpha = 0.05, no_anim = true })
+//   hl.layer_rule({ name = "macbarbg", match = { namespace = "macbarbg" }, blur = true, ignore_alpha = 0.05, no_anim = true })
 //
 // Optional tools used by the Control Center:
 //   nmcli (Wi-Fi / VPN / Ethernet), pactl (audio device routing), hyprctl (keyboard layouts), pw-dump (privacy dots),
@@ -92,6 +96,7 @@ Scope {
     property real glassGrain: 0.015
     property real glassLiquid: 1.0
     property real glassBlur: 5
+    property real barBgOpacity: 0.10          // fill of the separate "macbarbg" layer (0 = layer hidden). Must stay above the layerrule's ignore_alpha (0.05) for Hyprland to blur it
     property bool glassRealtime: true       // keep every window capture live all the time (no wallpaper-first delay when a popover opens)
     property bool glassDebug: false
     property string wallpaperPath: ""
@@ -134,7 +139,7 @@ Scope {
     property var fileHits: []
 
     readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
-        "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "showDate",
+        "barStyle", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
     // Optional bar widgets; tray and Spotlight use their existing showTray/showSearch settings.
@@ -2519,7 +2524,7 @@ Scope {
     }
     function resetSettings() {
         barEnabled = true;
-        darkMode = true; accent = "#0a84ff"; fontFamily = "Inter"; glassOpacity = 0.42; glassBlur = 5; glassRealtime = true;
+        darkMode = true; accent = "#0a84ff"; fontFamily = "Inter"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = true;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
         showTray = true; showSearch = true;
         barWidgets = ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "privacy", "controlCenter", "clock"];
@@ -5918,6 +5923,30 @@ Scope {
                         font.family: pal.fam; font.pixelSize: 13
                     }
                 }
+            }
+        }
+
+        // ═════════ the bar's background lives in its OWN layer (namespace "macbarbg") ═════════
+        // Hyprland blurs a whole layer or none of it, and the bar window also carries the popovers, so the bar strip is a separate
+        // layer just under the bar: it paints a translucent fill (Settings → Menu Bar → Bar background) and takes no input.
+        // Blur it with:  layerrule = blur, macbarbg   +   layerrule = ignorealpha 0.05, macbarbg
+        PanelWindow {
+            id: barBgWin
+            screen: perScreen.modelData
+            visible: root.barBgOpacity > 0.001
+            anchors { left: true; right: true; top: true }
+            implicitHeight: root.barHeight
+            color: "transparent"
+            exclusionMode: ExclusionMode.Ignore
+            mask: Region { }
+
+            WlrLayershell.namespace: "macbarbg"
+            WlrLayershell.layer: WlrLayer.Bottom
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+            Rectangle {
+                anchors.fill: parent
+                color: root.darkMode ? Qt.rgba(0.10, 0.10, 0.11, root.barBgOpacity) : Qt.rgba(1, 1, 1, root.barBgOpacity)
             }
         }
 
