@@ -41,7 +41,7 @@ Scope {
     // appearance values shared by Dock and Menu Bar
     function setLook(k, v) { root[k] = v; if (bar) bar[k] = v; }
 
-    // ───────────── CONFIG ─────────────
+    // ───────────── CONFIG ───────────── Lachowski
     property string monitor: ""          // "" = every monitor, or e.g. "DP-1"
     property int iconSize: 52
     property real magnification: 1.7     // peak icon scale
@@ -496,10 +496,8 @@ Scope {
         title: "macshell Settings"
         width: 820
         height: 600
-        minimumWidth: width
-        maximumWidth: width
-        minimumHeight: height
-        maximumHeight: height
+        minimumWidth: 700
+        minimumHeight: 500
         visible: false
         color: "transparent"
         flags: Qt.Window | Qt.FramelessWindowHint
@@ -516,7 +514,7 @@ Scope {
             { id: "dock",       name: "Dock",         glyph: "dock",       c1: "#4FA8FF", c2: "#0A6CFF",
               keys: "size icon magnification zoom spacing margin distance edge" },
             { id: "menubar",    name: "Menu Bar",     glyph: "menubar",    c1: "#7D7AFF", c2: "#4B48D6",
-              keys: "panel bar clock date seconds 24 hour battery tray search spotlight week monday style liquid" },
+              keys: "panel bar height clock date seconds 24 hour battery tray search spotlight week monday style liquid bluetooth widget" },
             { id: "appearance", name: "Appearance",   glyph: "appearance", c1: "#636366", c2: "#1C1C1E",
               keys: "theme dark light mode accent color glass liquid apple style translucency blur corner radius font" },
             { id: "behavior",   name: "Dock Behavior", glyph: "behavior",  c1: "#4CD964", c2: "#26A844",
@@ -603,6 +601,16 @@ Scope {
             border.width: 1
             border.color: pal.windowBorder
 
+            // Native Wayland resize handles for this frameless window.
+            MouseArea { x: 12; y: 0; width: parent.width - 24; height: 6; z: 1000; cursorShape: Qt.SizeVerCursor; onPressed: prefsWindow.startSystemResize(Qt.TopEdge) }
+            MouseArea { x: 12; y: parent.height - 6; width: parent.width - 24; height: 6; z: 1000; cursorShape: Qt.SizeVerCursor; onPressed: prefsWindow.startSystemResize(Qt.BottomEdge) }
+            MouseArea { x: 0; y: 12; width: 6; height: parent.height - 24; z: 1000; cursorShape: Qt.SizeHorCursor; onPressed: prefsWindow.startSystemResize(Qt.LeftEdge) }
+            MouseArea { x: parent.width - 6; y: 12; width: 6; height: parent.height - 24; z: 1000; cursorShape: Qt.SizeHorCursor; onPressed: prefsWindow.startSystemResize(Qt.RightEdge) }
+            MouseArea { x: 0; y: 0; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeFDiagCursor; onPressed: prefsWindow.startSystemResize(Qt.TopEdge | Qt.LeftEdge) }
+            MouseArea { x: parent.width - 12; y: 0; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeBDiagCursor; onPressed: prefsWindow.startSystemResize(Qt.TopEdge | Qt.RightEdge) }
+            MouseArea { x: 0; y: parent.height - 12; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeBDiagCursor; onPressed: prefsWindow.startSystemResize(Qt.BottomEdge | Qt.LeftEdge) }
+            MouseArea { x: parent.width - 12; y: parent.height - 12; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeFDiagCursor; onPressed: prefsWindow.startSystemResize(Qt.BottomEdge | Qt.RightEdge) }
+
             // drag the window by its top strip
             Item {
                 width: parent.width
@@ -627,19 +635,19 @@ Scope {
                 // traffic lights
                 Item {
                     id: lights
-                    x: 17; y: 17
-                    width: 52; height: 12
+                    x: 17; y: 16
+                    width: 58; height: 14
                     Row {
                         spacing: 8
                         Repeater {
                             model: [
                                 { c: "#FF5F57", g: "\u00D7", on: true },
                                 { c: "#FEBC2E", g: "\u2212", on: true },
-                                { c: "#28C840", g: "",       on: false }
+                                { c: "#28C840", g: "↗", on: true }
                             ]
                             delegate: Rectangle {
                                 required property var modelData
-                                width: 12; height: 12; radius: 6
+                                width: 14; height: 14; radius: 7
                                 color: (modelData.on && (prefsWindow.active || lightsMa.containsMouse))
                                        ? modelData.c : pal.lightOff
                                 border.width: 1
@@ -648,7 +656,7 @@ Scope {
                                     anchors.centerIn: parent
                                     visible: lightsMa.containsMouse && parent.modelData.on
                                     text: parent.modelData.g
-                                    font.pixelSize: 11
+                                    font.pixelSize: 12
                                     font.bold: true
                                     color: Qt.rgba(0, 0, 0, 0.55)
                                 }
@@ -660,8 +668,12 @@ Scope {
                         anchors.fill: parent
                         hoverEnabled: true
                         onClicked: mouse => {
-                            if (mouse.x < 18) prefsWindow.visible = false;
-                            else if (mouse.x < 38) prefsWindow.showMinimized();
+                            if (mouse.x < 22) prefsWindow.visible = false;
+                            else if (mouse.x < 44) prefsWindow.showMinimized();
+                            else if (mouse.x < 58) {
+                                if (prefsWindow.visibility === Window.FullScreen) prefsWindow.showNormal();
+                                else prefsWindow.showFullScreen();
+                            }
                         }
                     }
                 }
@@ -954,6 +966,20 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
+                        title: "Menu Bar and widget size"
+                        subtitle: "Scales the bar widgets; the left and right groups stay tucked into the screen corners"
+                        SSlider {
+                            t: pal; from: 22; to: 48; stepSize: 1
+                            value: root.bar ? root.bar.barHeight : 28
+                            leftLabel: "Compact"; rightLabel: "Large"
+                            onMoved: v => { if (root.bar) root.bar.barHeight = Math.round(v); }
+                        }
+                    }
+                }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
                         title: "Bar background"
                         subtitle: "A separate layer (macbarbg) so Hyprland can blur it. Needs: layerrule = blur, macbarbg"
                         SSlider {
@@ -1051,6 +1077,11 @@ Scope {
                     SRow {
                         t: pal; title: "Volume"
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("volume") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("volume", v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Bluetooth"
+                        subtitle: "Show the Bluetooth status icon, even while Bluetooth is off"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("bluetooth") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("bluetooth", v); } }
                     }
                     SRow {
                         t: pal; title: "Keyboard layout"
@@ -1750,7 +1781,7 @@ Scope {
                         Text {
                             x: 14
                             y: 12
-                            text: "Made by Lachowski"
+                            text: "Made by Rickky"
                             color: pal.text
                             font.family: pal.fam
                             font.pixelSize: 13

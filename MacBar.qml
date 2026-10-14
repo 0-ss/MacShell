@@ -92,6 +92,9 @@ Scope {
     property color accent: "#0A84FF"
     property string fontFamily: "Inter"
     property int barHeight: 28
+    // The bar-size slider scales its widget groups while the left/right groups stay pinned to their corners.
+    readonly property real barWidgetScale: Math.max(0.8, Math.min(1.55, barHeight / 28))
+    readonly property real barPopupScale: Math.max(0.9, Math.min(1.25, 1 + (barHeight - 28) / 88))
     property real glassOpacity: 0.42
     property string barStyle: "liquid"        // "liquid" = Apple Liquid Glass popovers, "blur" = flat translucent
     property real glassRim: 0.45
@@ -145,7 +148,7 @@ Scope {
         "showSeconds", "showBatteryPercent", "showTray", "showSearch", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd"]
     // Optional bar widgets; tray and Spotlight use their existing showTray/showSearch settings.
-    property var barWidgets: ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "privacy", "controlCenter", "clock"]
+    property var barWidgets: ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "bluetooth", "privacy", "controlCenter", "clock"]
     function barWidgetEnabled(id) { return barWidgets.indexOf(id) >= 0; }
     function setBarWidget(id, enabled) {
         var next = [];
@@ -1172,8 +1175,34 @@ Scope {
     PwObjectTracker { objects: [root.sink] }
     readonly property real volume: (sink && sink.audio) ? sink.audio.volume : 0
     readonly property bool muted: (sink && sink.audio) ? sink.audio.muted : false
-    function setVolume(v) { if (sink && sink.audio) { sink.audio.muted = false; sink.audio.volume = Math.max(0, Math.min(1, v)); } }
-    function toggleMute() { if (sink && sink.audio) sink.audio.muted = !sink.audio.muted; }
+    // The OSD mirrors hardware-key changes as well as changes made from this shell.
+    property bool osdReady: false
+    property bool osdVisible: false
+    property string osdKind: "volume"
+    property real osdValue: 0
+    // The OSD is for hardware keys only: changes made from this shell (Control Center, volume popover, bar scroll,
+    // device switching) open a short quiet window for their kind, during which the resulting change is not shown.
+    property real osdQuietVolUntil: 0
+    property real osdQuietBrightUntil: 0
+    function osdQuiet(kind, ms) {
+        var t = Date.now() + ms;
+        if (kind === "brightness") osdQuietBrightUntil = Math.max(osdQuietBrightUntil, t);
+        else osdQuietVolUntil = Math.max(osdQuietVolUntil, t);
+    }
+    function showOsd(kind, value) {
+        if (!osdReady) return;
+        if (Date.now() < (kind === "brightness" ? osdQuietBrightUntil : osdQuietVolUntil)) return;
+        osdKind = kind;
+        osdValue = Math.max(0, Math.min(1, value));
+        osdVisible = true;
+        osdTimer.restart();
+    }
+    onVolumeChanged: showOsd("volume", muted ? 0 : volume)
+    onMutedChanged: showOsd("volume", muted ? 0 : volume)
+    Timer { id: osdTimer; interval: 1500; onTriggered: root.osdVisible = false }
+    Timer { interval: 1200; running: true; repeat: false; onTriggered: root.osdReady = true }
+    function setVolume(v) { osdQuiet("volume", 600); if (sink && sink.audio) { sink.audio.muted = false; sink.audio.volume = Math.max(0, Math.min(1, v)); } }
+    function toggleMute() { osdQuiet("volume", 600); if (sink && sink.audio) sink.audio.muted = !sink.audio.muted; }
     readonly property var micSource: Pipewire.defaultAudioSource
     PwObjectTracker { objects: [root.micSource] }
     readonly property bool micMuted: (micSource && micSource.audio) ? micSource.audio.muted : true
@@ -1196,6 +1225,43 @@ Scope {
         out.sort(function (a, b) { return String(a.description || a.name).localeCompare(String(b.description || b.name)); });
         return out;
     }
+    // Group playback streams by application: one control per app, even if it owns multiple output streams.
+    property int audioTick: 0
+    function audioApps() {
+        var tick = audioTick, ns = Pipewire.nodes.values, groups = {}, out = [];
+        for (var i = 0; i < ns.length; i++) {
+            var n = ns[i];
+            if (!n || !n.audio || !n.isStream) continue;
+            var playback = n.type !== undefined ? ((n.type & PwNodeType.AudioOutStream) !== 0) : !n.isSink;
+            if (!playback) continue;
+            var p = n.properties || {};
+            var name = String(p["application.name"] || p["node.description"] || n.description || p["application.process.binary"] || p["node.name"] || n.name || "App");
+            if (name.toLowerCase() === "peak detect") continue;
+            var key = String(p["application.id"] || p["application.process.binary"] || name).toLowerCase();
+            if (!groups[key]) groups[key] = { key: key, name: name, nodes: [], volume: 0, muted: true };
+            var g = groups[key];
+            g.nodes.push(n);
+            g.volume += Math.max(0, Math.min(1, Number(n.audio.volume) || 0));
+            g.muted = g.muted && !!n.audio.muted;
+        }
+        for (var k in groups) {
+            var g = groups[k];
+            g.volume /= Math.max(1, g.nodes.length);
+            out.push(g);
+        }
+        out.sort(function (a, b) { return a.name.localeCompare(b.name); });
+        return out;
+    }
+    readonly property var appAudioStreams: audioApps()
+    function setAppVolume(app, v) {
+        if (!app || !app.nodes) return;
+        osdQuiet("volume", 600);
+        var value = Math.max(0, Math.min(1, v));
+        for (var i = 0; i < app.nodes.length; i++) {
+            var n = app.nodes[i];
+            if (n && n.audio) { n.audio.muted = false; n.audio.volume = value; }
+        }
+    }
     readonly property var audioOutputs: audioDevices(true)
     readonly property var audioInputs: audioDevices(false)
     function audioKind(n, isOut) {
@@ -1214,6 +1280,7 @@ Scope {
     }
     function chooseAudio(n) {      // make this device the default; wpctl ships with WirePlumber, pactl is the fallback
         if (!n) return;
+        osdQuiet("volume", 1500);
         Quickshell.execDetached(["sh", "-c", "wpctl set-default \"$1\" 2>/dev/null || pactl \"$3\" \"$2\"", "sh", String(n.id), String(n.name),
                                  (n.type !== undefined ? ((n.type & PwNodeType.Sink) !== 0) : n.isSink) ? "set-default-sink" : "set-default-source"]);
     }
@@ -1432,7 +1499,8 @@ Scope {
         interval: 40
         onTriggered: Quickshell.execDetached(["brightnessctl", "-q", "set", Math.max(1, Math.round(root.brightness * 100)) + "%"])
     }
-    function setBrightness(v) { brightness = Math.max(0.01, Math.min(1, v)); brightApply.restart(); }
+    function setBrightness(v) { osdQuiet("brightness", 1800); brightness = Math.max(0.01, Math.min(1, v)); brightApply.restart(); }
+    onBrightnessChanged: showOsd("brightness", brightness)
     Timer { interval: 850; repeat: true; running: true; onTriggered: root.refreshBrightness() }
     // ═════════════ KEYBOARD LAYOUT ═════════════
     // Hyprland announces every change with an `activelayout` event, so the label updates immediately (no polling).
@@ -2529,7 +2597,7 @@ Scope {
         darkMode = true; accent = "#0a84ff"; fontFamily = "Inter"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = true;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
         showTray = true; showSearch = true;
-        barWidgets = ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "privacy", "controlCenter", "clock"];
+        barWidgets = ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "bluetooth", "privacy", "controlCenter", "clock"];
         ccControls = ccDefault.slice();
     }
 
@@ -3045,6 +3113,7 @@ Scope {
                 property bool ccEdit: false         // Control Center is in "Edit Controls" mode
                 property var trayItem: null         // SystemTrayItem whose menu is open in the tray popover
                 property var trayStack: []          // submenu path (QsMenuEntry objects) inside that menu
+                Timer { interval: 400; repeat: true; running: ui.pop === "vol"; onTriggered: root.audioTick++ }
                 readonly property bool toastScreen: Quickshell.screens.length === 1 || (Hyprland.focusedMonitor !== null && Hyprland.focusedMonitor.name === win.modelData.name)
                 readonly property bool toastsShown: toastScreen && notifToasts.count > 0
 
@@ -3170,7 +3239,7 @@ Scope {
                 }
                 // bounding box of all glass that is on screen right now (popovers, notification popups) + a refraction margin
                 readonly property rect glassRect: {
-                    var items = [menuPop, cc, cal, wifiPop, trayPop, notifPop, toastArea, volPop, kbPop], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+                    var items = [menuPop, cc, cal, wifiPop, trayPop, notifPop, toastArea, volPop, kbPop, levelOsd], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
                     for (var i = 0; i < items.length; i++) {
                         var it = items[i];
                         if (!it.visible) continue;
@@ -3329,7 +3398,7 @@ Scope {
                                     // hidden right now (Spotlight, switcher, ...) are only kept warm with slow single captures.
                                     // While recording only the windows behind visible glass stay live (so the glass is real-time exactly where you see it,
                                     // e.g. a video behind the Control Center), every other window sits out.
-                                    live: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || spotWin.visible || swWin.visible || wpWin.visible)
+                                    live: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || levelOsd.visible || spotWin.visible || swWin.visible || wpWin.visible)
                                     onCaptureSourceChanged: {
                                         // a brand-new capture grabs its first frame immediately instead of waiting for the timer
                                         // (a short delay: asking before the capture context exists only logged "no recording context is ready")
@@ -3408,6 +3477,64 @@ Scope {
                     onPressed: ui.pop = ""
                 }
 
+                // Hardware-key feedback (volume / brightness): a Liquid Glass capsule at the top right, a little below the
+                // menu bar like macOS Tahoe. It refracts the live backdrop through the same shader as the popovers.
+                Item {
+                    id: levelOsd
+                    z: 1000
+                    width: 256; height: 67
+                    x: ui.width - width - 22
+                    y: root.barHeight + 14
+                    visible: ui.toastScreen && opacity > 0
+                    opacity: root.osdVisible ? 1 : 0
+                    scale: root.osdVisible ? 1 : 0.94
+                    transformOrigin: Item.TopRight
+                    Behavior on opacity { NumberAnimation { duration: 160 } }
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: glassBackdrop.item
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.darkMode
+                        bx: levelOsd.x; by: levelOsd.y
+                        cornerR: height / 2
+                        tint: root.glassOpacity
+                        thickness: 22
+                        strength: 0.8 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: root.glassBlur
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                    }
+                    Glyph {
+                        x: 20; anchors.verticalCenter: parent.verticalCenter
+                        width: 24; height: 24
+                        kind: root.osdKind === "brightness" ? "sun" : "speaker"
+                        level: root.osdKind === "brightness" ? 3 : (root.osdValue < 0.34 ? 1 : (root.osdValue < 0.67 ? 2 : 3))
+                        color: "white"
+                    }
+                    // segmented level bar: bright segments are filled, the rest are dim
+                    Row {
+                        id: osdBar
+                        x: 62; anchors.verticalCenter: parent.verticalCenter
+                        readonly property int n: 22
+                        readonly property real segW: (levelOsd.width - 62 - 24 - (n - 1) * 3) / n
+                        spacing: 3
+                        Repeater {
+                            model: osdBar.n
+                            Rectangle {
+                                required property int index
+                                width: osdBar.segW; height: 4; radius: 2
+                                color: "white"
+                                // partial last segment fades proportionally
+                                opacity: Math.max(0.28, Math.min(1, root.osdValue * osdBar.n - index) * 0.95)
+                                Behavior on opacity { NumberAnimation { duration: 90 } }
+                            }
+                        }
+                    }
+                }
                 // ═════════ the bar itself ═════════
                 Rectangle {
                     id: barBg
@@ -3422,7 +3549,10 @@ Scope {
                     Row {
                         id: leftRow
                         x: 8
-                        height: parent.height
+                        height: 28
+                        anchors.verticalCenter: parent.verticalCenter
+                        transformOrigin: Item.Left
+                        scale: root.barWidgetScale
                         Repeater {
                             model: root.menuTitles.filter(function (item) {
                                 return item.id === "apple" ? root.barWidgetEnabled("appleMenu") : root.barWidgetEnabled("appMenus");
@@ -3432,7 +3562,7 @@ Scope {
                                 required property var modelData
                                 readonly property bool open: ui.pop === modelData.id
                                 width: modelData.id === "apple" ? 30 : tl.implicitWidth + 20
-                                height: barBg.height
+                                height: 28
                                 Rectangle {
                                     anchors.centerIn: parent
                                     width: parent.width - 2
@@ -3472,7 +3602,10 @@ Scope {
                         id: wsRow
                         visible: root.barWidgetEnabled("workspaces")
                         anchors.horizontalCenter: parent.horizontalCenter
-                        height: parent.height
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 28
+                        transformOrigin: Item.Center
+                        scale: root.barWidgetScale
                         spacing: 0
                         readonly property var mon: Hyprland.monitorFor(perScreen.modelData)
                         readonly property int activeId: mon && mon.activeWorkspace ? mon.activeWorkspace.id : (Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1)
@@ -3483,7 +3616,7 @@ Scope {
                                 required property var modelData
                                 readonly property bool cur: wsRow.activeId === modelData
                                 readonly property bool busy: root.wsOccupied(modelData)
-                                width: 22; height: barBg.height
+                                width: 22; height: 28
                                 Rectangle {
                                     anchors.centerIn: parent
                                     width: parent.width - 2
@@ -3521,7 +3654,10 @@ Scope {
                         id: rightRow
                         anchors.right: parent.right
                         anchors.rightMargin: 6
-                        height: parent.height
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 28
+                        transformOrigin: Item.Right
+                        scale: root.barWidgetScale
                         spacing: 0
 
                         // tray
@@ -3530,7 +3666,7 @@ Scope {
                             delegate: Item {
                                 id: tray
                                 required property var modelData
-                                width: 26; height: barBg.height
+                                width: 26; height: 28
                                 Rectangle {
                                     anchors.centerIn: parent
                                     width: parent.width - 2
@@ -3562,18 +3698,18 @@ Scope {
                             }
                         }
 
-                        // bluetooth
+                        // Bluetooth has its own optional widget; it remains visible when the radio is off.
                         Item {
-                            visible: root.btOn
-                            width: root.btOn ? 26 : 0; height: barBg.height
-                            Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: "bluetooth"; color: root.btConnected > 0 ? pal.fg : pal.fg2 }
+                            visible: root.barWidgetEnabled("bluetooth")
+                            width: root.barWidgetEnabled("bluetooth") ? 26 : 0; height: 28
+                            Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: "bluetooth"; color: root.btOn && root.btConnected > 0 ? pal.fg : pal.fg2 }
                             MouseArea { anchors.fill: parent; onClicked: ui.openPop("cc", 0) }
                         }
                         // volume (opens a popover with just the volume slider)
                         Item {
                             id: volBtn
                             visible: root.barWidgetEnabled("volume")
-                            width: root.barWidgetEnabled("volume") ? 28 : 0; height: barBg.height
+                            width: root.barWidgetEnabled("volume") ? 28 : 0; height: 28
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
@@ -3590,7 +3726,7 @@ Scope {
                         Item {
                             id: kbBtn
                             visible: root.barWidgetEnabled("keyboard") && root.kbLayouts.length !== 1
-                            width: root.barWidgetEnabled("keyboard") && root.kbLayouts.length !== 1 ? 34 : 0; height: barBg.height
+                            width: root.barWidgetEnabled("keyboard") && root.kbLayouts.length !== 1 ? 34 : 0; height: 28
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
@@ -3617,7 +3753,7 @@ Scope {
                         // battery
                         Item {
                             visible: root.hasBattery
-                            width: root.hasBattery ? batRow.width + 14 : 0; height: barBg.height
+                            width: root.hasBattery ? batRow.width + 14 : 0; height: 28
                             Row {
                                 id: batRow
                                 anchors.centerIn: parent
@@ -3662,7 +3798,7 @@ Scope {
                         Item {
                             id: bellBtn
                             visible: root.barWidgetEnabled("notifications")
-                            width: root.barWidgetEnabled("notifications") ? 28 : 0; height: barBg.height
+                            width: root.barWidgetEnabled("notifications") ? 28 : 0; height: 28
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
@@ -3681,7 +3817,7 @@ Scope {
                         Item {
                             id: wifiBtn
                             visible: root.barWidgetEnabled("wifi")
-                            width: root.barWidgetEnabled("wifi") ? 28 : 0; height: barBg.height
+                            width: root.barWidgetEnabled("wifi") ? 28 : 0; height: 28
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
@@ -3693,7 +3829,7 @@ Scope {
                         // search
                         Item {
                             visible: root.showSearch
-                            width: root.showSearch ? 28 : 0; height: barBg.height
+                            width: root.showSearch ? 28 : 0; height: 28
                             Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: "search"; color: pal.fg }
                             MouseArea { anchors.fill: parent; onClicked: { if (root.launcher !== "") { ui.pop = ""; root.search(); } else ui.openPop("spot", 0); } }
                         }
@@ -3703,7 +3839,7 @@ Scope {
                             visible: root.barWidgetEnabled("controlCenter")
                             // the widget grows to the right while a privacy dot is showing, so the dot sits beside the icon
                             readonly property bool dotsOn: root.privacyAny && root.barWidgetEnabled("privacy")
-                            width: root.barWidgetEnabled("controlCenter") ? 30 + (dotsOn ? ccDots.width + 2 : 0) : 0; height: barBg.height
+                            width: root.barWidgetEnabled("controlCenter") ? 30 + (dotsOn ? ccDots.width + 2 : 0) : 0; height: 28
                             Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                             Rectangle {
                                 anchors.centerIn: parent
@@ -3736,7 +3872,7 @@ Scope {
                             id: clockBtn
                             visible: root.barWidgetEnabled("clock")
                             width: root.barWidgetEnabled("clock") ? clockText.implicitWidth + 16 : 0
-                            height: barBg.height
+                            height: 28
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
@@ -3760,11 +3896,11 @@ Scope {
                     z: 10
                     width: 330
                     height: Math.min(volCol.height + 28, ui.height - root.barHeight - 40)
-                    x: Math.max(6, Math.min(ui.width - width - 8, ui.menuX - width / 2))
+                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX - width / 2))
                     y: root.barHeight + 6
                     opacity: ui.pop === "vol" ? 1 : 0
                     visible: opacity > 0
-                    scale: ui.pop === "vol" ? 1 : 0.96
+                    scale: root.barPopupScale * (ui.pop === "vol" ? 1 : 0.96)
                     transformOrigin: Item.Top
                     Behavior on opacity { NumberAnimation { duration: 110 } }
                     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -3830,11 +3966,32 @@ Scope {
                                 }
                             }
                             Text { visible: root.audioOutputs.length === 0; x: 4; text: "No output devices"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12; topPadding: 4; bottomPadding: 4 }
-
+                            Item { width: 1; height: 5 }
+                            Text { x: 4; text: "Apps"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold; bottomPadding: 2 }
+                            Repeater {
+                                model: root.appAudioStreams
+                                delegate: Item {
+                                    required property var modelData
+                                    width: volCol.width - 28; height: 54
+                                    Text {
+                                        x: 4; y: 0; width: parent.width - 8
+                                        text: modelData.name + "  ·  " + Math.round(modelData.volume * 100) + "%"
+                                        color: pal.fg; elide: Text.ElideRight
+                                        font.family: pal.fam; font.pixelSize: 12
+                                    }
+                                    CCSlider {
+                                        t: pal; x: 0; y: 20; width: parent.width
+                                        value: modelData.volume
+                                        leftKind: "speaker"; leftLevel: modelData.volume < 0.34 ? 1 : (modelData.volume < 0.67 ? 2 : 3)
+                                        rightKind: "speaker"; rightLevel: 3
+                                        onMoved: v => root.setAppVolume(modelData, v)
+                                    }
+                                }
+                            }
+                            Text { visible: root.appAudioStreams.length === 0; x: 4; text: "No apps are playing audio"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 11; topPadding: 2; bottomPadding: 4 }
                             Item { width: 1; height: 5 }
                             Rectangle { width: parent.width; height: 1; color: pal.sep }
                             Item { width: 1; height: 5 }
-
                             Item {
                                 width: parent.width; height: 32
                                 Text { x: 4; anchors.verticalCenter: parent.verticalCenter; text: "Input"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
@@ -3883,11 +4040,11 @@ Scope {
                     z: 10
                     width: 250
                     height: kbCol.height + 16
-                    x: Math.max(6, Math.min(ui.width - width - 8, ui.menuX - width / 2))
+                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX - width / 2))
                     y: root.barHeight + 6
                     opacity: ui.pop === "kb" ? 1 : 0
                     visible: opacity > 0
-                    scale: ui.pop === "kb" ? 1 : 0.96
+                    scale: root.barPopupScale * (ui.pop === "kb" ? 1 : 0.96)
                     transformOrigin: Item.Top
                     Behavior on opacity { NumberAnimation { duration: 110 } }
                     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -4047,7 +4204,7 @@ Scope {
                     y: root.barHeight + 6
                     opacity: ui.pop === "notif" ? 1 : 0
                     visible: opacity > 0
-                    scale: ui.pop === "notif" ? 1 : 0.96
+                    scale: root.barPopupScale * (ui.pop === "notif" ? 1 : 0.96)
                     transformOrigin: Item.TopRight
                     Behavior on opacity { NumberAnimation { duration: 110 } }
                     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -4180,11 +4337,11 @@ Scope {
                     z: 10
                     width: 260
                     height: menuCol.height + 14
-                    x: Math.max(6, Math.min(ui.width - width - 6, ui.menuX - 4))
+                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 6, ui.menuX - 4))
                     y: root.barHeight + 3
                     opacity: ui.isMenu ? 1 : 0
                     visible: opacity > 0
-                    scale: ui.isMenu ? 1 : 0.97
+                    scale: root.barPopupScale * (ui.isMenu ? 1 : 0.97)
                     transformOrigin: Item.TopLeft
                     Behavior on opacity { NumberAnimation { duration: 90 } }
                     Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
@@ -4303,11 +4460,11 @@ Scope {
                     }
                     width: 260
                     height: Math.min(trayCol.height + 14, root.popRoom - 20)
-                    x: Math.max(6, Math.min(ui.width - width - 6, ui.menuX - 4))
+                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 6, ui.menuX - 4))
                     y: root.barHeight + 3
                     opacity: shown ? 1 : 0
                     visible: opacity > 0
-                    scale: shown ? 1 : 0.97
+                    scale: root.barPopupScale * (shown ? 1 : 0.97)
                     transformOrigin: Item.TopLeft
                     Behavior on opacity { NumberAnimation { duration: 90 } }
                     Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
@@ -4470,11 +4627,11 @@ Scope {
                     z: 10
                     width: 320
                     height: wifiCol.height + 24
-                    x: Math.max(6, Math.min(ui.width - width - 8, ui.menuX + 14 - width / 2))
+                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX + 14 - width / 2))
                     y: root.barHeight + 6
                     opacity: ui.pop === "wifi" ? 1 : 0
                     visible: opacity > 0
-                    scale: ui.pop === "wifi" ? 1 : 0.96
+                    scale: root.barPopupScale * (ui.pop === "wifi" ? 1 : 0.96)
                     transformOrigin: Item.Top
                     Behavior on opacity { NumberAnimation { duration: 110 } }
                     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -4752,7 +4909,7 @@ Scope {
                     y: root.barHeight + 6
                     opacity: ui.pop === "cal" ? 1 : 0
                     visible: opacity > 0
-                    scale: ui.pop === "cal" ? 1 : 0.96
+                    scale: root.barPopupScale * (ui.pop === "cal" ? 1 : 0.96)
                     transformOrigin: Item.TopRight
                     Behavior on opacity { NumberAnimation { duration: 110 } }
                     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -4866,7 +5023,7 @@ Scope {
                     y: root.barHeight + 6
                     opacity: ui.pop === "cc" ? 1 : 0
                     visible: opacity > 0
-                    scale: ui.pop === "cc" ? 1 : 0.96
+                    scale: root.barPopupScale * (ui.pop === "cc" ? 1 : 0.96)
                     transformOrigin: Item.TopRight
                     Behavior on opacity { NumberAnimation { duration: 110 } }
                     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -4878,7 +5035,8 @@ Scope {
                         hideSource: true
                         live: true
                         visible: false
-                        sourceRect: Qt.rect(cc.x - 64, cc.y - 64, cc.width + 128, cc.height + 128)
+                        sourceRect: Qt.rect(cc.x - 64 * root.barPopupScale, cc.y - 64 * root.barPopupScale,
+                                            cc.width + 128 * root.barPopupScale, cc.height + 128 * root.barPopupScale)
                     }
                     MultiEffect {
                         id: ccBlurFx
