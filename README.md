@@ -82,7 +82,7 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    Don't reach it through a symlink; Quickshell ≥ 0.3 derives its state folders from the link path.
 3. Try it:
    ```sh
-   qs -c macshell
+   qs -c macshell (or use qs -c ~/.config/quickshell/macshell)
    ```
    On first run with the Liquid Glass style, `liquidglass.frag` is compiled with `qsb` and cached in
    `~/.config/macdock/liquidglass.frag.qsb`. Watch for `[macbar-glass] state: ready` in the log.
