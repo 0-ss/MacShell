@@ -107,15 +107,18 @@ hl.layer_rule({ name = "macshot",  match = { namespace = "macshot"  }, no_anim =
 
 -- keybinds (the name after -c must match your folder name)
 qs = "qs -p /home/user/.config/quickshell/macshell/shell.qml ipc call switcher" <-- Put this on Top local 
-hl.bind("ALT + Space",      hl.dsp.exec_cmd("qs -c macshell ipc call spotlight toggle"))
-hl.bind("SUPER + V",        hl.dsp.exec_cmd("qs -c macshell ipc call spotlight clipboard"))
-hl.bind("SUPER + period",   hl.dsp.exec_cmd("qs -c macshell ipc call spotlight emoji"))
-hl.bind("CTRL + ALT + W",   hl.dsp.exec_cmd("qs -c macshell ipc call wallpapers toggle"))
-hl.bind("Print",            hl.dsp.exec_cmd("qs -c macshell ipc call screenshot region"))
-hl.bind("SHIFT + Print",    hl.dsp.exec_cmd("qs -c macshell ipc call screenshot screen"))
-hl.bind("ALT + Print",      hl.dsp.exec_cmd("qs -c macshell ipc call screenshot window"))
-hl.bind("ALT + Tab",        hl.dsp.exec_cmd("qs -c macshell ipc call switcher next"))
-hl.bind("ALT + SHIFT + Tab", hl.dsp.exec_cmd("qs -c macshell ipc call switcher prev"))
+hl.bind("SUPER + V", hl.dsp.exec_cmd("qs -c /home/user/.config/quickshell/macshell ipc call spotlight clipboard"))
+
+hl.bind("SUPER + period", hl.dsp.exec_cmd("qs -c /home/user/.config/quickshell/macshell ipc call spotlight emoji"))
+
+hl.bind("SUPER+ Space",hl.dsp.exec_cmd("qs -p /home/user/.config/quickshell/macshell/shell.qml ipc call spotlight toggle"))
+
+hl.bind("ALT + TAB",         hl.dsp.exec_cmd(qs .. "next"))
+hl.bind("ALT + SHIFT + TAB", hl.dsp.exec_cmd(qs .. "prev"))
+
+hl.bind("CTRL + ALT + W", hl.dsp.exec_cmd("qs -c /home/user/.config/quickshell/macshell ipc call wallpapers toggle"))
+
+hl.bind("Print", hl.dsp.exec_cmd("qs -c /home/user/.config/quickshell/macshell ipc call screenshot region"))
 ```
 
 Also make sure **blur is enabled** in your Hyprland `decoration` settings, or the "Normal Blur" style won't blur.
