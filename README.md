@@ -176,8 +176,8 @@ does not answer that frame, the shell then destroys it, and the compositor drops
 - The shell already pauses glass captures while windows open/close.
 - Auto-restart it: `sh -c 'while :; do qs -c macshell; sleep 1; done'` as the autostart command.
 
-Glitchy window capture
-Can be disabled on Settings:
+Glitchy window capture,
+Can be disabled in Settings:
 
 - Settings → Dock Behavior → turn **Live window capture** off.
 
