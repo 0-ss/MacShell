@@ -1,4 +1,4 @@
-# macshell
+# MacShell
 
 A macOS Tahoe–style **menu bar + Dock** for Hyprland, built on [Quickshell](https://quickshell.org), with a real-time
 "Liquid Glass" refraction shader, window previews, Spotlight, clipboard/emoji picker, notifications, Control Center,
@@ -77,12 +77,12 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    Other distros: install the equivalents. Fedora has a Quickshell COPR; Nix has `pkgs.quickshell`.
 2. Put the project in a Quickshell config folder. The folder name is the config name:
    ```sh
-   git clone https://github.com/0-ss/macshell ~/.config/quickshell/macshell
+   git clone https://github.com/0-ss/MacShell ~/.config/quickshell/MacShell
    ```
    Don't reach it through a symlink; Quickshell ≥ 0.3 derives its state folders from the link path.
 3. Try it:
    ```sh
-   qs -c macshell (or use qs -c ~/.config/quickshell/macshell)
+   qs -c MacShell (or use qs -c ~/.config/quickshell/MacShell)
    ```
    On first run with the Liquid Glass style, `liquidglass.frag` is compiled with `qsb` and cached in
    `~/.config/macdock/liquidglass.frag.qsb`. Watch for `[macbar-glass] state: ready` in the log.
