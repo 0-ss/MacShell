@@ -2,7 +2,7 @@
 //
 //   * one full-screen layer window on the first monitor, BELOW normal windows (WlrLayer.Bottom, namespace "macwidgets")
 //   * click-through while you are not editing; edit mode shows free grid slots and snaps widget moves / sizes without overlap
-//   * Weather data from Open-Meteo, a local-date Calendar, and a live local-time Clock widget
+//   * Weather data from Open-Meteo, a local-date Calendar, a live local-time Clock, and a Music player (MPRIS) widget
 //   * settings + placed widgets are saved to ~/.config/macwidgets/settings.json
 //
 //   qs -c macbar ipc call widgets refresh        re-fetch the weather now
@@ -14,6 +14,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Services.Mpris
 
 Scope {
     id: root
@@ -41,7 +42,7 @@ Scope {
     readonly property real glassGrain: dock ? dock.glassGrain : 0.03
     readonly property bool darkGlass: dock ? dock.darkMode : true
 
-    // placed widgets: roles wid, wtype (weather | calendar | clock), wstyle, wsize, wmode (calendar: auto | light | dark), wx, wy
+    // placed widgets: roles wid, wtype (weather | calendar | clock | player), wstyle, wsize, wmode (calendar: auto | light | dark), wx, wy
     property alias model: wmodel
     ListModel { id: wmodel }
     readonly property int widgetCount: wmodel.count
@@ -49,9 +50,12 @@ Scope {
     property int rev: 0                    // bumped on every change to the list, so Settings bindings can re-evaluate count()
 
     readonly property var styleNames: ({ liquid: "Liquid Glass", normal: "Normal", light: "Light", dark: "Dark" })
-    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock" })
+    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player" })
     readonly property var sizeNames: ({ small: "Small", medium: "Medium", large: "Large" })
     function dims(size) { return size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]); }
+    // Size of the Player's contents (art, text, buttons) relative to the original design. The card itself fills the
+    // normal widget footprint, like every other widget. 1.0 = original size.
+    property real playerScale: 0.8
     readonly property int gridCell: 179
     readonly property int gridGapX: 28
     readonly property int gridGapY: 23
@@ -234,9 +238,9 @@ Scope {
             wmodel.clear();
             for (var i = 0; i < o.widgets.length; i++) {
                 var w = o.widgets[i];
-                if (!w || (w.type !== "weather" && w.type !== "calendar" && w.type !== "clock")) continue;
+                if (!w || (w.type !== "weather" && w.type !== "calendar" && w.type !== "clock" && w.type !== "player")) continue;
                 wmodel.append({ wid: String(w.id || ("w" + i)), wtype: w.type,
-                                wstyle: w.type === "clock"
+                                wstyle: (w.type === "clock" || w.type === "player")
                                     ? ((w.style === "light" || w.style === "dark") ? w.style : "liquid")
                                     : (w.style === "normal" ? "normal" : "liquid"),
                                 wsize: (w.size === "medium" || w.size === "large") ? w.size : "small",
@@ -261,6 +265,119 @@ Scope {
         onLoadFailed: { root.ready = true; }
     }
     Timer { id: saveTimer; interval: 400; onTriggered: root.saveSettings() }
+
+    // ───────────── music player (MPRIS) ─────────────
+    // the player that is playing, otherwise the first one (same rule as the Menu Bar's media widget)
+    readonly property var player: {
+        var ps = Mpris.players.values, best = null;
+        for (var i = 0; i < ps.length; i++) {
+            if (ps[i].isPlaying) return ps[i];
+            if (!best) best = ps[i];
+        }
+        return best;
+    }
+    // MPRIS does not announce the playback position; ask for it once a second while something plays and a Player widget exists
+    Timer {
+        interval: root.lyricsWanted ? 250 : 1000        // quicker while lyrics are open, so lines change on time
+        repeat: true
+        running: root.player !== null && root.player.isPlaying && root.count("player") > 0
+        onTriggered: { try { root.player.positionChanged(); } catch (err) { } }
+    }
+    // screen rectangles of the Player widgets: they stay clickable while the rest of the layer is click-through
+    readonly property var playerRects: {
+        var r = rev, out = [];
+        for (var i = 0; i < wmodel.count; i++) {
+            var m = wmodel.get(i);
+            if (m.wtype !== "player") continue;
+            var d = dims(m.wsize);
+            out.push([m.wx, m.wy, d[0], d[1]]);
+        }
+        return out;
+    }
+    function pr(i, k) { var r = playerRects[i]; return r ? r[k] : 0; }
+
+    // ───────────── lyrics (LRCLIB, fetched only while a Player widget has its lyrics open) ─────────────
+    property bool lyricsWanted: false
+    property var lyricsLines: []               // [{ t: seconds (-1 = not synced), text }]
+    property bool lyricsSynced: false
+    property string lyricsState: "idle"        // idle | loading | ok | none
+    property string lyricsReqKey: ""
+    property string lrcTitle: ""
+    property string lrcArtist: ""
+    property string lrcAlbum: ""
+    property string lrcDur: ""
+    readonly property string trackKey: player ? (player.trackTitle + "|" + player.trackArtist + "|" + player.trackAlbum + "|"
+                                                  + Math.round(player.lengthSupported ? player.length : 0)) : ""
+    onTrackKeyChanged: {
+        lyricsLines = []; lyricsSynced = false; lyricsState = "idle";
+        if (lyricsWanted) lyricsSoon.restart();
+    }
+    onLyricsWantedChanged: if (lyricsWanted && lyricsState === "idle") lyricsSoon.restart()
+    Timer { id: lyricsSoon; interval: 500; onTriggered: root.fetchLyrics() }
+
+    function fetchLyrics() {
+        if (!lyricsWanted || !player || player.trackTitle === "") return;
+        if (lrcProc.running) return;                      // finished handler re-checks the key
+        lyricsReqKey = trackKey;
+        lrcTitle = player.trackTitle; lrcArtist = player.trackArtist; lrcAlbum = player.trackAlbum;
+        lrcDur = String(Math.round(player.lengthSupported ? player.length : 0));
+        lyricsState = "loading";
+        lrcProc.running = true;
+    }
+    function parseLrc(txt) {
+        var out = [], lines = String(txt).split(/\r?\n/);
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i], re = /\[(\d+):(\d+(?:\.\d+)?)\]/g, times = [], m;
+            while ((m = re.exec(line)) !== null) times.push(parseInt(m[1]) * 60 + parseFloat(m[2]));
+            if (times.length === 0) continue;
+            var text = line.replace(/\[[^\]]*\]/g, "").trim();
+            for (var j = 0; j < times.length; j++) out.push({ t: times[j], text: text });
+        }
+        out.sort(function (a, b) { return a.t - b.t; });
+        return out;
+    }
+    function applyLyrics(raw) {
+        var o = null;
+        try { o = JSON.parse(raw); } catch (err) { }
+        if (Array.isArray(o)) {                           // search fallback: prefer a result with synced lyrics
+            var pick = null;
+            for (var i = 0; i < o.length; i++) {
+                if (o[i].syncedLyrics) { pick = o[i]; break; }
+                if (!pick && o[i].plainLyrics) pick = o[i];
+            }
+            o = pick;
+        }
+        if (!o || o.instrumental) { lyricsLines = []; lyricsSynced = false; lyricsState = "none"; return; }
+        if (o.syncedLyrics) {
+            var l = parseLrc(o.syncedLyrics);
+            if (l.length > 0) { lyricsLines = l; lyricsSynced = true; lyricsState = "ok"; return; }
+        }
+        if (o.plainLyrics) {
+            var ps = String(o.plainLyrics).split(/\r?\n/), pl = [];
+            for (var k = 0; k < ps.length; k++) if (ps[k].trim() !== "") pl.push({ t: -1, text: ps[k].trim() });
+            if (pl.length > 0) { lyricsLines = pl; lyricsSynced = false; lyricsState = "ok"; return; }
+        }
+        lyricsLines = []; lyricsSynced = false; lyricsState = "none";
+    }
+    Process {
+        id: lrcProc
+        command: ["sh", "-c",
+            "UA='macshell-widgets (quickshell)'; "
+            + "curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/get --data-urlencode \"track_name=$1\" --data-urlencode \"artist_name=$2\" "
+            + "--data-urlencode \"album_name=$3\" -d \"duration=$4\" 2>/dev/null "
+            + "|| curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/search --data-urlencode \"q=$2 $1\"",
+            "sh", root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (root.lyricsReqKey !== root.trackKey) {            // the song changed while we were asking
+                    root.lyricsState = "idle";
+                    Qt.callLater(root.fetchLyrics);
+                    return;
+                }
+                root.applyLyrics(text);
+            }
+        }
+    }
 
     // ───────────── weather data (Open-Meteo) ─────────────
     property bool wxReady: false
@@ -461,12 +578,20 @@ Scope {
             WlrLayershell.layer: WlrLayer.Bottom
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-            // click-through unless editing
-            mask: Region { item: root.editing ? ui : null }
+            // click-through unless editing; only the Player widgets (up to 4) take clicks, for their buttons
+            mask: Region {
+                item: root.editing ? ui : null
+                regions: [ Region { item: hit0 }, Region { item: hit1 }, Region { item: hit2 }, Region { item: hit3 } ]
+            }
 
             Item {
                 id: ui
                 anchors.fill: parent
+
+                Item { id: hit0; x: root.pr(0, 0); y: root.pr(0, 1); width: root.pr(0, 2); height: root.pr(0, 3) }
+                Item { id: hit1; x: root.pr(1, 0); y: root.pr(1, 1); width: root.pr(1, 2); height: root.pr(1, 3) }
+                Item { id: hit2; x: root.pr(2, 0); y: root.pr(2, 1); width: root.pr(2, 2); height: root.pr(2, 3) }
+                Item { id: hit3; x: root.pr(3, 0); y: root.pr(3, 1); width: root.pr(3, 2); height: root.pr(3, 3) }
 
                 Rectangle {   // slight dim while editing
                     anchors.fill: parent
@@ -594,10 +719,65 @@ Scope {
                                 onGlassFailed: root.glassState = "failed"
                             }
                         }
+                        Component {
+                            id: playerVisual
+                            PlayerWidget {
+                                style: ww.wstyle
+                                size: ww.wsize
+                                contentScale: root.playerScale
+                                fam: root.fontFamily
+                                screenX: ww.x; screenY: ww.y
+                                hasPlayer: root.player !== null
+                                title: root.player ? root.player.trackTitle : ""
+                                artist: root.player ? root.player.trackArtist : ""
+                                album: root.player ? root.player.trackAlbum : ""
+                                artUrl: root.player ? root.player.trackArtUrl : ""
+                                playing: root.player ? root.player.isPlaying : false
+                                shuffle: (root.player && root.player.shuffleSupported) ? root.player.shuffle : false
+                                canShuffle: root.player !== null && root.player.shuffleSupported
+                                loop: (root.player && root.player.loopSupported)
+                                      ? (root.player.loopState === MprisLoopState.Track ? 1 : (root.player.loopState === MprisLoopState.Playlist ? 2 : 0)) : 0
+                                canLoop: root.player !== null && root.player.loopSupported
+                                position: (root.player && root.player.positionSupported) ? root.player.position : 0
+                                length: (root.player && root.player.lengthSupported) ? root.player.length : 0
+                                canSeek: root.player !== null && root.player.canSeek && root.player.positionSupported && root.player.lengthSupported
+                                lyrics: root.lyricsLines
+                                lyricsState: root.lyricsState
+                                lyricsSynced: root.lyricsSynced
+                                onLyricsToggled: on => root.lyricsWanted = on
+                                glassReady: root.glassState === "ready"
+                                shaderUrl: "file://" + root.glassShaderOut
+                                wallUrl: root.fileUrl(root.wallpaperFor(win.modelData.name))
+                                screenW: win.modelData.width
+                                screenH: win.modelData.height
+                                glassOpacity: root.glassOpacity
+                                glassBlur: root.glassBlur
+                                glassLiquid: root.glassLiquid
+                                glassRim: root.glassRim
+                                glassGrain: root.glassGrain
+                                darkGlass: root.darkGlass
+                                editing: root.editing
+                                onSeek: seconds => { if (root.player && root.player.canSeek) root.player.position = seconds; }
+                                onTogglePlaying: { if (root.player && root.player.canTogglePlaying) root.player.togglePlaying(); }
+                                onNextTrack: { if (root.player && root.player.canGoNext) root.player.next(); }
+                                onPreviousTrack: { if (root.player && root.player.canGoPrevious) root.player.previous(); }
+                                onToggleShuffle: { if (root.player && root.player.shuffleSupported) root.player.shuffle = !root.player.shuffle; }
+                                onCycleLoop: {
+                                    if (!root.player || !root.player.loopSupported) return;
+                                    // off -> repeat all -> repeat song -> off
+                                    var ls = root.player.loopState;
+                                    root.player.loopState = ls === MprisLoopState.None ? MprisLoopState.Playlist
+                                                          : (ls === MprisLoopState.Playlist ? MprisLoopState.Track : MprisLoopState.None);
+                                }
+                                onGlassFailed: root.glassState = "failed"
+                            }
+                        }
                         Loader {
                             id: visual
                             anchors.fill: parent
-                            sourceComponent: ww.wtype === "calendar" ? calendarVisual : (ww.wtype === "clock" ? clockVisual : weatherVisual)
+                            sourceComponent: ww.wtype === "calendar" ? calendarVisual
+                                           : (ww.wtype === "clock" ? clockVisual
+                                           : (ww.wtype === "player" ? playerVisual : weatherVisual))
                         }
 
                         scale: dragArea.pressed ? 1.03 : 1.0

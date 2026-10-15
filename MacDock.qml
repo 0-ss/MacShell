@@ -529,7 +529,7 @@ Scope {
             { id: "apps",       name: "Applications", glyph: "apps",       c1: "#FFB340", c2: "#FF9500",
               keys: "pinned apps keep remove reset" },
             { id: "widgets",    name: "Widgets",      glyph: "widgets",    c1: "#FF6482", c2: "#FF375F",
-              keys: "desktop widget weather clock calendar glass edit add remove" },
+              keys: "desktop widget weather clock calendar player music artwork album glass edit add remove" },
             { id: "about",      name: "About",        glyph: "about",      c1: "#A7A7AD", c2: "#7C7C82",
               keys: "version reset config folder macdock macbar macshell" }
         ]
@@ -1782,7 +1782,7 @@ Scope {
                         t: pal
                         title: "Desktop Widgets"
                         subtitle: wp.editing ? "Add with +, then drag to an outlined slot. Widgets snap to the grid and won't overlap."
-                                             : "Put Weather, Calendar and Clock widgets on your desktop."
+                                             : "Put Weather, Calendar, Clock and Player widgets on your desktop."
                         SButton {
                             t: pal
                             text: wp.editing ? "Stop Editing" : "Edit Desktop Widgets"
@@ -2070,6 +2070,108 @@ Scope {
                     }
                 }
 
+                // ── Player gallery: artwork-coloured Music player in Light, Dark, or Liquid Glass ──
+                Repeater {
+                    model: ["light", "dark", "liquid"]
+                    delegate: Column {
+                        id: playerStyle
+                        required property string modelData
+                        width: parent.width
+                        spacing: 10
+                        visible: wp.editing
+                        SLabel {
+                            t: pal
+                            header: true
+                            text: "Player — " + (playerStyle.modelData === "light" ? "Light" : (playerStyle.modelData === "dark" ? "Dark" : "Liquid Glass"))
+                        }
+                        SCard {
+                            t: pal
+                            Item {
+                                width: parent.width
+                                height: playerFlow.height + 28
+                                Flow {
+                                    id: playerFlow
+                                    x: 18; y: 14
+                                    width: parent.width - 36
+                                    spacing: 22
+                                    Repeater {
+                                        model: ["small", "medium", "large"]
+                                        delegate: Item {
+                                            id: playerTile
+                                            required property string modelData
+                                            readonly property real sc: 0.5
+                                            readonly property real pw: (modelData === "small" ? 168 : 358) * sc
+                                            readonly property real ph: (modelData === "large" ? 354 : 168) * sc
+                                            width: Math.max(pw, 84)
+                                            height: ph + 62
+                                            readonly property int n: { var r = wp.wd ? wp.wd.rev : 0; return wp.wd ? wp.wd.count("player", playerStyle.modelData, modelData) : 0; }
+
+                                            PlayerWidget {
+                                                x: (playerTile.width - playerTile.pw) / 2
+                                                scaleF: playerTile.sc
+                                                preview: true
+                                                hasPlayer: true
+                                                title: "Midnight City"
+                                                artist: "M83"
+                                                album: "Hurry Up, We're Dreaming"
+                                                shuffle: true
+                                                playing: true
+                                                position: 83
+                                                length: 244
+                                                tintOverride: "#D9552B"
+                                                style: playerStyle.modelData
+                                                size: playerTile.modelData
+                                                darkGlass: pal.dark
+                                                fam: pal.fam
+                                            }
+                                            Text {
+                                                y: playerTile.ph + 8
+                                                width: parent.width
+                                                horizontalAlignment: Text.AlignHCenter
+                                                text: playerTile.modelData === "small" ? "Small" : (playerTile.modelData === "medium" ? "Medium" : "Large")
+                                                color: pal.text
+                                                font.family: pal.fam
+                                                font.pixelSize: 12
+                                            }
+                                            Row {
+                                                y: playerTile.ph + 30
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                spacing: 8
+                                                Rectangle {
+                                                    width: 22; height: 22; radius: 11
+                                                    opacity: playerTile.n > 0 ? 1 : 0.4
+                                                    color: playerMinusMa.pressed ? pal.buttonPressed : pal.button
+                                                    border.width: 1; border.color: pal.buttonBorder
+                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: pal.text }
+                                                    MouseArea { id: playerMinusMa; anchors.fill: parent; enabled: playerTile.n > 0
+                                                        onClicked: if (wp.wd) wp.wd.removeLast("player", playerStyle.modelData, playerTile.modelData) }
+                                                }
+                                                Text {
+                                                    width: 18
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    text: playerTile.n
+                                                    color: pal.text2
+                                                    font.family: pal.fam
+                                                    font.pixelSize: 12
+                                                }
+                                                Rectangle {
+                                                    width: 22; height: 22; radius: 11
+                                                    color: playerPlusMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
+                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: "white" }
+                                                    Rectangle { anchors.centerIn: parent; width: 1.6; height: 9; radius: 0.8; color: "white" }
+                                                    MouseArea { id: playerPlusMa; anchors.fill: parent
+                                                        onClicked: if (wp.wd) wp.wd.addWidget("player", playerStyle.modelData, playerTile.modelData) }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ── placed widgets ──
                 SLabel { visible: !!wp.wd && wp.wd.widgetCount > 0; t: pal; header: true; text: "On your desktop" }
                 SCard {
@@ -2093,7 +2195,7 @@ Scope {
                                 SButton { t: pal; text: "Remove"; destructive: true; onClicked: if (wp.wd) wp.wd.removeWidget(prow.wid) }
                             }
                             SRow {
-                                visible: prow.wtype !== "clock"
+                                visible: prow.wtype !== "clock" && prow.wtype !== "player"
                                 t: pal
                                 title: "Style"
                                 SSegmented {
@@ -2105,7 +2207,7 @@ Scope {
                                 }
                             }
                             SRow {
-                                visible: prow.wtype === "clock"
+                                visible: prow.wtype === "clock" || prow.wtype === "player"
                                 t: pal
                                 title: "Style"
                                 SSegmented {

@@ -41,10 +41,11 @@ Item {
     readonly property bool isMedium: size === "medium"
     readonly property bool isLarge: size === "large"
 
-    readonly property real s:
-        scaleF * (isLarge ? 354 / 158 : 168 / 158)
-
-    readonly property real radiusPx: 28 * s
+    // content scale: follows the real size of the widget, so it still fits if the host stretches it
+    readonly property real u: Math.min(width, height) / 158
+    readonly property real s: u
+    // same corner radius as the Weather / Calendar widgets
+    readonly property real radiusPx: 28 * scaleF * (isSmall ? 168 / 158 : (isMedium ? 358 / 338 : 1))
 
     readonly property bool dark:
         style === "dark" || (style === "liquid" && darkGlass)
@@ -64,11 +65,11 @@ Item {
 
     property var now: new Date()
 
-    // Update often enough that the active tick glides smoothly.
+    // Update often enough that the second ticks glide smoothly.
     Timer {
         interval: 33
         repeat: true
-        running: true
+        running: !w.preview
         onTriggered: w.now = new Date()
     }
 
@@ -83,18 +84,22 @@ Item {
     readonly property string displayTime:
         preview ? previewTime : liveTime
 
+    // seconds into the minute (fractional); the Settings preview freezes the dial half way round, like the macOS picture
+    readonly property real secs:
+        preview ? 30.4 : w.now.getSeconds() + w.now.getMilliseconds() / 1000
+
     // Light face.
     Rectangle {
         anchors.fill: parent
         visible: w.style === "light"
         radius: w.radiusPx
         border.width: 1
-        border.color: Qt.rgba(0, 0, 0, 0.14)
+        border.color: Qt.rgba(1, 1, 1, 0.70)       // a brighter edge of the face's own colour
 
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#F4F5F3" }
-            GradientStop { position: 0.55; color: "#F0F1EF" }
-            GradientStop { position: 1.0; color: "#E7E9E6" }
+            GradientStop { position: 0.0; color: "#E9EAEB" }
+            GradientStop { position: 0.55; color: "#DFE0E2" }
+            GradientStop { position: 1.0; color: "#D6D7DA" }
         }
     }
 
@@ -104,7 +109,7 @@ Item {
         visible: w.style === "dark"
         radius: w.radiusPx
         border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.20)
+        border.color: Qt.rgba(1, 1, 1, 0.22)
 
         gradient: Gradient {
             GradientStop { position: 0.0; color: "#38393D" }
@@ -278,75 +283,33 @@ Item {
         color: "transparent"
         border.width: 1
         border.color:
-            w.dark ? Qt.rgba(1, 1, 1, 0.20)
-                   : Qt.rgba(0, 0, 0, 0.11)
+            w.dark ? Qt.rgba(1, 1, 1, 0.22)
+                   : Qt.rgba(1, 1, 1, 0.70)
     }
 
-    // Perimeter ticks follow the rounded bezel.
-    function tickAt(index) {
-        var inset = 10.5 * w.s
-        var cr = Math.max(2 * w.s, w.radiusPx - inset)
-
-        var left = inset
-        var top = inset
-        var right = w.width - inset
-        var bottom = w.height - inset
-
-        var straightH = Math.max(0, right - left - 2 * cr)
-        var straightV = Math.max(0, bottom - top - 2 * cr)
-        var arc = Math.PI * cr / 2
-        var perimeter = 2 * straightH + 2 * straightV + 4 * arc
-
-        var d = ((index + 0.5) / 60) * perimeter
-        var x = 0
-        var y = 0
-        var angle = 0
-
-        // Start at the top edge and travel clockwise.
-        if (d < straightH) {
-            x = left + cr + d
-            y = top
-            angle = 0
-        } else if ((d -= straightH) < arc) {
-            var a1 = -Math.PI / 2 + d / cr
-            x = right - cr + cr * Math.cos(a1)
-            y = top + cr + cr * Math.sin(a1)
-            angle = (a1 + Math.PI / 2) * 180 / Math.PI
-        } else if ((d -= arc) < straightV) {
-            x = right
-            y = top + cr + d
-            angle = 90
-        } else if ((d -= straightV) < arc) {
-            var a2 = d / cr
-            x = right - cr + cr * Math.cos(a2)
-            y = bottom - cr + cr * Math.sin(a2)
-            angle = (a2 + Math.PI / 2) * 180 / Math.PI
-        } else if ((d -= arc) < straightH) {
-            x = right - cr - d
-            y = bottom
-            angle = 0
-        } else if ((d -= straightH) < arc) {
-            var a3 = Math.PI / 2 + d / cr
-            x = left + cr + cr * Math.cos(a3)
-            y = bottom - cr + cr * Math.sin(a3)
-            angle = (a3 + Math.PI / 2) * 180 / Math.PI
-        } else if ((d -= arc) < straightV) {
-            x = left
-            y = bottom - cr - d
-            angle = 90
-        } else {
-            d -= straightV
-            var a4 = Math.PI + d / cr
-            x = left + cr + cr * Math.cos(a4)
-            y = top + cr + cr * Math.sin(a4)
-            angle = (a4 + Math.PI / 2) * 180 / Math.PI
+    // ── dial ticks ──
+    // 60 ticks, one every 6 degrees starting at 12 o'clock. Each sits where its ray from the centre meets a rounded rectangle
+    // inset from the widget's edge, and points at the centre (that is how the macOS face looks, also in the corners).
+    readonly property real tickLen: 5.6 * u
+    readonly property var tickGeo: {
+        var W = w.width, H = w.height, inset = 9 * w.u, L = w.tickLen;
+        var hw = W / 2 - inset, hh = H / 2 - inset;
+        var cr = Math.max(4 * w.u, w.radiusPx - inset);
+        var cx = hw - cr, cy = hh - cr, out = [];
+        for (var i = 0; i < 60; i++) {
+            var th = i * Math.PI / 30, dx = Math.sin(th), dy = -Math.cos(th);
+            var ax = Math.abs(dx), ay = Math.abs(dy);
+            var t = Math.min(ax > 1e-9 ? hw / ax : 1e9, ay > 1e-9 ? hh / ay : 1e9);
+            var px = ax * t, py = ay * t;
+            if (px > cx && py > cy) {            // inside a rounded corner: meet the corner circle instead
+                var b = ax * cx + ay * cy, c = cx * cx + cy * cy - cr * cr;
+                t = b + Math.sqrt(Math.max(0, b * b - c));
+                px = ax * t; py = ay * t;
+            }
+            var ex = dx < 0 ? -px : px, ey = dy < 0 ? -py : py;      // outer end of the tick, relative to the centre
+            out.push({ x: W / 2 + ex - dx * L / 2, y: H / 2 + ey - dy * L / 2, a: Math.atan2(dx, -dy) * 180 / Math.PI });
         }
-
-        return {
-            x: x,
-            y: y,
-            angle: angle + 32
-        }
+        return out;
     }
 
     Repeater {
@@ -355,111 +318,87 @@ Item {
         delegate: Rectangle {
             required property int index
 
-            readonly property var tick: w.tickAt(index)
-            readonly property bool major: index % 5 === 0
+            readonly property var tick: w.tickGeo[index]
 
-            readonly property real secondProgress:
-                Math.max(0, Math.min(1,
-                    w.now.getSeconds()
-                    + w.now.getMilliseconds() / 1000
-                    - index))
+            // The seconds that already passed this minute form a dark trail that gets stronger towards the current second;
+            // the ticks still to come are faint. frac = how much of this tick's second has elapsed (smooth sweep).
+            readonly property real frac: Math.max(0, Math.min(1, w.secs - index))
+            readonly property real past: 0.40 + 0.58 * Math.min(1, index / Math.max(1, w.secs))
+            readonly property real ahead: 0.12 + 0.28 * Math.max(0, Math.min(1, (index - w.secs) / Math.max(1, 60 - w.secs)))
 
-            readonly property real baseOpacity: w.dark
-                ? (major ? 0.42 : 0.26)
-                : (major ? 0.28 : 0.16)
-
-            readonly property real peakOpacity: w.dark
-                ? (major ? 0.78 : 0.62)
-                : (major ? 0.68 : 0.50)
-
-            width: 1.8 * w.s
-            height: (major ? 7 : 5) * w.s
-
+            width: 1.7 * w.u
+            height: w.tickLen
             x: tick.x - width / 2
             y: tick.y - height / 2
-
             radius: width / 2
-            rotation: tick.angle
-            color: w.dark ? "white" : "#101113"
-
-            opacity: baseOpacity
-                     + (peakOpacity - baseOpacity) * secondProgress
-
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: 150
-                    easing.type: Easing.OutCubic
-                }
-            }
-
-            Behavior on rotation {
-                NumberAnimation {
-                    duration: 220
-                    easing.type: Easing.OutCubic
-                }
-            }
+            rotation: tick.a
+            color: w.dark ? "white" : "#0C0D0F"
+            opacity: (w.dark ? 0.9 : 1.0) * (ahead + (past - ahead) * frac)
         }
     }
 
-    // City label: RIY for Riyadh by default.
+    // City label (Cupertino is "CUP" on the Mac): small, bold, grey, a fifth of the way down.
     Text {
         id: cityLabel
 
         anchors.horizontalCenter: parent.horizontalCenter
-        y: 22 * w.s
-        height: 17 * w.s
+        y: 0.20 * w.height - height / 2
+        height: 17 * w.u
 
         text: w.cityCode
 
         color: w.dark
-            ? Qt.rgba(1, 1, 1, 0.72)
-            : Qt.rgba(0, 0, 0, 0.65)
+            ? Qt.rgba(1, 1, 1, 0.55)
+            : Qt.rgba(0, 0, 0, 0.46)
 
         font.family: w.fam
-        font.pixelSize: 11 * w.s
+        font.pixelSize: 11.5 * w.u
         font.weight: Font.Bold
-        font.letterSpacing: 1.0 * w.s
+        font.letterSpacing: 0.4 * w.u
 
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
     }
 
-    // Bolder clock numerals.
+    // The time: very heavy, tall and narrow numerals (Inter Black squeezed horizontally and stretched vertically),
+    // 12-hour, no leading zero. Longer times like 12:45 shrink to stay inside the ticks.
     Text {
         id: clockText
 
+        readonly property real xs: 0.75       // horizontal squeeze
+        readonly property real ys: 1.30       // vertical stretch
+
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: -2 * w.s
+        anchors.verticalCenterOffset: -1 * w.u
 
-        width: parent.width - 26 * w.s
-        height: Math.min(parent.height - 38 * w.s, 92 * w.s)
+        width: (w.width - 50 * w.u) / xs      // layout width before the squeeze
+        height: 62 * w.u * 1.25
 
         text: w.displayTime
 
-        color: w.dark ? "#FFFFFF" : "#111214"
+        color: w.dark ? "#FFFFFF" : "#0C0D0F"
 
         font.family: w.fam
-        font.pixelSize: 72 * w.s
+        font.pixelSize: 62 * w.u
         font.weight: Font.Black
-        font.letterSpacing: -3.0 * w.s
+        font.letterSpacing: -3.0 * w.u
 
-        // Same-color outline makes the numerals appear thicker.
+        // same-colour outline: slightly heavier strokes
         style: Text.Outline
         styleColor: color
 
-        // Preserve the compact proportions of the original design.
-	transform: Scale {
-	    origin.x: clockText.width / 2
-	    origin.y: clockText.height / 2
-	    xScale: 0.80
-	    yScale: 1.30
-	}
-	
+        transform: Scale {
+            origin.x: clockText.width / 2
+            origin.y: clockText.height / 2
+            xScale: clockText.xs
+            yScale: clockText.ys
+        }
+
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
 
-        minimumPixelSize: 10
         fontSizeMode: Text.Fit
+        minimumPixelSize: 10
     }
 }

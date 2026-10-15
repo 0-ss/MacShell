@@ -696,6 +696,8 @@ Scope {
         property real rim: 0.45
         property real grain: 0.03
         property bool debug: false
+        property real outlineW: 0.55        // outlined slabs (Spotlight): border thickness, px
+        property real outlineA: 0.9         // border opacity (0..1)
         signal failed()
     }
 
@@ -708,6 +710,9 @@ Scope {
         property real strengthMul: 1.0
         property real tintMul: 1.0
         property real shadowAmt: 0.5
+        property bool outline: false            // thin border around the slab (used by Spotlight)
+        readonly property real outlineW: gx.outlineW    // border thickness in px (set on the GlassCtx)
+        readonly property real outlineA: gx.outlineA    // border opacity (set on the GlassCtx)
         readonly property real pad: 10
 
         // position inside the popover layer; reads every ancestor's x/y so it re-evaluates when anything moves
@@ -769,6 +774,14 @@ Scope {
                 }
             }
         }
+        Rectangle {   // the thin outline
+            visible: gg.outline
+            anchors.fill: parent
+            radius: gg.cornerR
+            color: "transparent"
+            border.width: gg.outlineW
+            border.color: Qt.rgba(0.27, 0.27, 0.29, gg.gx.dark ? gg.outlineA : gg.outlineA * 0.75)     // dark gray
+        }
     }
 
     // Control Center tile: its own Liquid Glass slab (children are laid on top of it)
@@ -816,12 +829,28 @@ Scope {
         property string onTint: ""
         property real d: 40
         property real shadow: 0
+        property bool outline: false
         signal clicked()
         property bool bounce: false
+        // "jelly" press (Spotlight): jT = how far this button is swollen while held (0..1), jN = how much it is pulled by a
+        // swollen neighbour, jDir = which way that neighbour is (-1 left, +1 right)
+        property real jT: 0
+        property real jN: 0
+        property real jDir: 0
+        property real gooMix: 0              // 0..1: how much its own glass is replaced by the shared jelly body
+        readonly property bool down: bma.pressed
         width: d; height: d
         scale: (bounce && bma.pressed) ? 0.88 : 1
         Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
-        GGlass { anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: b.shadow }
+        transform: [
+            Translate { x: b.jDir * b.jN * 4 },
+            Scale {
+                origin.x: b.width / 2; origin.y: b.height / 2
+                xScale: 1 + b.jT * 0.16 + b.jN * 0.05
+                yScale: 1 + b.jT * 0.16 - b.jN * 0.02
+            }
+        ]
+        GGlass { anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14 + b.jT * 18; strengthMul: 0.6 + b.jT * 0.4; shadowAmt: b.shadow + b.jT * 0.25; opacity: 1 - b.gooMix; outline: b.outline }
         Rectangle {
             anchors.fill: parent
             radius: b.d / 2
@@ -6159,7 +6188,7 @@ Scope {
         PanelWindow {
             id: spotWin
             screen: perScreen.modelData
-            visible: ui.pop === "spot" || spot.opacity > 0
+            visible: (ui.pop === "spot" && lumHub.readyFor === "spot") || spot.opacity > 0     // waits for the first brightness reading, so the colours are right from the very first frame
             onVisibleChanged: root.popCount += (visible ? 1 : -1)     // keeps the window-geometry poller running while Spotlight is open
             anchors { left: true; right: true; top: true; bottom: true }
             color: "transparent"
@@ -6188,6 +6217,134 @@ Scope {
                     onPressed: ui.pop = ""
                 }
 
+                // ── backdrop brightness sensor for Spotlight's adaptive colours ──
+                // lives OUTSIDE the Spotlight item on purpose: that item is invisible / layered while it opens, which starved the sensor
+                Item {
+                    id: lumHub
+                    width: 1; height: 1
+                    z: -1
+                    // brightness probe: a tiny downscaled copy of the blurred backdrop right behind Spotlight, grabbed and averaged a few times a second
+                    Item {
+                        id: lumProbeHost
+                        width: 24; height: 12
+                        opacity: 0.01
+                        enabled: false
+                        Item {
+                            id: lumProbe
+                            width: 24; height: 12
+                            ShaderEffectSource {
+                                anchors.fill: parent
+                                sourceItem: spBlur2Fx
+                                sourceRect: Qt.rect(128, 128, spot.width, Math.max(48, spot.height))
+                                textureSize: Qt.size(24, 12)
+                                live: spotWin.visible
+                            }
+                        }
+                        Canvas {
+                            id: lumCv
+                            width: 24; height: 12
+                            renderTarget: Canvas.Image
+                            property string pend: ""
+                            property var keep: null                 // holds the grab result alive until its image is read (otherwise it can be garbage-collected mid-load)
+                            function measure() {
+                                if (pend === "" || !isImageLoaded(pend)) return;
+                                var ctx = getContext("2d");
+                                if (!ctx) { requestPaint(); return; }
+                                ctx.clearRect(0, 0, width, height);
+                                ctx.drawImage(pend, 0, 0, width, height);
+                                var d = ctx.getImageData(0, 0, width, height).data;
+                                var sum = 0, n = 0;
+                                for (var i = 0; i + 3 < d.length; i += 4) {
+                                    if (d[i + 3] < 8) continue;
+                                    sum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+                                    n++;
+                                }
+                                unloadImage(pend); pend = ""; keep = null;
+                                if (lumHub.adaptiveDebug) console.log("[spotlight] backdrop luminance", (n > 0 ? (sum / n).toFixed(3) : "empty"), "tick", lumHub.probeTicks);
+                                if (n > 0 && (lumHub.probeTicks > 15 || !lumHub.grimOk)) {     // first frames after opening can be stale: trust grim until the backdrop has settled
+                                    var lum = sum / n;
+                                    spot.bgLum = lum;
+                                }
+                            }
+                            onImageLoaded: measure()
+                            onPaint: measure()
+                        }
+                    }
+                    // right after opening, measure very quickly (the backdrop needs a moment to render), then settle to a slow poll
+                    property bool adaptiveDebug: false                  // true = print each brightness reading to the log
+                    property int probeTicks: 0
+                    // opening is held back (a few tens of ms) until the screen behind Spotlight has been measured while Spotlight is still hidden,
+                    // so the very first toggle already shows the right text colour
+                    property string readyFor: ""
+                    property bool grimOk: false
+                    Timer { id: gateTimer; interval: 350; onTriggered: lumHub.markReady() }       // safety net: never block Spotlight longer than this
+                    function markReady() {
+                        gateTimer.stop();
+                        if (ui.pop === "spot" && readyFor !== "spot") { readyFor = "spot"; spFocusTimer.restart(); }
+                    }
+                    Connections {
+                        target: ui
+                        function onPopChanged() {
+                            if (ui.pop === "spot") {
+                                lumHub.probeTicks = 0;
+                                if (!spot.adaptive || lumHub.warned) lumHub.markReady();
+                                else { gateTimer.restart(); lumHub.sampleNow(); }
+                            } else { lumHub.readyFor = ""; gateTimer.stop(); }
+                        }
+                    }
+                    Connections { target: spotWin; function onVisibleChanged() { if (spotWin.visible) lumHub.probeTicks = 0; } }
+                    // ── grim sampler: while Spotlight is HIDDEN, take a tiny screenshot of the area it will cover, so the colour is already right on the first toggle ──
+                    // (re-sampled whenever windows / workspaces change, plus a slow safety poll; needs grim, which the screenshot feature already requires)
+                    property bool warned: false
+                    readonly property bool useProbe: true               // also read the blurred backdrop while Spotlight is open (backup, keeps it right if the screen changes)
+                    Process {
+                        id: lumGrim
+                        stdout: StdioCollector {
+                            onStreamFinished: {
+                                var v = parseInt(text.trim(), 10) / 1000;
+                                if (lumHub.adaptiveDebug) console.log("[spotlight] grim luminance:", text.trim());
+                                if (isNaN(v)) {
+                                    if (!lumHub.warned) { lumHub.warned = true; console.warn("[spotlight] adaptive colours: grim returned no data (is grim installed and allowed to capture?)"); }
+                                } else {
+                                    lumHub.grimOk = true;
+                                    if (!spotWin.visible) spot.applyLum(v);
+                                }
+                                lumHub.markReady();
+                            }
+                        }
+                    }
+                    function sampleNow() {
+                        if (!spot.adaptive || spotWin.visible || lumGrim.running) return;
+                        var sc = perScreen.modelData;
+                        if (!sc) return;
+                        var gx = Math.round(sc.x + (sc.width - 640) / 2), gy = Math.round(sc.y + sc.height * 0.4) - 24;
+                        lumGrim.command = ["sh", "-c",
+                            "grim -g \"$1\" -s 0.1 -t ppm - 2>/dev/null | { read -r _a; read -r _b; read -r _c; od -An -v -tu1 | "
+                            + "LC_ALL=C awk '{for(i=1;i<=NF;i++){c=(c+1)%3;v=$i;if(c==1)r=v;else if(c==2)g=v;else{s+=0.2126*r+0.7152*g+0.0722*v;n++}}}"
+                            + "END{if(n>0)printf \"%d\",s/n*1000/255}'; }",
+                            "sh", gx + "," + gy + " 640x200"];
+                        lumGrim.running = true;
+                    }
+                    Timer { id: lumDebounce; interval: 500; onTriggered: lumHub.sampleNow() }
+                    Timer { interval: 1500; running: true; onTriggered: lumHub.sampleNow() }                       // once after start-up
+                    Timer { interval: 6000; repeat: true; running: spot.adaptive && !spotWin.visible; onTriggered: lumHub.sampleNow() }   // safety poll while hidden
+                    Connections {
+                        target: root
+                        function onGlassClientsChanged() { lumDebounce.restart(); }
+                        function onMonDataChanged() { lumDebounce.restart(); }
+                    }
+                    Connections { target: spotWin; function onVisibleChanged() { if (!spotWin.visible) lumDebounce.restart(); } }
+                    Timer {
+                        interval: lumHub.probeTicks < 25 ? 40 : 300; repeat: true; triggeredOnStart: true
+                        running: lumHub.useProbe && spot.adaptive && spotWin.visible
+                        onTriggered: {
+                            lumHub.probeTicks++;
+                            var ok = lumProbe.grabToImage(function (res) { lumCv.keep = res; lumCv.pend = res.url; lumCv.loadImage(res.url); }, Qt.size(24, 12));
+                            if (lumHub.adaptiveDebug && !ok) console.log("[spotlight] grab refused, tick", lumHub.probeTicks);
+                        }
+                    }
+                }
+
                 // ═════════ Spotlight (Liquid Glass) ═════════
                 Item {
                     id: spot
@@ -6204,22 +6361,66 @@ Scope {
                     visible: opacity > 0
                     scale: ui.spCalm ? 0.97 : 0.8
                     transformOrigin: Item.Center
+                    // 0 = closed, 1 = open: drives the blur, so Spotlight comes into focus as it pops in and melts out of focus as it leaves
+                    property real shown: 0
+                    // ── adaptive colours: Spotlight reads how bright the stuff behind it is and flips its text / icons / glass ──
+                    // light backdrop -> black text on light glass, dark backdrop -> white text on dark glass
+                    property real bgLum: root.darkMode ? 0.1 : 0.9            // measured brightness of the backdrop, 0 (black) .. 1 (white)
+                    property bool bgDark: root.darkMode                      // result, with hysteresis so it does not flicker
+                    readonly property bool adaptive: true                    // false = always follow the system light / dark mode
+                    onBgLumChanged: { if (bgLum > 0.58) bgDark = false; else if (bgLum < 0.44) bgDark = true; }
+                    readonly property bool useDark: adaptive ? bgDark : root.darkMode
+                    function applyLum(v) {                    // a fresh brightness reading of the screen behind Spotlight
+                        bgLum = v;
+                        if (v > 0.55) bgDark = false; else if (v < 0.45) bgDark = true;      // in between: keep the current look
+                    }
+                    QtObject {
+                        id: spPal
+                        readonly property bool dark: spot.useDark
+                        readonly property string fam: root.fontFamily
+                        readonly property color accent: root.accent
+                        readonly property color fg: dark ? "#FFFFFF" : "#4A4A4E"
+                        readonly property color fg2: dark ? Qt.rgba(1, 1, 1, 0.62) : Qt.rgba(0.29, 0.29, 0.31, 0.78)
+                        readonly property color fg3: dark ? Qt.rgba(1, 1, 1, 0.34) : Qt.rgba(0.29, 0.29, 0.31, 0.50)
+                        readonly property color tile: dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(1, 1, 1, 0.42)
+                        readonly property color tileBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.70)
+                        readonly property color btnOff: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.10)
+                        readonly property color btnHover: dark ? Qt.rgba(1, 1, 1, 0.30) : Qt.rgba(0, 0, 0, 0.16)
+                        readonly property color hover: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.09)
+                        readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.12)
+                        readonly property color track: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.12)
+                        readonly property color content: dark ? "#1E1E1E" : "#F5F5F7"
+                        readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
+                        readonly property color cardBorder: dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.08)
+                        readonly property color switchOff: dark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.16)
+                    }
+                    // jelly press on the round buttons: which one is held, and a springy 0..1 "how swollen" value
+                    property int jIdx: -1
+                    property bool jDown: false
+                    property real jT: jDown ? 1 : 0
+                    readonly property real pillMix: jIdx === 0 ? Math.min(1, Math.max(0, jT) * 3) : 0     // pill hands its glass to the body
+                    Behavior on jT { NumberAnimation { duration: 460; easing.type: Easing.OutBack; easing.overshoot: 2.4 } }
+                    onJTChanged: if (jT <= 0.001 && !jDown) jIdx = -1
+                    layer.enabled: shown > 0.001 && shown < 0.999       // only rendered into a texture while it animates
+                    layer.sourceRect: Qt.rect(-40, -40, width + 80, height + 80)
+                    layer.effect: MultiEffect { blurEnabled: true; blurMax: 48; blur: Math.min(1, (1 - spot.shown) * 0.85) }
                     states: State {
                         name: "open"
-                        when: ui.pop === "spot"
-                        PropertyChanges { target: spot; opacity: 1; scale: 1 }
+                        when: ui.pop === "spot" && lumHub.readyFor === "spot"
+                        PropertyChanges { target: spot; opacity: 1; scale: 1; shown: 1 }
                     }
                     transitions: [
                         Transition {
                             from: ""; to: "open"
                             ParallelAnimation {
-                                NumberAnimation { property: "opacity"; duration: 100 }
+                                NumberAnimation { property: "opacity"; duration: 140 }
+                                NumberAnimation { property: "shown"; duration: ui.spCalm ? 240 : 480; easing.type: Easing.OutCubic }
                                 NumberAnimation { property: "scale"; duration: ui.spCalm ? 160 : 360; easing.type: ui.spCalm ? Easing.OutCubic : Easing.OutBack; easing.overshoot: 3.4 }
                             }
                         },
                         Transition {
                             from: "open"; to: ""
-                            NumberAnimation { properties: "opacity,scale"; duration: 100; easing.type: Easing.InCubic }
+                            NumberAnimation { properties: "opacity,scale,shown"; duration: 130; easing.type: Easing.InCubic }
                         }
                     ]
 
@@ -6273,7 +6474,7 @@ Scope {
                         frame: spotRoot
                         liquid: root.liquidActive
                         shaderUrl: root.glassShaderUrl
-                        dark: root.darkMode
+                        dark: spot.useDark
                         tint: root.glassOpacity
                         strength: root.glassLiquid
                         rim: root.glassRim
@@ -6289,33 +6490,221 @@ Scope {
                         onTriggered: (ui.spMode === "apps" ? appsInput : (ui.spMode === "clip" ? clipInput : (ui.spMode === "emoji" ? emojiInput : spInput))).forceActiveFocus()
                     }
 
+                    // ── jelly body: the held button and its neighbours fuse into ONE smooth glass shape ──
+                    // (circles -> blur -> threshold = metaballs; that shape cuts a single Liquid Glass slab out)
+                    Item {
+                        id: goo
+                        readonly property real t: Math.max(0, Math.min(1.15, spot.jT))
+                        readonly property int pi: spot.jIdx
+                        readonly property bool hasP: pi === 0                      // the search pill is the left neighbour
+                        readonly property bool hasL: pi >= 1
+                        readonly property bool hasR: pi >= 0 && pi <= 3
+                        function cx(k) { return spPill.width + 8 + k * 56 + 24; }
+                        readonly property real cP: cx(pi)
+                        readonly property real cL: cx(pi - 1) + 4 * t           // neighbours are pulled toward the held button
+                        readonly property real cR: cx(pi + 1) - 4 * t
+                        readonly property real dd: 48 * (1 + 0.16 * t)           // held button's diameter
+                        readonly property real x0: hasP ? -6 : ((hasL ? cL : cP) - 48 * 0.9)
+                        readonly property real x1: (hasR ? cR : cP) + 48 * 0.9
+                        visible: !ui.spFull && pi >= 0 && t > 0.01
+                        opacity: Math.min(1, t * 3) * spRow.opacity
+                        x: x0
+                        width: Math.max(1, x1 - x0)
+                        height: 48 * 1.5
+                        y: 24 - height / 2
+
+                        Item {   // the shape: three discs
+                            id: gooSrc
+                            anchors.fill: parent
+                            Rectangle {   // the search pill (it bulges a little toward the held button)
+                                visible: goo.hasP
+                                width: spPill.width + 5 * goo.t; height: 48; radius: 24; color: "white"
+                                x: -goo.x0; y: (parent.height - height) / 2
+                            }
+                            Rectangle {
+                                width: goo.dd; height: goo.dd; radius: width / 2; color: "white"
+                                x: goo.cP - goo.x0 - width / 2; y: (parent.height - height) / 2
+                            }
+                            Rectangle {
+                                visible: goo.hasL
+                                width: 48 * (1 + 0.05 * goo.t); height: 48 * (1 - 0.02 * goo.t); radius: height / 2; color: "white"
+                                x: goo.cL - goo.x0 - width / 2; y: (parent.height - height) / 2
+                            }
+                            Rectangle {
+                                visible: goo.hasR
+                                width: 48 * (1 + 0.05 * goo.t); height: 48 * (1 - 0.02 * goo.t); radius: height / 2; color: "white"
+                                x: goo.cR - goo.x0 - width / 2; y: (parent.height - height) / 2
+                            }
+                        }
+                        ShaderEffectSource { id: gooTex; sourceItem: gooSrc; hideSource: true; live: goo.visible; visible: false }
+                        MultiEffect {
+                            id: gooBlur
+                            source: gooTex
+                            width: goo.width; height: goo.height
+                            blurEnabled: true; blurMax: 32; blur: 0.46
+                            autoPaddingEnabled: false
+                            visible: false
+                        }
+                        ShaderEffectSource { id: gooMask; sourceItem: gooBlur; live: goo.visible; visible: false }
+
+                        Item {   // one glass slab, cut to the fused shape
+                            anchors.fill: parent
+                            layer.enabled: true
+                            layer.effect: MultiEffect { maskEnabled: true; maskSource: gooMask; maskThresholdMin: 0.5; maskSpreadAtMin: 0.12 }
+                            GGlass {
+                                x: 0
+                                width: parent.width
+                                height: goo.dd + 3
+                                y: (parent.height - height) / 2
+                                gx: spg; cornerR: height / 2; thickness: 26; strengthMul: 1.0; shadowAmt: 0
+                            }
+                        }
+                        // ── ONE border around the fused shape ──
+                        // The same discs again, each shrunk by the border width, through the identical blur + 0.5 threshold.
+                        // border = (fused shape) minus (shrunk fused shape).
+                        Item {
+                            id: gooSrcIn
+                            anchors.fill: parent
+                            readonly property real w: spg.outlineW
+                            Rectangle {
+                                visible: goo.hasP
+                                width: spPill.width + 5 * goo.t - 2 * gooSrcIn.w; height: 48 - 2 * gooSrcIn.w; radius: height / 2; color: "white"
+                                x: -goo.x0 + gooSrcIn.w; y: (parent.height - height) / 2
+                            }
+                            Rectangle {
+                                width: goo.dd - 2 * gooSrcIn.w; height: width; radius: width / 2; color: "white"
+                                x: goo.cP - goo.x0 - width / 2; y: (parent.height - height) / 2
+                            }
+                            Rectangle {
+                                visible: goo.hasL
+                                width: 48 * (1 + 0.05 * goo.t) - 2 * gooSrcIn.w; height: 48 * (1 - 0.02 * goo.t) - 2 * gooSrcIn.w; radius: height / 2; color: "white"
+                                x: goo.cL - goo.x0 - width / 2; y: (parent.height - height) / 2
+                            }
+                            Rectangle {
+                                visible: goo.hasR
+                                width: 48 * (1 + 0.05 * goo.t) - 2 * gooSrcIn.w; height: 48 * (1 - 0.02 * goo.t) - 2 * gooSrcIn.w; radius: height / 2; color: "white"
+                                x: goo.cR - goo.x0 - width / 2; y: (parent.height - height) / 2
+                            }
+                        }
+                        ShaderEffectSource { id: gooTexIn; sourceItem: gooSrcIn; hideSource: true; live: goo.visible; visible: false }
+                        MultiEffect {
+                            id: gooBlurIn
+                            source: gooTexIn
+                            width: goo.width; height: goo.height
+                            blurEnabled: true; blurMax: 32; blur: 0.46
+                            autoPaddingEnabled: false
+                            visible: false
+                        }
+                        ShaderEffectSource { id: gooMaskIn; sourceItem: gooBlurIn; live: goo.visible; visible: false }
+
+                        Item {   // the border: outer fused shape with the shrunk fused shape cut out of it
+                            anchors.fill: parent
+                            layer.enabled: true
+                            layer.effect: MultiEffect { maskEnabled: true; maskInverted: true; maskSource: gooMaskIn; maskThresholdMin: 0.5; maskSpreadAtMin: 0.12 }
+                            Item {
+                                anchors.fill: parent
+                                layer.enabled: true
+                                layer.effect: MultiEffect { maskEnabled: true; maskSource: gooMask; maskThresholdMin: 0.5; maskSpreadAtMin: 0.12 }
+                                Rectangle { anchors.fill: parent; color: Qt.rgba(0.27, 0.27, 0.29, spPal.dark ? spg.outlineA : spg.outlineA * 0.75) }
+                            }
+                        }
+                    }
+
+                    // ── jelly "necks": liquid-glass bridge to the search pill (button-to-button joins use the body above) ──
+                    Repeater {
+                        model: 0
+                        delegate: Item {
+                            id: neck
+                            required property int index
+                            readonly property int nb: spot.jIdx + (index === 0 ? -1 : 1)       // neighbour: -1 = the search pill, 5 = nothing
+                            readonly property real t: Math.max(0, Math.min(1.15, spot.jT))
+                            readonly property real cP: spPill.width + 8 + spot.jIdx * 56 + 24     // centre of the held button
+                            readonly property real cN: nb < 0 ? spPill.width / 2 : spPill.width + 8 + nb * 56 + 24
+                            visible: !ui.spFull && spot.jIdx >= 0 && nb === -1 && t > 0.01     // button-to-button joins are the goo body below
+                            opacity: Math.min(1, t * 2.2) * spRow.opacity
+                            x: Math.min(cP, cN)
+                            width: Math.abs(cP - cN)
+                            height: 48 * 0.62 * Math.min(1, t * 1.3)
+                            y: (48 - height) / 2
+                            GGlass { anchors.fill: parent; gx: spg; outline: true; cornerR: height / 2; thickness: 18; strengthMul: 0.8; shadowAmt: 0.3 }
+                        }
+                    }
+
                     // ── search pill + the four round buttons ──
                     Row {
                         id: spRow
-                        spacing: 12
+                        spacing: 8
                         opacity: !ui.spFull ? 1 : 0
                         visible: opacity > 0
-                        Behavior on opacity { NumberAnimation { duration: 160 } }
+                        scale: !ui.spFull ? 1 : 0.94
+                        transformOrigin: Item.Center
+                        Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+                        layer.enabled: opacity > 0 && opacity < 0.999
+                        layer.sourceRect: Qt.rect(-24, -24, width + 48, height + 48)
+                        layer.effect: MultiEffect { blurEnabled: true; blurMax: 32; blur: Math.min(1, (1 - spRow.opacity) * 0.9) }
 
                         Item {
                             id: spPill
-                            width: spot.width - 5 * 60
+                            width: spot.width - 5 * 56
                             height: 48
-                            GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 20; strengthMul: 0.7; shadowAmt: 0.45 }
+                            GGlass { anchors.fill: parent; gx: spg; outline: true; cornerR: 24; thickness: 20; strengthMul: 0.7; shadowAmt: 0.7; opacity: 1 - spot.pillMix }
                             Glyph {
                                 x: 18; anchors.verticalCenter: parent.verticalCenter
                                 width: 18; height: 18
-                                kind: "search"; color: pal.fg2
+                                kind: "search"; color: spPal.fg2
                             }
-                            Text {
+                            // placeholder / hover label: the old text blurs out while the new one sharpens in
+                            Item {
+                                id: phMorph
                                 x: spInput.x + 3
                                 width: spInput.width
+                                height: 24
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: spInput.text === ""
-                                text: ui.spHoverLabel !== "" ? ui.spHoverLabel : "Spotlight Search"
-                                color: pal.fg2
-                                font.family: pal.fam; font.pixelSize: 17
-                                elide: Text.ElideRight
+                                readonly property string want: ui.spHoverLabel !== "" ? ui.spHoverLabel : "Spotlight Search"
+                                property bool useA: true
+                                property string tA: want
+                                property string tB: want
+                                property real mt: 1
+                                readonly property real vA: useA ? mt : 1 - mt
+                                readonly property real vB: 1 - vA
+                                onWantChanged: {
+                                    if (useA) tB = want; else tA = want;
+                                    useA = !useA;
+                                    phAnim.restart();
+                                }
+                                NumberAnimation { id: phAnim; target: phMorph; property: "mt"; from: 0; to: 1; duration: 280; easing.type: Easing.OutCubic }
+                                Text {
+                                    width: parent.width
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: phMorph.tA
+                                    color: spPal.fg2
+                                    font.family: spPal.fam; font.pixelSize: 17
+                                    elide: Text.ElideRight
+                                    opacity: phMorph.vA
+                                    scale: 0.94 + 0.06 * phMorph.vA
+                                    transformOrigin: Item.Left
+                                    visible: opacity > 0.01
+                                    layer.enabled: phMorph.vA < 0.999
+                                    layer.sourceRect: Qt.rect(-12, -8, width + 24, height + 16)
+                                    layer.effect: MultiEffect { blurEnabled: true; blurMax: 16; blur: Math.min(1, (1 - phMorph.vA) * 0.9) }
+                                }
+                                Text {
+                                    width: parent.width
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: phMorph.tB
+                                    color: spPal.fg2
+                                    font.family: spPal.fam; font.pixelSize: 17
+                                    elide: Text.ElideRight
+                                    opacity: phMorph.vB
+                                    scale: 0.94 + 0.06 * phMorph.vB
+                                    transformOrigin: Item.Left
+                                    visible: opacity > 0.01
+                                    layer.enabled: phMorph.vB < 0.999
+                                    layer.sourceRect: Qt.rect(-12, -8, width + 24, height + 16)
+                                    layer.effect: MultiEffect { blurEnabled: true; blurMax: 16; blur: Math.min(1, (1 - phMorph.vB) * 0.9) }
+                                }
                             }
                             TextInput {
                                 id: spInput
@@ -6323,10 +6712,10 @@ Scope {
                                 width: parent.width - 46 - 18
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
-                                color: pal.fg
+                                color: spPal.fg
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 17
+                                font.family: spPal.fam; font.pixelSize: 17
                                 horizontalAlignment: /[\u0590-\u08ff]/.test(text) ? Text.AlignRight : Text.AlignLeft
                                 onTextChanged: { if (!ui.spFull) { ui.spQuery = text; ui.spSel = 0; ui.armed = ""; if (/^(file|find)\s+/i.test(text)) root.updateFileSearch(text.replace(/^(file|find)\s+/i, "").trim()); } }
                                 Keys.onPressed: event => ui.spKey(event)
@@ -6338,13 +6727,25 @@ Scope {
                                 { k: "layers", id: "actions", label: "Actions" }, { k: "clipboard", id: "clip", label: "Clipboard" }, { k: "smile", id: "emoji", label: "Emoji" }
                             ]
                             delegate: CCBtn {
+                                id: sbtn
                                 required property var modelData
-                                t: pal; gx: spg
+                                required property int index
+                                t: spPal; gx: spg
+                                outline: true
                                 d: 48
-                                bounce: true
-                                shadow: 0.45
+                                shadow: 0.7
                                 kind: modelData.k
                                 on: ui.spMode === modelData.id
+                                readonly property int dIdx: index - spot.jIdx
+                                jT: (spot.jIdx >= 0 && dIdx === 0) ? Math.max(0, spot.jT) : 0
+                                jN: (spot.jIdx >= 0 && Math.abs(dIdx) === 1) ? Math.max(0, spot.jT) : 0
+                                jDir: dIdx > 0 ? -1 : 1
+                                gooMix: (spot.jIdx >= 0 && Math.abs(dIdx) <= 1) ? Math.min(1, Math.max(0, spot.jT) * 3) : 0
+                                z: (spot.jIdx >= 0 && dIdx === 0) ? 5 : 0
+                                onDownChanged: {
+                                    if (down) { spot.jIdx = index; spot.jDown = true; }
+                                    else if (spot.jIdx === index) spot.jDown = false;
+                                }
                                 HoverHandler {
                                     onHoveredChanged: {
                                         if (hovered) ui.spHoverLabel = modelData.label;
@@ -6373,10 +6774,13 @@ Scope {
                         readonly property int selIdx: Math.max(0, Math.min(ui.spSel, items.length - 1))
                         opacity: (!ui.spFull && items.length > 0) ? 1 : 0
                         visible: opacity > 0
-                        Behavior on opacity { NumberAnimation { duration: 140 } }
+                        Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                        layer.enabled: opacity > 0 && opacity < 0.999
+                        layer.sourceRect: Qt.rect(-24, -24, width + 48, height + 48)
+                        layer.effect: MultiEffect { blurEnabled: true; blurMax: 32; blur: Math.min(1, (1 - resPanel.opacity) * 0.9) }
                         height: (items.length > 0 ? items.length : keep) * 46 + 16
                         Behavior on height { NumberAnimation { duration: 280; easing.type: Easing.OutBack; easing.overshoot: 2.2 } }
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 26; thickness: 26; strengthMul: 0.8; shadowAmt: 0.5 }
+                        GGlass { anchors.fill: parent; gx: spg; outline: true; cornerR: 26; thickness: 26; strengthMul: 0.8; shadowAmt: 0.5 }
                         Item {
                             x: 8; y: 8
                             width: parent.width - 16
@@ -6421,7 +6825,7 @@ Scope {
                                             anchors.centerIn: parent
                                             width: 20; height: 20
                                             kind: (rr.modelData && rr.modelData.glyph) ? rr.modelData.glyph : ""
-                                            color: rr.sel ? "white" : pal.fg
+                                            color: rr.sel ? "white" : spPal.fg
                                         }
                                     }
                                     Text {
@@ -6430,16 +6834,16 @@ Scope {
                                         width: parent.width - 54 - 140
                                         elide: Text.ElideRight
                                         text: rr.armedNow ? "Press Return again to confirm" : (rr.modelData ? rr.modelData.title : "")
-                                        color: rr.sel ? "white" : pal.fg
-                                        font.family: pal.fam; font.pixelSize: 14
+                                        color: rr.sel ? "white" : spPal.fg
+                                        font.family: spPal.fam; font.pixelSize: 14
                                     }
                                     Text {
                                         anchors.right: parent.right
                                         anchors.rightMargin: 16
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: rr.modelData ? rr.modelData.sub : ""
-                                        color: rr.sel ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
-                                        font.family: pal.fam; font.pixelSize: 12
+                                        color: rr.sel ? Qt.rgba(1, 1, 1, 0.8) : spPal.fg2
+                                        font.family: spPal.fam; font.pixelSize: 12
                                     }
                                     MouseArea {
                                         anchors.fill: parent
@@ -6458,10 +6862,13 @@ Scope {
                         id: clipPanel
                         opacity: ui.spMode === "clip" ? 1 : 0
                         visible: opacity > 0
-                        scale: ui.spMode === "clip" ? 1 : 0.96
+                        scale: ui.spMode === "clip" ? 1 : 0.94
                         transformOrigin: Item.Top
-                        Behavior on opacity { NumberAnimation { duration: 160 } }
-                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 340; easing.type: Easing.OutCubic } }
+                        layer.enabled: opacity > 0 && opacity < 0.999
+                        layer.sourceRect: Qt.rect(-24, -24, width + 48, height + 48)
+                        layer.effect: MultiEffect { blurEnabled: true; blurMax: 32; blur: Math.min(1, (1 - clipPanel.opacity) * 0.9) }
                         width: spot.width
                         readonly property var items: ui.spMode === "clip" ? ui.spResults : []
                         readonly property int rowH: 56
@@ -6475,7 +6882,7 @@ Scope {
                             : (ui.spQuery.trim() === "" && !root.clipLoading ? "Copy some text or an image and it will show up here" : ""))
                         height: 64 + (items.length > 0 ? shown * rowH + 14 : 118)
                         Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
+                        GGlass { anchors.fill: parent; gx: spg; outline: true; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
 
                         Item {
                             id: clipHeader
@@ -6494,8 +6901,8 @@ Scope {
                                 x: 46
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "Clipboard"
-                                color: pal.fg
-                                font.family: pal.fam; font.pixelSize: 24; font.weight: Font.Medium
+                                color: spPal.fg
+                                font.family: spPal.fam; font.pixelSize: 24; font.weight: Font.Medium
                             }
                             TextInput {
                                 id: clipInput
@@ -6503,15 +6910,16 @@ Scope {
                                 width: parent.width - x - 48
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
-                                color: pal.fg
+                                color: spPal.fg
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 24
+                                font.family: spPal.fam; font.pixelSize: 24
                                 onTextChanged: { if (ui.spMode === "clip") { ui.spQuery = text; ui.spSel = 0; } }
                                 Keys.onPressed: event => ui.spKey(event)
                             }
                             CCBtn {
-                                t: pal; gx: spg
+                                t: spPal; gx: spg
+                                outline: true
                                 d: 34
                                 bounce: true
                                 anchors.right: parent.right
@@ -6562,12 +6970,12 @@ Scope {
                                         visible: cr.modelData.kind === "text" || cr.modelData.kind === "url"
                                         anchors.fill: parent
                                         radius: 10
-                                        color: cr.sel ? Qt.rgba(1, 1, 1, 0.22) : (root.darkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06))
+                                        color: cr.sel ? Qt.rgba(1, 1, 1, 0.22) : (spPal.dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06))
                                         Glyph {
                                             anchors.centerIn: parent
                                             width: 20; height: 20
                                             kind: cr.modelData.kind === "url" ? "link" : "doc"
-                                            color: cr.sel ? "white" : pal.fg2
+                                            color: cr.sel ? "white" : spPal.fg2
                                         }
                                     }
                                     Rectangle {
@@ -6580,7 +6988,7 @@ Scope {
                                     Item {
                                         visible: cr.modelData.kind === "image"
                                         anchors.fill: parent
-                                        Rectangle { anchors.fill: parent; radius: 10; color: root.darkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06) }
+                                        Rectangle { anchors.fill: parent; radius: 10; color: spPal.dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06) }
                                         Image {
                                             anchors.fill: parent
                                             source: cr.modelData.kind === "image" ? cr.modelData.thumb : ""
@@ -6609,16 +7017,16 @@ Scope {
                                     width: parent.width - 62 - 56
                                     elide: Text.ElideRight
                                     text: cr.modelData ? cr.modelData.title : ""
-                                    color: cr.sel ? "white" : pal.fg
-                                    font.family: pal.fam; font.pixelSize: 14
+                                    color: cr.sel ? "white" : spPal.fg
+                                    font.family: spPal.fam; font.pixelSize: 14
                                 }
                                 Text {
                                     x: 62; y: 31
                                     width: parent.width - 62 - 56
                                     elide: Text.ElideRight
                                     text: cr.modelData ? cr.modelData.sub : ""
-                                    color: cr.sel ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
-                                    font.family: pal.fam; font.pixelSize: 12
+                                    color: cr.sel ? Qt.rgba(1, 1, 1, 0.8) : spPal.fg2
+                                    font.family: spPal.fam; font.pixelSize: 12
                                 }
                                 Glyph {
                                     visible: cr.sel
@@ -6648,16 +7056,16 @@ Scope {
                                 width: parent.width
                                 horizontalAlignment: Text.AlignHCenter
                                 text: clipPanel.emptyTitle
-                                color: pal.fg
-                                font.family: pal.fam; font.pixelSize: 15; font.weight: Font.Medium
+                                color: spPal.fg
+                                font.family: spPal.fam; font.pixelSize: 15; font.weight: Font.Medium
                             }
                             Text {
                                 width: parent.width
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.WordWrap
                                 text: clipPanel.emptySub
-                                color: pal.fg2
-                                font.family: pal.fam; font.pixelSize: 12
+                                color: spPal.fg2
+                                font.family: spPal.fam; font.pixelSize: 12
                             }
                         }
 
@@ -6671,7 +7079,7 @@ Scope {
                             y: 58
                             width: 250
                             height: 3 * 40 + 12
-                            GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 22; strengthMul: 0.8; shadowAmt: 0.6 }
+                            GGlass { anchors.fill: parent; gx: spg; outline: true; cornerR: 20; thickness: 22; strengthMul: 0.8; shadowAmt: 0.6 }
                             Column {
                                 x: 6; y: 6
                                 width: parent.width - 12
@@ -6692,7 +7100,7 @@ Scope {
                                             visible: cm.modelData === "auto" && root.clipAutoPaste
                                             x: 12; anchors.verticalCenter: parent.verticalCenter
                                             width: 16; height: 16
-                                            kind: "check"; color: cmMa.containsMouse ? "white" : pal.fg
+                                            kind: "check"; color: cmMa.containsMouse ? "white" : spPal.fg
                                         }
                                         Text {
                                             x: 38
@@ -6700,8 +7108,8 @@ Scope {
                                             text: cm.modelData === "auto" ? "Paste Automatically"
                                                   : (cm.modelData === "del" ? "Delete Selected"
                                                   : (cm.armedNow ? "Click again to confirm" : "Clear History"))
-                                            color: cmMa.containsMouse ? "white" : ((cm.modelData === "clear") ? "#FF453A" : pal.fg)
-                                            font.family: pal.fam; font.pixelSize: 14
+                                            color: cmMa.containsMouse ? "white" : ((cm.modelData === "clear") ? "#FF453A" : spPal.fg)
+                                            font.family: spPal.fam; font.pixelSize: 14
                                         }
                                         MouseArea {
                                             id: cmMa
@@ -6730,17 +7138,20 @@ Scope {
                         id: emojiPanel
                         opacity: ui.spMode === "emoji" ? 1 : 0
                         visible: opacity > 0
-                        scale: ui.spMode === "emoji" ? 1 : 0.96
+                        scale: ui.spMode === "emoji" ? 1 : 0.94
                         transformOrigin: Item.Top
-                        Behavior on opacity { NumberAnimation { duration: 160 } }
-                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 340; easing.type: Easing.OutCubic } }
+                        layer.enabled: opacity > 0 && opacity < 0.999
+                        layer.sourceRect: Qt.rect(-24, -24, width + 48, height + 48)
+                        layer.effect: MultiEffect { blurEnabled: true; blurMax: 32; blur: Math.min(1, (1 - emojiPanel.opacity) * 0.9) }
                         width: spot.width
                         readonly property int cell: 50
                         readonly property int gridRows: 6
                         readonly property var items: ui.spMode === "emoji" ? ui.spResults : []
                         readonly property var cur: items[Math.min(ui.spSel, items.length - 1)]
                         height: 64 + 42 + gridRows * cell + 46
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
+                        GGlass { anchors.fill: parent; gx: spg; outline: true; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
 
                         Item {
                             x: 20
@@ -6758,8 +7169,8 @@ Scope {
                                 x: 46
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "Emoji"
-                                color: pal.fg
-                                font.family: pal.fam; font.pixelSize: 24; font.weight: Font.Medium
+                                color: spPal.fg
+                                font.family: spPal.fam; font.pixelSize: 24; font.weight: Font.Medium
                             }
                             TextInput {
                                 id: emojiInput
@@ -6767,10 +7178,10 @@ Scope {
                                 width: parent.width - x
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
-                                color: pal.fg
+                                color: spPal.fg
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 24
+                                font.family: spPal.fam; font.pixelSize: 24
                                 onTextChanged: { if (ui.spMode === "emoji") { ui.spQuery = text; ui.spSel = 0; } }
                                 Keys.onPressed: event => ui.spKey(event)
                             }
@@ -6865,31 +7276,31 @@ Scope {
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                             text: ui.spQuery.trim() !== "" ? "No Results" : "No recently used emoji"
-                            color: pal.fg2
-                            font.family: pal.fam; font.pixelSize: 14
+                            color: spPal.fg2
+                            font.family: spPal.fam; font.pixelSize: 14
                         }
 
                         // footer: name of the highlighted emoji
                         Item {
                             x: 20; y: parent.height - 46
                             width: parent.width - 40; height: 46
-                            Rectangle { width: parent.width; height: 1; color: pal.sep }
+                            Rectangle { width: parent.width; height: 1; color: spPal.sep }
                             Text {
                                 x: 4
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 180
                                 elide: Text.ElideRight
                                 text: emojiPanel.cur ? (emojiPanel.cur[0] + "  " + emojiPanel.cur[1]) : ""
-                                color: pal.fg2
-                                font.family: pal.fam; font.pixelSize: 13
+                                color: spPal.fg2
+                                font.family: spPal.fam; font.pixelSize: 13
                             }
                             Text {
                                 anchors.right: parent.right
                                 anchors.rightMargin: 4
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: root.clipAutoPaste ? "Return to insert" : "Return to copy"
-                                color: pal.fg3
-                                font.family: pal.fam; font.pixelSize: 12
+                                color: spPal.fg3
+                                font.family: spPal.fam; font.pixelSize: 12
                             }
                         }
                     }
@@ -6899,13 +7310,16 @@ Scope {
                         id: appsPanel
                         opacity: ui.spMode === "apps" ? 1 : 0
                         visible: opacity > 0
-                        scale: ui.spMode === "apps" ? 1 : 0.96
+                        scale: ui.spMode === "apps" ? 1 : 0.94
                         transformOrigin: Item.Top
-                        Behavior on opacity { NumberAnimation { duration: 160 } }
-                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 340; easing.type: Easing.OutCubic } }
+                        layer.enabled: opacity > 0 && opacity < 0.999
+                        layer.sourceRect: Qt.rect(-24, -24, width + 48, height + 48)
+                        layer.effect: MultiEffect { blurEnabled: true; blurMax: 32; blur: Math.min(1, (1 - appsPanel.opacity) * 0.9) }
                         width: spot.width
                         height: Math.min(64 + appsCol.height + 14, 520)
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
+                        GGlass { anchors.fill: parent; gx: spg; outline: true; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
 
                         Item {
                             id: appsHeader
@@ -6915,15 +7329,15 @@ Scope {
                             Glyph {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 24; height: 24
-                                kind: "appstore"; color: pal.fg2
+                                kind: "appstore"; color: spPal.fg2
                             }
                             Text {
                                 x: 40 + 3
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: appsInput.text === ""
                                 text: "Applications"
-                                color: pal.fg3
-                                font.family: pal.fam; font.pixelSize: 24
+                                color: spPal.fg3
+                                font.family: spPal.fam; font.pixelSize: 24
                             }
                             TextInput {
                                 id: appsInput
@@ -6931,15 +7345,16 @@ Scope {
                                 width: parent.width - 40 - 48
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
-                                color: pal.fg
+                                color: spPal.fg
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 24
+                                font.family: spPal.fam; font.pixelSize: 24
                                 onTextChanged: { if (ui.spMode === "apps") { ui.spQuery = text; ui.spSel = 0; } }
                                 Keys.onPressed: event => ui.spKey(event)
                             }
                             CCBtn {
-                                t: pal; gx: spg
+                                t: spPal; gx: spg
+                                outline: true
                                 d: 34
                                 bounce: true
                                 anchors.right: parent.right
@@ -6975,15 +7390,15 @@ Scope {
                                         readonly property int shown: expanded ? modelData.apps.length : Math.min(5, modelData.apps.length)
                                         width: appsCol.width
 
-                                        Rectangle { width: parent.width; height: 1; color: pal.sep }
+                                        Rectangle { width: parent.width; height: 1; color: spPal.sep }
                                         Item {
                                             width: parent.width
                                             height: 38
                                             Text {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: sec.modelData.name
-                                                color: pal.fg
-                                                font.family: pal.fam; font.pixelSize: 13; font.weight: Font.Bold
+                                                color: spPal.fg
+                                                font.family: spPal.fam; font.pixelSize: 13; font.weight: Font.Bold
                                             }
                                             Text {
                                                 visible: !sec.searching && sec.modelData.apps.length > 5
@@ -6991,7 +7406,7 @@ Scope {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: sec.expanded ? "Show Less" : "Show More"
                                                 color: root.accent
-                                                font.family: pal.fam; font.pixelSize: 12; font.weight: Font.Bold
+                                                font.family: spPal.fam; font.pixelSize: 12; font.weight: Font.Bold
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     anchors.margins: -6
@@ -7013,7 +7428,7 @@ Scope {
                                                         anchors.fill: parent
                                                         anchors.margins: 2
                                                         radius: 16
-                                                        color: cma.containsMouse ? pal.hover : "transparent"
+                                                        color: cma.containsMouse ? spPal.hover : "transparent"
                                                     }
                                                     Image {
                                                         anchors.horizontalCenter: parent.horizontalCenter
@@ -7032,8 +7447,8 @@ Scope {
                                                         horizontalAlignment: Text.AlignHCenter
                                                         elide: Text.ElideRight
                                                         text: cell.e.name
-                                                        color: pal.fg
-                                                        font.family: pal.fam; font.pixelSize: 12
+                                                        color: spPal.fg
+                                                        font.family: spPal.fam; font.pixelSize: 12
                                                     }
                                                     MouseArea {
                                                         id: cma
@@ -7054,8 +7469,8 @@ Scope {
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     text: "No Results"
-                                    color: pal.fg2
-                                    font.family: pal.fam; font.pixelSize: 14
+                                    color: spPal.fg2
+                                    font.family: spPal.fam; font.pixelSize: 14
                                 }
                             }
                         }

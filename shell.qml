@@ -5,7 +5,7 @@
 //   ~/.config/quickshell/macbar/MacBar.qml      (the menu bar)
 //   ~/.config/quickshell/macbar/MacDock.qml     (the Dock)
 //   ~/.config/quickshell/macbar/MacWidgets.qml  (desktop widgets)
-//   ~/.config/quickshell/macbar/WeatherWidget.qml, CalendarWidget.qml, ClockWidget.qml, WeatherIcon.qml
+//   ~/.config/quickshell/macbar/WeatherWidget.qml, CalendarWidget.qml, ClockWidget.qml, PlayerWidget.qml, WeatherIcon.qml
 //   ~/.config/quickshell/macbar/liquidglass.frag
 // Run:  qs -c macbar        (remove your separate `qs -c macdock` autostart)
 //
