@@ -4,6 +4,8 @@
 //   ~/.config/quickshell/macbar/shell.qml       (this file)
 //   ~/.config/quickshell/macbar/MacBar.qml      (the menu bar)
 //   ~/.config/quickshell/macbar/MacDock.qml     (the Dock)
+//   ~/.config/quickshell/macbar/MacWidgets.qml  (desktop widgets)
+//   ~/.config/quickshell/macbar/WeatherWidget.qml, CalendarWidget.qml, ClockWidget.qml, WeatherIcon.qml
 //   ~/.config/quickshell/macbar/liquidglass.frag
 // Run:  qs -c macbar        (remove your separate `qs -c macdock` autostart)
 //
@@ -32,6 +34,7 @@ ShellRoot {
         // the single settings window lives in MacDock.qml; everything else reaches it through here
         property var bar: macBar
         property var dock: macDock
+        property var widgets: macWidgets      // desktop widgets (Settings → Widgets reaches them through here)
         function openSettings(pane) { macDock.openPrefs(pane); }
 
         // set by MacBar / MacDock (Binding elements) when their glass needs live data
@@ -39,6 +42,7 @@ ShellRoot {
         property bool dockWantsGeo: false
         property bool barWantsWallpaper: false
         property bool dockWantsWallpaper: false
+        property bool widgetsWantWallpaper: false      // set by MacWidgets while a Liquid Glass widget is placed
 
         // ── screen recording / screen sharing: the window captures sit out ──
         // A recorder (wf-recorder, a screen share) and the glass's live ScreencopyViews all pull frames from Hyprland at the same
@@ -226,13 +230,14 @@ ShellRoot {
         Timer {
             interval: 4000
             repeat: true
-            running: sharedHub.barWantsWallpaper || sharedHub.dockWantsWallpaper
+            running: sharedHub.barWantsWallpaper || sharedHub.dockWantsWallpaper || sharedHub.widgetsWantWallpaper
             onTriggered: sharedHub.refreshWallpaper()
         }
     }
 
     MacBar { id: macBar; hub: sharedHub }
     MacDock { id: macDock; hub: sharedHub }
+    MacWidgets { id: macWidgets; hub: sharedHub }
 
     // reopen settings even when both the Dock and the Menu Bar are disabled:
     //   qs -c macbar ipc call settings open

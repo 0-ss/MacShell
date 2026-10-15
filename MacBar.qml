@@ -1,4 +1,4 @@
-// macbar — a macOS Tahoe style menu bar for Hyprland, built on Quickshell.
+// macbar — a macOS  style menu bar for Hyprland, built on Quickshell.
 //
 // Part of the combined macbar + macdock shell (see shell.qml). Keep this file, MacDock.qml, shell.qml,
 // liquidglass.frag and apple-logo-*.svg together in ~/.config/quickshell/macbar/ and run:  qs -c macbar

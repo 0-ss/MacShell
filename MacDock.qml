@@ -472,6 +472,13 @@ Scope {
                     color: "transparent"; border.width: 1; border.color: "white"
                 }
             }
+            // widgets (three tiles)
+            Item {
+                visible: gl.kind === "widgets"; anchors.fill: parent
+                Rectangle { x: 1.5; y: 1.5; width: 6; height: 6; radius: 1.6; color: "white" }
+                Rectangle { x: 8.5; y: 1.5; width: 6; height: 6; radius: 1.6; color: "white" }
+                Rectangle { x: 1.5; y: 8.5; width: 13; height: 6; radius: 1.8; color: "white" }
+            }
             // about
             Item {
                 visible: gl.kind === "about"; anchors.fill: parent
@@ -521,6 +528,8 @@ Scope {
               keys: "hide auto labels tooltip indicators bounce animate trash display monitor delay window preview thumbnail" },
             { id: "apps",       name: "Applications", glyph: "apps",       c1: "#FFB340", c2: "#FF9500",
               keys: "pinned apps keep remove reset" },
+            { id: "widgets",    name: "Widgets",      glyph: "widgets",    c1: "#FF6482", c2: "#FF375F",
+              keys: "desktop widget weather clock calendar glass edit add remove" },
             { id: "about",      name: "About",        glyph: "about",      c1: "#A7A7AD", c2: "#7C7C82",
               keys: "version reset config folder macdock macbar macshell" }
         ]
@@ -558,6 +567,7 @@ Scope {
             cur = p;
         }
         onCurChanged: flick.contentY = 0
+        onVisibleChanged: { if (!visible && root.hub && root.hub.widgets) root.hub.widgets.editing = false; }   // closing Settings ends widget editing
 
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: prefsWindow.visible = false }
 
@@ -886,7 +896,7 @@ Scope {
                     x: 22
                     y: 6
                     width: flick.width - 44
-                    sourceComponent: [paneGeneral, paneDock, paneMenuBar, paneAppearance, paneBehavior, paneApps, paneAbout][prefsWindow.cur]
+                    sourceComponent: [paneGeneral, paneDock, paneMenuBar, paneAppearance, paneBehavior, paneApps, paneWidgets, paneAbout][prefsWindow.cur]
                     onLoaded: fadeIn.restart()
                 }
             }
@@ -1555,9 +1565,9 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        visible: root.dockStyle === "liquid"
+                        visible: root.dockStyle === "liquid" || (!!root.hub && !!root.hub.widgets && root.hub.widgets.anyLiquid)
                         title: "Blur"
-                        subtitle: "How strongly the glass blurs what's behind it"
+                        subtitle: "How strongly the glass blurs what's behind it (Dock, Menu Bar and Liquid Glass widgets)"
                         SSlider {
                             t: pal
                             from: 0; to: 80; stepSize: 1
@@ -1568,9 +1578,9 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        visible: root.dockStyle === "liquid"
+                        visible: root.dockStyle === "liquid" || (!!root.hub && !!root.hub.widgets && root.hub.widgets.anyLiquid)
                         title: "Liquid strength"
-                        subtitle: "Refraction, magnification and colour fringing of the glass"
+                        subtitle: "Refraction, magnification and colour fringing of the glass (also used by Liquid Glass widgets)"
                         SSlider {
                             t: pal
                             from: 0.5; to: 2.5; stepSize: 0.05
@@ -1753,6 +1763,454 @@ Scope {
                         subtitle: "Go back to the default set of apps"
                         SButton { t: pal; text: "Reset"; onClicked: root.resetPins() }
                     }
+                }
+            }
+        }
+
+        // ── Widgets ──
+        Component {
+            id: paneWidgets
+            Column {
+                id: wp
+                spacing: 10
+                readonly property var wd: root.hub ? root.hub.widgets : null
+                readonly property bool editing: wd ? wd.editing : false
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Desktop Widgets"
+                        subtitle: wp.editing ? "Add with +, then drag to an outlined slot. Widgets snap to the grid and won't overlap."
+                                             : "Put Weather, Calendar and Clock widgets on your desktop."
+                        SButton {
+                            t: pal
+                            text: wp.editing ? "Stop Editing" : "Edit Desktop Widgets"
+                            onClicked: if (wp.wd) wp.wd.editing = !wp.wd.editing
+                        }
+                    }
+                }
+
+                // ── widget gallery (only while editing): every style x size, with − / + ──
+                Repeater {
+                    model: ["liquid", "normal"]
+                    delegate: Column {
+                        id: gstyle
+                        required property string modelData
+                        width: parent.width
+                        spacing: 10
+                        visible: wp.editing
+                        SLabel { t: pal; header: true; text: "Weather \u2014 " + (gstyle.modelData === "liquid" ? "Liquid Glass" : "Normal") }
+                        SCard {
+                            t: pal
+                            Item {
+                                width: parent.width
+                                height: gflow.height + 28
+                                Flow {
+                                    id: gflow
+                                    x: 18; y: 14
+                                    width: parent.width - 36
+                                    spacing: 22
+                                    Repeater {
+                                        model: ["small", "medium", "large"]
+                                        delegate: Item {
+                                            id: tile
+                                            required property string modelData
+                                            readonly property real sc: 0.5
+                                            readonly property real pw: (modelData === "small" ? 168 : 358) * sc
+                                            readonly property real ph: (modelData === "large" ? 354 : 168) * sc
+                                            width: Math.max(pw, 84)
+                                            height: ph + 62
+                                            readonly property int n: { var r = wp.wd ? wp.wd.rev : 0; return wp.wd ? wp.wd.count("weather", gstyle.modelData, modelData) : 0; }
+
+                                            WeatherWidget {
+                                                x: (tile.width - tile.pw) / 2
+                                                scaleF: tile.sc
+                                                preview: true
+                                                style: gstyle.modelData
+                                                size: tile.modelData
+                                                fam: pal.fam
+                                                hasData: true
+                                                city: "Tualatin"; temp: 58; hi: 79; lo: 56
+                                                cond: "Mostly Sunny"; kind: "sun"
+                                                hourly: [{ h: "Now", t: 58, k: "sun" }, { h: "3PM", t: 61, k: "sun" }, { h: "4PM", t: 64, k: "sun" },
+                                                         { h: "5PM", t: 62, k: "sun" }, { h: "6PM", t: 59, k: "moon" }, { h: "7PM", t: 57, k: "moon" }]
+                                                daily: [{ d: "Today", lo: 56, hi: 79, k: "sun" }, { d: "Fri", lo: 54, hi: 77, k: "sun" },
+                                                        { d: "Sat", lo: 52, hi: 72, k: "sun" }, { d: "Sun", lo: 50, hi: 70, k: "sun" },
+                                                        { d: "Mon", lo: 51, hi: 74, k: "sun" }]
+                                            }
+                                            Text {
+                                                y: tile.ph + 8
+                                                width: parent.width
+                                                horizontalAlignment: Text.AlignHCenter
+                                                text: tile.modelData === "small" ? "Small" : (tile.modelData === "medium" ? "Medium" : "Large")
+                                                color: pal.text
+                                                font.family: pal.fam
+                                                font.pixelSize: 12
+                                            }
+                                            Row {
+                                                y: tile.ph + 30
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                spacing: 8
+                                                Rectangle {   // −
+                                                    width: 22; height: 22; radius: 11
+                                                    opacity: tile.n > 0 ? 1 : 0.4
+                                                    color: minusMa.pressed ? pal.buttonPressed : pal.button
+                                                    border.width: 1; border.color: pal.buttonBorder
+                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: pal.text }
+                                                    MouseArea { id: minusMa; anchors.fill: parent; enabled: tile.n > 0
+                                                        onClicked: if (wp.wd) wp.wd.removeLast("weather", gstyle.modelData, tile.modelData) }
+                                                }
+                                                Text {
+                                                    width: 18
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    text: tile.n
+                                                    color: pal.text2
+                                                    font.family: pal.fam
+                                                    font.pixelSize: 12
+                                                }
+                                                Rectangle {   // +
+                                                    width: 22; height: 22; radius: 11
+                                                    color: plusMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
+                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: "white" }
+                                                    Rectangle { anchors.centerIn: parent; width: 1.6; height: 9; radius: 0.8; color: "white" }
+                                                    MouseArea { id: plusMa; anchors.fill: parent
+                                                        onClicked: if (wp.wd) wp.wd.addWidget("weather", gstyle.modelData, tile.modelData) }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Repeater {
+                    model: ["liquid", "normal"]
+                    delegate: Column {
+                        id: cstyle
+                        required property string modelData
+                        width: parent.width
+                        spacing: 10
+                        visible: wp.editing
+                        SLabel { t: pal; header: true; text: "Calendar \u2014 " + (cstyle.modelData === "liquid" ? "Liquid Glass" : "Normal") }
+                        SCard {
+                            t: pal
+                            Item {
+                                width: parent.width
+                                height: cflow.height + 28
+                                Flow {
+                                    id: cflow
+                                    x: 18; y: 14
+                                    width: parent.width - 36
+                                    spacing: 22
+                                    Repeater {
+                                        model: ["small", "medium", "large"]
+                                        delegate: Item {
+                                            id: ctile
+                                            required property string modelData
+                                            readonly property real sc: 0.5
+                                            readonly property real pw: (modelData === "small" ? 168 : 358) * sc
+                                            readonly property real ph: (modelData === "large" ? 354 : 168) * sc
+                                            width: Math.max(pw, 84)
+                                            height: ph + 62
+                                            readonly property int n: { var r = wp.wd ? wp.wd.rev : 0; return wp.wd ? wp.wd.count("calendar", cstyle.modelData, modelData) : 0; }
+
+                                            CalendarWidget {
+                                                x: (ctile.width - ctile.pw) / 2
+                                                scaleF: ctile.sc
+                                                preview: true
+                                                style: cstyle.modelData
+                                                size: ctile.modelData
+                                                mode: "light"
+                                                darkGlass: pal.dark
+                                                fam: pal.fam
+                                            }
+                                            Text {
+                                                y: ctile.ph + 8
+                                                width: parent.width
+                                                horizontalAlignment: Text.AlignHCenter
+                                                text: ctile.modelData === "small" ? "Small" : (ctile.modelData === "medium" ? "Medium" : "Large")
+                                                color: pal.text
+                                                font.family: pal.fam
+                                                font.pixelSize: 12
+                                            }
+                                            Row {
+                                                y: ctile.ph + 30
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                spacing: 8
+                                                Rectangle {
+                                                    width: 22; height: 22; radius: 11
+                                                    opacity: ctile.n > 0 ? 1 : 0.4
+                                                    color: cminusMa.pressed ? pal.buttonPressed : pal.button
+                                                    border.width: 1; border.color: pal.buttonBorder
+                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: pal.text }
+                                                    MouseArea { id: cminusMa; anchors.fill: parent; enabled: ctile.n > 0
+                                                        onClicked: if (wp.wd) wp.wd.removeLast("calendar", cstyle.modelData, ctile.modelData) }
+                                                }
+                                                Text {
+                                                    width: 18
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    text: ctile.n
+                                                    color: pal.text2
+                                                    font.family: pal.fam
+                                                    font.pixelSize: 12
+                                                }
+                                                Rectangle {
+                                                    width: 22; height: 22; radius: 11
+                                                    color: cplusMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
+                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: "white" }
+                                                    Rectangle { anchors.centerIn: parent; width: 1.6; height: 9; radius: 0.8; color: "white" }
+                                                    MouseArea { id: cplusMa; anchors.fill: parent
+                                                        onClicked: if (wp.wd) wp.wd.addWidget("calendar", cstyle.modelData, ctile.modelData) }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Clock gallery: screenshot-style face in Light, Dark, or Liquid Glass ──
+                Repeater {
+                    model: ["light", "dark", "liquid"]
+                    delegate: Column {
+                        id: clockStyle
+                        required property string modelData
+                        width: parent.width
+                        spacing: 10
+                        visible: wp.editing
+                        SLabel {
+                            t: pal
+                            header: true
+                            text: "Clock — " + (clockStyle.modelData === "light" ? "Light" : (clockStyle.modelData === "dark" ? "Dark" : "Liquid Glass"))
+                        }
+                        SCard {
+                            t: pal
+                            Item {
+                                width: parent.width
+                                height: clockFlow.height + 28
+                                Flow {
+                                    id: clockFlow
+                                    x: 18; y: 14
+                                    width: parent.width - 36
+                                    spacing: 22
+                                    Repeater {
+                                        model: ["small", "medium", "large"]
+                                        delegate: Item {
+                                            id: clockTile
+                                            required property string modelData
+                                            readonly property real sc: 0.5
+                                            readonly property real pw: (modelData === "small" ? 168 : 358) * sc
+                                            readonly property real ph: (modelData === "large" ? 354 : 168) * sc
+                                            width: Math.max(pw, 84)
+                                            height: ph + 62
+                                            readonly property int n: { var r = wp.wd ? wp.wd.rev : 0; return wp.wd ? wp.wd.count("clock", clockStyle.modelData, modelData) : 0; }
+
+                                            ClockWidget {
+                                                x: (clockTile.width - clockTile.pw) / 2
+                                                scaleF: clockTile.sc
+                                                preview: true
+                                                previewTime: "9:41"
+                                                style: clockStyle.modelData
+                                                size: clockTile.modelData
+                                                darkGlass: pal.dark
+                                                fam: pal.fam
+                                            }
+                                            Text {
+                                                y: clockTile.ph + 8
+                                                width: parent.width
+                                                horizontalAlignment: Text.AlignHCenter
+                                                text: clockTile.modelData === "small" ? "Small" : (clockTile.modelData === "medium" ? "Medium" : "Large")
+                                                color: pal.text
+                                                font.family: pal.fam
+                                                font.pixelSize: 12
+                                            }
+                                            Row {
+                                                y: clockTile.ph + 30
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                spacing: 8
+                                                Rectangle {
+                                                    width: 22; height: 22; radius: 11
+                                                    opacity: clockTile.n > 0 ? 1 : 0.4
+                                                    color: clockMinusMa.pressed ? pal.buttonPressed : pal.button
+                                                    border.width: 1; border.color: pal.buttonBorder
+                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: pal.text }
+                                                    MouseArea { id: clockMinusMa; anchors.fill: parent; enabled: clockTile.n > 0
+                                                        onClicked: if (wp.wd) wp.wd.removeLast("clock", clockStyle.modelData, clockTile.modelData) }
+                                                }
+                                                Text {
+                                                    width: 18
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    text: clockTile.n
+                                                    color: pal.text2
+                                                    font.family: pal.fam
+                                                    font.pixelSize: 12
+                                                }
+                                                Rectangle {
+                                                    width: 22; height: 22; radius: 11
+                                                    color: clockPlusMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
+                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: "white" }
+                                                    Rectangle { anchors.centerIn: parent; width: 1.6; height: 9; radius: 0.8; color: "white" }
+                                                    MouseArea { id: clockPlusMa; anchors.fill: parent
+                                                        onClicked: if (wp.wd) wp.wd.addWidget("clock", clockStyle.modelData, clockTile.modelData) }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── placed widgets ──
+                SLabel { visible: !!wp.wd && wp.wd.widgetCount > 0; t: pal; header: true; text: "On your desktop" }
+                SCard {
+                    visible: !!wp.wd && wp.wd.widgetCount > 0
+                    t: pal
+                    Repeater {
+                        model: wp.wd ? wp.wd.model : null
+                        delegate: Column {
+                            id: prow
+                            required property int index
+                            required property string wid
+                            required property string wtype
+                            required property string wstyle
+                            required property string wsize
+                            required property string wmode
+                            width: parent.width
+                            Rectangle { visible: prow.index > 0; width: parent.width; height: 1; color: pal.sep }
+                            SRow {
+                                t: pal
+                                title: wp.wd ? wp.wd.typeNames[prow.wtype] : prow.wtype
+                                SButton { t: pal; text: "Remove"; destructive: true; onClicked: if (wp.wd) wp.wd.removeWidget(prow.wid) }
+                            }
+                            SRow {
+                                visible: prow.wtype !== "clock"
+                                t: pal
+                                title: "Style"
+                                SSegmented {
+                                    t: pal
+                                    model: ["Liquid Glass", "Normal"]
+                                    segWidth: 96
+                                    current: prow.wstyle === "liquid" ? 0 : 1
+                                    onPicked: i => { if (wp.wd) wp.wd.setStyle(prow.wid, i === 0 ? "liquid" : "normal"); }
+                                }
+                            }
+                            SRow {
+                                visible: prow.wtype === "clock"
+                                t: pal
+                                title: "Style"
+                                SSegmented {
+                                    t: pal
+                                    model: ["Light", "Dark", "Liquid Glass"]
+                                    segWidth: 86
+                                    current: prow.wstyle === "dark" ? 1 : (prow.wstyle === "liquid" ? 2 : 0)
+                                    onPicked: i => { if (wp.wd) wp.wd.setStyle(prow.wid, i === 1 ? "dark" : (i === 2 ? "liquid" : "light")); }
+                                }
+                            }
+                            SRow {
+                                t: pal
+                                title: "Size"
+                                SSegmented {
+                                    t: pal
+                                    model: ["Small", "Medium", "Large"]
+                                    segWidth: 74
+                                    current: prow.wsize === "large" ? 2 : (prow.wsize === "medium" ? 1 : 0)
+                                    onPicked: i => { if (wp.wd) wp.wd.setSize(prow.wid, i === 2 ? "large" : (i === 1 ? "medium" : "small")); }
+                                }
+                            }
+                            SRow {
+                                visible: prow.wtype === "calendar"
+                                t: pal
+                                title: "Appearance"
+                                SSegmented {
+                                    t: pal
+                                    model: ["Automatic", "Light", "Dark"]
+                                    segWidth: 80
+                                    current: prow.wmode === "light" ? 1 : (prow.wmode === "dark" ? 2 : 0)
+                                    onPicked: i => { if (wp.wd) wp.wd.setMode(prow.wid, i === 1 ? "light" : (i === 2 ? "dark" : "auto")); }
+                                }
+                            }
+                        }
+                    }
+                }
+                SLabel {
+                    visible: !!wp.wd && wp.wd.anyLiquid && wp.wd.glassState === "failed"
+                    t: pal
+                    text: "Liquid Glass couldn't start (install qt6-shadertools); the widgets use a frosted look instead."
+                }
+
+                // ── weather settings ──
+                SLabel { t: pal; header: true; text: "Weather settings" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Temperature"
+                        SSegmented {
+                            t: pal
+                            model: ["Celsius", "Fahrenheit"]
+                            segWidth: 92
+                            current: (wp.wd && wp.wd.tempUnit === "F") ? 1 : 0
+                            onPicked: i => { if (wp.wd) wp.wd.tempUnit = (i === 1 ? "F" : "C"); }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Location"
+                        subtitle: "Automatic finds you from your IP address"
+                        SSegmented {
+                            t: pal
+                            model: ["Automatic", "City"]
+                            segWidth: 92
+                            current: (wp.wd && wp.wd.locMode === "city") ? 1 : 0
+                            onPicked: i => { if (wp.wd) wp.wd.locMode = (i === 1 ? "city" : "auto"); }
+                        }
+                    }
+                    SRow {
+                        visible: !!wp.wd && wp.wd.locMode === "city"
+                        t: pal
+                        title: "City"
+                        Rectangle {
+                            width: 190; height: 24; radius: 6
+                            color: pal.field
+                            TextInput {
+                                id: cityInput
+                                anchors.fill: parent
+                                anchors.leftMargin: 8; anchors.rightMargin: 8
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                selectByMouse: true
+                                color: pal.text
+                                selectionColor: pal.accent
+                                font.family: pal.fam
+                                font.pixelSize: 13
+                                text: wp.wd ? wp.wd.cityName : ""
+                                onEditingFinished: if (wp.wd) wp.wd.cityName = text.trim()
+                            }
+                            Text {
+                                anchors.fill: cityInput
+                                verticalAlignment: Text.AlignVCenter
+                                visible: cityInput.text === "" && !cityInput.activeFocus
+                                text: "e.g. Tualatin"
+                                color: pal.text3
+                                font.family: pal.fam
+                                font.pixelSize: 13
+                            }
+                        }
+                    }
+                }
+                SLabel {
+                    t: pal
+                    text: "Liquid Glass widgets follow the Translucency, Blur and Liquid strength sliders in Appearance. Weather data comes from Open-Meteo. Widgets sit on the desktop, behind your windows."
                 }
             }
         }
@@ -2175,7 +2633,7 @@ Scope {
                 for (var j = 0; j < ws.length; j++) ws[j].close();
             } });
         }
-        
+
         m.push({ kind: "sep" });
         m.push({ kind: "item", label: "Settings\u2026", run: function() { root.openPrefs(); } });
 
