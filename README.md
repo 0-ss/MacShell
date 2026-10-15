@@ -4,6 +4,8 @@ A macOS Tahoe–style **menu bar + Dock** for Hyprland, built on [Quickshell](ht
 "Liquid Glass" refraction shader, window previews, Spotlight, clipboard/emoji picker, notifications, Control Center,
 screenshots,record video, a wallpaper picker and an Alt+Tab switcher — all in one Quickshell process.
 
+Best Icon Pack for the shell is here : https://github.com/Scrimas/MacOS-Like
+
 > **Heads up:** this targets **Hyprland 0.55+ with a Lua config** (`hyprland.lua`) and a recent **Quickshell (0.3.x)**.
 > See [Requirements](#requirements) and [Known issues](#known-issues).
 
