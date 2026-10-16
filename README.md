@@ -124,7 +124,7 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    ```sh
    git clone https://github.com/0-ss/MacShell
    cd MacShell
-   ./install.sh
+   bash install.sh
    ```
    or in one line:
    ```sh
@@ -172,8 +172,8 @@ macshell-update rollback    # go back to the previous MacShell install
 macshell-update status
 ```
 
-The shell also checks by itself and tells you. `./install.sh --check` does the same check from a clone, and
-`./install.sh --auto-update` installs a daily timer (`systemctl --user list-timers macshell-update.timer`) so updates
+The shell also checks by itself and tells you. `bash install.sh --check` does the same check from a clone, and
+`bash install.sh --auto-update` installs a daily timer (`systemctl --user list-timers macshell-update.timer`) so updates
 install without you doing anything. MacShell reloads itself after an update; MacLock picks up the new files the next
 time it locks.
 
