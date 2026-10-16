@@ -115,7 +115,11 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
         ttf-inter noto-fonts-emoji
    ```
    Other distros: install the equivalents. Fedora has a Quickshell COPR; Nix has `pkgs.quickshell`.
-   (The installer also checks the tools and can install the missing ones with pacman.)
+   You can skip this: the installer checks every requirement (tools, Qt libraries, fonts, `hyprlock`) and installs
+   the missing ones for you with pacman, dnf or apt, after asking once (`-y` skips the question). Packages that are
+   not in the main repositories, such as `quickshell`, come from the AUR (`yay` / `paru`) or the Fedora COPR.
+   Hyprland 0.55+ with a Lua config may need a newer package than your distro ships, so check `hyprctl version`.
+   Debian/Ubuntu have no `quickshell` / `hyprland` packages: build those from source.
 2. Run the installer, either from a clone:
    ```sh
    git clone https://github.com/0-ss/MacShell
@@ -147,7 +151,7 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 | Option | Effect |
 |---|---|
 | `-y`, `--yes` | Don't ask questions (answer yes). |
-| `--no-deps` | Skip the dependency check. |
+| `--no-deps` | Skip the dependency check and package installation. |
 | `--no-autostart` | Don't touch the Hyprland config. |
 | `--no-lock` | Install MacShell only, without MacLock. |
 | `--check` | Only check for a newer version (exit 0 = up to date, 10 = update available). |

@@ -5,7 +5,8 @@
 #   ./install.sh            (from a clone of the repository)
 #
 # What it does
-#   1. checks the tools MacShell needs (and offers to install them on Arch)
+#   1. checks the tools, libraries and fonts MacShell / MacLock need and installs the missing ones
+#      (pacman, dnf or apt; quickshell from the AUR / the Fedora COPR when the main repositories lack it)
 #   2. downloads the latest release (or the latest commit of the main branch)
 #   3. installs the shell to   ~/.config/quickshell/MacShell        (start it with:  qs -c MacShell)
 #      the lock screen to      ~/.config/quickshell/MacLock         (lock with:  sh ~/.config/quickshell/MacLock/lock-via-ipc.sh)
@@ -191,7 +192,7 @@ if [ "$UNINSTALL" = 1 ]; then
 fi
 
 # ───────────────────────── dependencies ─────────────────────────
-# command:arch-package:what-for
+# command:arch-package:what-for   (a check by command name; package names are Arch names, translated per distro below)
 REQUIRED=(
     "qs:quickshell:the shell runtime (needs the Hyprland, Screencopy, PipeWire, UPower, Mpris and Notifications modules)"
     "hyprctl:hyprland:the compositor"
@@ -202,6 +203,10 @@ OPTIONAL=(
     "pw-play:pipewire:UI sound effects"
     "qsb:qt6-shadertools:recompiling the Liquid Glass shader (precompiled .qsb files are shipped)"
     "wl-copy:wl-clipboard:clipboard"
+    "cliphist:cliphist:clipboard history"
+    "grim:grim:screenshots"
+    "wf-recorder:wf-recorder:screen recording"
+    "hyprpicker:hyprpicker:color picker"
     "nmcli:networkmanager:Wi-Fi in Control Center"
     "bluetoothctl:bluez-utils:Bluetooth in Control Center"
     "brightnessctl:brightnessctl:display brightness"
@@ -209,44 +214,160 @@ OPTIONAL=(
     "inotifywait:inotify-tools:live wallpaper watching"
     "hyprsunset:hyprsunset:Night Shift"
     "notify-send:libnotify:update notifications"
+    "wpctl:wireplumber:audio device routing"
 )
+# libraries / fonts without a command to test: arch-package:what-for
+LIBS=(
+    "qt6-declarative:Qt Quick (QML)"
+    "qt6-wayland:Qt Wayland support"
+    "qt6-svg:SVG app icons"
+    "qt6-shadertools:shader tools"
+    "ttf-inter:the Inter font"
+    "noto-fonts-emoji:emoji font"
+)
+LIBS_LOCK=(
+    "hyprlock:the PAM stack MacLock checks passwords with (/etc/pam.d/hyprlock)"
+)
+
+PM=""            # pacman | dnf | apt
+SUDO=""
+detect_pm() {
+    if have pacman; then PM=pacman
+    elif have dnf; then PM=dnf
+    elif have apt-get; then PM=apt
+    fi
+    if [ "$(id -u)" -ne 0 ]; then
+        if have sudo; then SUDO="sudo"; elif have doas; then SUDO="doas"; fi
+    fi
+}
+
+# arch package name -> package name for this distro ("" = not available / unknown, skipped)
+pkg_for() {
+    local p="$1"
+    case "$PM" in
+        pacman) printf '%s' "$p" ;;
+        dnf) case "$p" in
+                pipewire) echo pipewire-utils ;; qt6-shadertools) echo qt6-qtshadertools ;; qt6-declarative) echo qt6-qtdeclarative ;;
+                qt6-wayland) echo qt6-qtwayland ;; qt6-svg) echo qt6-qtsvg ;; networkmanager) echo NetworkManager ;;
+                bluez-utils) echo bluez ;; ttf-inter) echo rsms-inter-fonts ;; noto-fonts-emoji) echo google-noto-emoji-fonts ;;
+                wireplumber) echo wireplumber ;; *) printf '%s' "$p" ;;
+             esac ;;
+        apt) case "$p" in
+                pipewire) echo pipewire-bin ;; qt6-shadertools) echo qt6-shader-baker ;; networkmanager) echo network-manager ;;
+                bluez-utils) echo bluez ;; libnotify) echo libnotify-bin ;; ttf-inter) echo fonts-inter ;;
+                noto-fonts-emoji) echo fonts-noto-color-emoji ;; qt6-declarative|qt6-wayland|qt6-svg) echo "" ;;
+                *) printf '%s' "$p" ;;
+             esac ;;
+    esac
+}
+pkg_installed() { # distro package name
+    case "$PM" in
+        pacman) pacman -Qq "$1" >/dev/null 2>&1 ;;
+        dnf) rpm -q "$1" >/dev/null 2>&1 ;;
+        apt) dpkg -s "$1" >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
+}
+pkg_available() { # in the distro's repositories?
+    case "$PM" in
+        pacman) pacman -Si "$1" >/dev/null 2>&1 ;;
+        dnf) dnf -q info "$1" >/dev/null 2>&1 ;;
+        apt) apt-cache show "$1" >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
+}
+
+install_packages() { # install_packages <distro package names...>
+    [ "$#" -gt 0 ] || return 0
+    if [ -z "$SUDO" ] && [ "$(id -u)" -ne 0 ]; then
+        warn "no sudo/doas found: install these yourself: $*"; return 1
+    fi
+    case "$PM" in
+        pacman) $SUDO pacman -S --needed --noconfirm "$@" ;;
+        dnf)    $SUDO dnf install -y "$@" ;;
+        apt)    $SUDO apt-get install -y "$@" ;;
+    esac
+}
+
+# quickshell (and a few others) are not in every repository: try an AUR helper / the Fedora COPR
+install_extra_sources() {
+    local missing=("$@") p
+    [ "${#missing[@]}" -gt 0 ] || return 0
+    case "$PM" in
+        pacman)
+            local aur=""
+            have yay && aur=yay; [ -z "$aur" ] && have paru && aur=paru
+            if [ -n "$aur" ]; then
+                for p in "${missing[@]}"; do
+                    say "  $p is not in the official repositories: trying the AUR ($aur)"
+                    "$aur" -S --needed --noconfirm "$p" || warn "could not install $p from the AUR"
+                done
+            else
+                warn "not in the official repositories: ${missing[*]} (install an AUR helper such as yay, then: yay -S ${missing[*]})"
+            fi ;;
+        dnf)
+            if printf '%s\n' "${missing[@]}" | grep -qx quickshell; then
+                say "  quickshell: enabling the errornospam/quickshell COPR"
+                $SUDO dnf copr enable -y errornospam/quickshell && $SUDO dnf install -y quickshell || warn "could not install quickshell"
+            fi
+            printf '%s\n' "${missing[@]}" | grep -qx hyprland && warn "hyprland is not in your repositories: see https://wiki.hyprland.org"
+            ;;
+        apt)
+            warn "not in the Debian/Ubuntu repositories: ${missing[*]}. Build them from source: https://quickshell.org and https://wiki.hyprland.org" ;;
+    esac
+}
 
 check_deps() {
     step "Checking dependencies"
-    local miss_req=() miss_opt=() pk_all=() entry cmd pkg why
+    detect_pm
+    local to_install=() unavailable=() entry cmd pkg why p dp
+    local miss_req=()
+
     for entry in "${REQUIRED[@]}"; do
         IFS=: read -r cmd pkg why <<<"$entry"
-        if have "$cmd"; then ok "$cmd"; else warn "missing: $cmd  ($why)"; miss_req+=("$cmd"); pk_all+=("$pkg"); fi
+        if have "$cmd"; then ok "$cmd"; else warn "missing: $cmd  ($why)"; miss_req+=("$cmd"); to_install+=("$pkg"); fi
     done
     for entry in "${OPTIONAL[@]}"; do
         IFS=: read -r cmd pkg why <<<"$entry"
-        if have "$cmd"; then ok "$cmd"; else say "  ${D}- optional, not found: $cmd  ($why)${N}"; miss_opt+=("$cmd"); pk_all+=("$pkg"); fi
+        if have "$cmd"; then ok "$cmd"; else say "  ${D}- not found: $cmd  ($why)${N}"; to_install+=("$pkg"); fi
     done
-    if have fc-list && ! fc-list 2>/dev/null | grep -qi "Inter"; then
-        warn "the Inter font was not found (the shell falls back to another font). Arch: pacman -S inter-font"
-    fi
-    [ "${#miss_req[@]}" -eq 0 ] && [ "${#miss_opt[@]}" -eq 0 ] && return 0
+    local libs=("${LIBS[@]}"); [ "$SKIP_LOCK" = 1 ] || libs+=("${LIBS_LOCK[@]}")
+    for entry in "${libs[@]}"; do
+        IFS=: read -r pkg why <<<"$entry"
+        dp=$(pkg_for "$pkg")
+        [ -n "$dp" ] || continue
+        if [ -n "$PM" ] && pkg_installed "$dp"; then ok "$pkg"; else say "  ${D}- not found: $pkg  ($why)${N}"; to_install+=("$pkg"); fi
+    done
 
-    if have pacman; then
-        # quickshell / hyprland are installed separately when pacman does not know them
-        local installable=() p
-        for p in "${pk_all[@]}"; do pacman -Si "$p" >/dev/null 2>&1 && installable+=("$p"); done
-        if [ "${#installable[@]}" -gt 0 ] && confirm "Install the missing packages with pacman (${installable[*]})?" n; then
-            sudo pacman -S --needed "${installable[@]}" || warn "pacman failed, continuing"
-        fi
-        if ! have qs; then
-            warn "quickshell is not installed. Arch: 'pacman -S quickshell' or from the AUR: 'yay -S quickshell-git'"
-        fi
-    elif have dnf; then
-        say "  Fedora: sudo dnf install curl wl-clipboard brightnessctl power-profiles-daemon NetworkManager bluez inotify-tools libnotify pipewire-utils qt6-qtshadertools"
-        say "          quickshell: sudo dnf copr enable errornospam/quickshell && sudo dnf install quickshell"
-    elif have apt-get; then
-        say "  Debian/Ubuntu: sudo apt install curl wl-clipboard brightnessctl power-profiles-daemon network-manager bluez inotify-tools libnotify-bin pipewire-bin qt6-shader-baker"
-        say "                 quickshell and Hyprland are not in the main repositories: see https://quickshell.org"
+    # translate to this distro's names, drop duplicates / unknown ones, split into "repo" and "needs another source"
+    local repo=() extra=() seen=" "
+    for p in "${to_install[@]}"; do
+        dp=$(pkg_for "$p"); [ -n "$dp" ] || continue
+        case "$seen" in *" $dp "*) continue ;; esac; seen="$seen$dp "
+        [ -n "$PM" ] && pkg_installed "$dp" && continue
+        if [ -n "$PM" ] && pkg_available "$dp"; then repo+=("$dp"); else extra+=("$dp"); fi
+    done
+
+    if [ "${#repo[@]}" -eq 0 ] && [ "${#extra[@]}" -eq 0 ]; then
+        :
+    elif [ -z "$PM" ]; then
+        say "  No supported package manager (pacman, dnf, apt) found: install the missing tools by hand (see the list above)."
     else
-        say "  Install the missing tools with your package manager (see the list above)."
+        say ""
+        say "  Missing packages (${PM}): ${repo[*]:-none}${extra:+  | other sources: ${extra[*]}}"
+        if confirm "Install them now?" y; then
+            [ "${#repo[@]}" -gt 0 ] && { install_packages "${repo[@]}" || warn "the package manager reported an error, continuing"; }
+            install_extra_sources "${extra[@]}"
+        else
+            say "  Skipped. Install them later with your package manager, then run the installer again."
+        fi
     fi
 
+    if have fc-list && ! fc-list 2>/dev/null | grep -qi "Inter"; then
+        warn "the Inter font was not found (the shell falls back to another font)"
+    fi
+
+    # whatever is still missing among the required tools
     for entry in "${REQUIRED[@]}"; do
         IFS=: read -r cmd pkg why <<<"$entry"
         if ! have "$cmd"; then
