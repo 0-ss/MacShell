@@ -351,252 +351,8 @@ Item {
     readonly property string shownSub: hasPlayer ? (artist !== "" ? (album !== "" ? artist + " \u2014 " + album : artist) : album)
                                                  : "Open a music app"
 
-    // line-art glyphs, drawn on a canvas
-    component Glyph: Canvas {
-        id: g
-        property string kind: "play"
-        property color col: "white"
-        onKindChanged: requestPaint()
-        onColChanged: requestPaint()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-        onPaint: {
-            var c = getContext("2d"), W = width, H = height;
-            c.reset();
-            c.clearRect(0, 0, W, H);
-            c.fillStyle = col;
-            c.strokeStyle = col;
-            c.lineJoin = "round";
-            c.lineCap = "round";
-            // rounded triangle pointing right (base at x0, tip at x1)
-            function tri(x0, x1, y0, y1, lw) {
-                c.lineWidth = lw;
-                c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, (y0 + y1) / 2); c.lineTo(x0, y1); c.closePath();
-                c.fill(); c.stroke();
-            }
-            function arrowHead(x, y, dir, sz) {     // small filled head pointing left / right
-                c.beginPath(); c.moveTo(x, y); c.lineTo(x - dir * sz, y - sz * 0.8); c.lineTo(x - dir * sz, y + sz * 0.8); c.closePath();
-                c.fill(); c.stroke();
-            }
-            if (kind === "play") {
-                tri(0.16 * W, 0.90 * W, 0.12 * H, 0.88 * H, 0.10 * W);
-            } else if (kind === "pause") {
-                c.lineWidth = 0.08 * W;
-                c.beginPath(); c.rect(0.20 * W, 0.12 * H, 0.22 * W, 0.76 * H); c.fill(); c.stroke();
-                c.beginPath(); c.rect(0.58 * W, 0.12 * H, 0.22 * W, 0.76 * H); c.fill(); c.stroke();
-            } else if (kind === "next") {                    // two triangles pointing right
-                tri(0.04 * W, 0.50 * W, 0.08 * H, 0.92 * H, 0.07 * H);
-                tri(0.50 * W, 0.96 * W, 0.08 * H, 0.92 * H, 0.07 * H);
-            } else if (kind === "prev") {                    // two triangles pointing left
-                c.save(); c.translate(W, 0); c.scale(-1, 1);
-                tri(0.04 * W, 0.50 * W, 0.08 * H, 0.92 * H, 0.07 * H);
-                tri(0.50 * W, 0.96 * W, 0.08 * H, 0.92 * H, 0.07 * H);
-                c.restore();
-            } else if (kind === "shuffle") {
-                c.lineWidth = 0.11 * H;
-                c.beginPath();
-                c.moveTo(0.03 * W, 0.26 * H); c.lineTo(0.22 * W, 0.26 * H);
-                c.bezierCurveTo(0.46 * W, 0.26 * H, 0.50 * W, 0.74 * H, 0.74 * W, 0.74 * H); c.lineTo(0.80 * W, 0.74 * H);
-                c.stroke();
-                c.beginPath();
-                c.moveTo(0.03 * W, 0.74 * H); c.lineTo(0.22 * W, 0.74 * H);
-                c.bezierCurveTo(0.46 * W, 0.74 * H, 0.50 * W, 0.26 * H, 0.74 * W, 0.26 * H); c.lineTo(0.80 * W, 0.26 * H);
-                c.stroke();
-                c.lineWidth = 0.05 * H;
-                arrowHead(0.99 * W, 0.26 * H, 1, 0.22 * W);
-                arrowHead(0.99 * W, 0.74 * H, 1, 0.22 * W);
-            } else if (kind === "repeat") {
-                c.lineWidth = 0.11 * H;
-                c.beginPath();                                   // top run, heading right
-                c.moveTo(0.14 * W, 0.58 * H); c.lineTo(0.14 * W, 0.44 * H);
-                c.quadraticCurveTo(0.14 * W, 0.20 * H, 0.36 * W, 0.20 * H); c.lineTo(0.70 * W, 0.20 * H);
-                c.stroke();
-                c.beginPath();                                   // bottom run, heading left
-                c.moveTo(0.86 * W, 0.42 * H); c.lineTo(0.86 * W, 0.56 * H);
-                c.quadraticCurveTo(0.86 * W, 0.80 * H, 0.64 * W, 0.80 * H); c.lineTo(0.30 * W, 0.80 * H);
-                c.stroke();
-                c.lineWidth = 0.05 * H;
-                arrowHead(0.90 * W, 0.20 * H, 1, 0.20 * W);
-                arrowHead(0.10 * W, 0.80 * H, -1, 0.20 * W);
-            } else if (kind === "lyrics") {                      // speech bubble with two lines of text
-                c.lineWidth = 0.085 * H;
-                var bx = 0.06 * W, by = 0.10 * H, bw = 0.88 * W, bh = 0.66 * H, br = 0.18 * H;
-                c.beginPath();
-                c.moveTo(bx + br, by); c.lineTo(bx + bw - br, by);
-                c.quadraticCurveTo(bx + bw, by, bx + bw, by + br); c.lineTo(bx + bw, by + bh - br);
-                c.quadraticCurveTo(bx + bw, by + bh, bx + bw - br, by + bh); c.lineTo(0.42 * W, by + bh);
-                c.lineTo(0.20 * W, 0.94 * H); c.lineTo(0.24 * W, by + bh);
-                c.lineTo(bx + br, by + bh);
-                c.quadraticCurveTo(bx, by + bh, bx, by + bh - br); c.lineTo(bx, by + br);
-                c.quadraticCurveTo(bx, by, bx + br, by);
-                c.closePath();
-                c.stroke();
-                c.beginPath(); c.moveTo(0.24 * W, 0.34 * H); c.lineTo(0.76 * W, 0.34 * H); c.stroke();
-                c.beginPath(); c.moveTo(0.24 * W, 0.54 * H); c.lineTo(0.56 * W, 0.54 * H); c.stroke();
-            } else if (kind === "waves") {                       // the sound-wave mark at the top right
-                c.lineWidth = 0.13 * H;
-                for (var n = 0; n < 3; n++) {
-                    c.beginPath();
-                    var amp = (0.34 - n * 0.06) * H, ph = n * 0.9, x0 = (0.02 + n * 0.12) * W;
-                    for (var x = x0; x <= W * 0.98; x += 1) {
-                        var t = (x - x0) / (W * 0.98 - x0) * Math.PI * 2.2 + ph;
-                        var y = 0.5 * H + amp * Math.sin(t) * Math.sin(Math.min(1, (x - x0) / (0.25 * W)) * Math.PI / 2);
-                        if (x === x0) c.moveTo(x, y); else c.lineTo(x, y);
-                    }
-                    c.stroke();
-                }
-            }
-        }
-    }
 
-    // artwork with rounded corners (or a placeholder note)
-    component Art: Item {
-        id: art
-        required property var wd
-        property real r: 7
-        Rectangle {
-            id: artMask
-            anchors.fill: parent
-            radius: art.r
-            visible: false
-            layer.enabled: true
-        }
-        Rectangle {   // placeholder
-            anchors.fill: parent
-            radius: art.r
-            visible: artImg.status !== Image.Ready
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.lighter(art.wd.ac, 1.25) }
-                GradientStop { position: 1.0; color: Qt.darker(art.wd.ac, 1.25) }
-            }
-            Text {
-                anchors.centerIn: parent
-                text: "\u266B"
-                color: Qt.rgba(1, 1, 1, 0.85)
-                font.pixelSize: parent.height * 0.5
-            }
-        }
-        Image {
-            id: artImg
-            anchors.fill: parent
-            source: art.wd.artSrc
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            sourceSize.width: 400
-            sourceSize.height: 400
-            visible: false
-        }
-        MultiEffect {
-            anchors.fill: parent
-            visible: artImg.status === Image.Ready
-            source: artImg
-            maskEnabled: true
-            maskSource: artMask
-        }
-        Rectangle {   // hairline around the art
-            anchors.fill: parent
-            radius: art.r
-            color: "transparent"
-            border.width: 1
-            border.color: Qt.rgba(1, 1, 1, 0.14)
-        }
-    }
 
-    // a control: glyph (+ optional round highlight when it is switched on) and a click area
-    component Btn: Item {
-        id: b
-        required property var wd
-        property string kind: "play"
-        property color col: "white"
-        property real gw: 30                 // glyph size in px
-        property real gh: 30
-        property bool on: false              // shuffle / repeat engaged: round highlight behind the glyph
-        property bool enabledBtn: true
-        property string badge: ""            // "1" for repeat-one
-        property bool idleFill: false        // faint round background even when switched off
-        signal clicked()
-        // morph state
-        property bool useA: true
-        property string kindA: kind
-        property string kindB: kind
-        property real morphT: 1
-        property real pulse: 0
-        property real nudgeDir: 0
-        readonly property real visA: useA ? morphT : 1 - morphT
-        readonly property real visB: 1 - visA
-        onKindChanged: {
-            if (useA) kindB = kind; else kindA = kind;
-            useA = !useA;
-            morphAnim.restart();
-        }
-        NumberAnimation { id: morphAnim; target: b; property: "morphT"; from: 0; to: 1; duration: 340; easing.type: Easing.OutCubic }
-        SequentialAnimation {
-            id: nudgeAnim
-            NumberAnimation { target: b; property: "pulse"; to: 1; duration: 110; easing.type: Easing.OutQuad }
-            NumberAnimation { target: b; property: "pulse"; to: 0; duration: 300; easing.type: Easing.OutCubic }
-        }
-        scale: ma.pressed ? 0.86 : 1.0
-        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
-        opacity: b.wd.hasPlayer && b.enabledBtn ? (ma.pressed ? 0.6 : 1) : 0.4
-        Rectangle {
-            anchors.centerIn: parent
-            width: Math.min(b.width, b.height)
-            height: width
-            radius: width / 2
-            color: b.on ? (b.wd.dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.10))
-                        : (b.wd.dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.05))
-            visible: b.on || b.idleFill
-            Behavior on color { ColorAnimation { duration: 200 } }
-        }
-        // icon: morphs into the next one (old glyph blurs + shrinks away, new one comes into focus);
-        // back / forward also give a motion-blur nudge when clicked
-        Item {
-            id: icon
-            anchors.centerIn: parent
-            width: b.gw
-            height: b.gh
-            Glyph {
-                width: icon.width; height: icon.height
-                x: b.nudgeDir * b.pulse * icon.width * 0.14
-                kind: b.kindA
-                col: b.col
-                opacity: b.visA
-                scale: 0.7 + 0.3 * b.visA
-                visible: opacity > 0.01
-                layer.enabled: true
-                layer.effect: MultiEffect { blurEnabled: true; blurMax: 24; blur: Math.min(1, (1 - b.visA) * 0.9 + b.pulse * 0.45) }
-            }
-            Glyph {
-                width: icon.width; height: icon.height
-                x: b.nudgeDir * b.pulse * icon.width * 0.14
-                kind: b.kindB
-                col: b.col
-                opacity: b.visB
-                scale: 0.7 + 0.3 * b.visB
-                visible: opacity > 0.01
-                layer.enabled: true
-                layer.effect: MultiEffect { blurEnabled: true; blurMax: 24; blur: Math.min(1, (1 - b.visB) * 0.9 + b.pulse * 0.45) }
-            }
-        }
-        Text {
-            visible: b.badge !== ""
-            anchors.centerIn: parent
-            text: b.badge
-            color: b.col
-            font.family: b.wd.fam
-            font.pixelSize: b.gh * 0.42
-            font.weight: Font.Bold
-        }
-        MouseArea {
-            id: ma
-            anchors.fill: parent
-            enabled: !b.wd.preview && !b.wd.editing && b.wd.hasPlayer && b.enabledBtn
-            onClicked: {
-                if (b.kind === "next" || b.kind === "prev") { b.nudgeDir = b.kind === "next" ? 1 : -1; nudgeAnim.restart(); }
-                b.clicked();
-            }
-        }
-    }
 
     // ── layout numbers (RU), per size ──
     readonly property real mx: 23                                     // side margin
@@ -616,7 +372,7 @@ Item {
         anchors.fill: parent
 
         // ── artwork ──
-        Art {
+        PlayerArt {
             id: artItem
             wd: w
             x: w.artX * w.k
@@ -680,7 +436,7 @@ Item {
         }
 
         // ── small: play / pause at the top right ──
-        Btn {
+        PlayerBtn {
             visible: w.isSmall
             wd: w
             x: (w.wr - w.mx - 46) * w.k
@@ -882,7 +638,7 @@ Item {
         }
 
         // ── controls: shuffle · back · play · forward · repeat ──
-        Btn {
+        PlayerBtn {
             visible: !w.isSmall
             wd: w
             x: 25 * w.k
@@ -897,7 +653,7 @@ Item {
             enabledBtn: w.canShuffle
             onClicked: w.toggleShuffle()
         }
-        Btn {
+        PlayerBtn {
             visible: !w.isSmall
             wd: w
             x: 0.30 * content.width - width / 2
@@ -910,7 +666,7 @@ Item {
             gh: 25 * w.k
             onClicked: w.previousTrack()
         }
-        Btn {
+        PlayerBtn {
             visible: !w.isSmall
             wd: w
             x: 0.50 * content.width - width / 2
@@ -923,7 +679,7 @@ Item {
             gh: 38 * w.k
             onClicked: w.togglePlaying()
         }
-        Btn {
+        PlayerBtn {
             visible: !w.isSmall
             wd: w
             x: 0.70 * content.width - width / 2
@@ -936,7 +692,7 @@ Item {
             gh: 25 * w.k
             onClicked: w.nextTrack()
         }
-        Btn {
+        PlayerBtn {
             visible: !w.isSmall
             wd: w
             x: (w.wr - 25 - 44) * w.k
@@ -954,7 +710,7 @@ Item {
         }
 
         // ── lyrics button (top right corner) ──
-        Btn {
+        PlayerBtn {
             visible: !w.isSmall
             wd: w
             x: (w.wr - w.mx - 40) * w.k

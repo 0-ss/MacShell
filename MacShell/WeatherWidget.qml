@@ -327,43 +327,6 @@ Item {
         }
     }
 
-    // one hourly column: time, (sun / moon icon), temperature
-    component HourCol: Column {
-        id: hc
-        required property var info
-        required property var wd
-        property real colW: 40
-        width: colW
-        spacing: 3 * hc.wd.s
-        Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
-            text: hc.info.h
-            color: Qt.rgba(1, 1, 1, 0.85)
-            font.family: hc.wd.fam
-            font.pixelSize: 12 * hc.wd.s
-            font.weight: Font.DemiBold
-        }
-        Item {
-            width: parent.width
-            height: 20 * hc.wd.s
-            WeatherIcon {
-                visible: hc.wd.showIcon(hc.info.k)
-                anchors.centerIn: parent
-                kind: hc.info.k
-                size: 18 * hc.wd.s
-            }
-        }
-        Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
-            text: hc.info.t + hc.wd.unitSuffix
-            color: "white"
-            font.family: hc.wd.fam
-            font.pixelSize: 15 * hc.wd.s
-            font.weight: Font.DemiBold
-        }
-    }
 
     // ── medium: hourly forecast on the right ──
     Rectangle {   // divider
@@ -378,7 +341,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         Repeater {
             model: w.isMedium ? w.hourly.slice(0, 4) : []
-            delegate: HourCol {
+            delegate: WeatherHourCol {
                 required property var modelData
                 info: modelData
                 wd: w
@@ -395,7 +358,7 @@ Item {
         y: 142 * w.s
         Repeater {
             model: w.isLarge ? w.hourly.slice(0, 6) : []
-            delegate: HourCol {
+            delegate: WeatherHourCol {
                 required property var modelData
                 info: modelData
                 wd: w
