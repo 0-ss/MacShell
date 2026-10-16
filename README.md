@@ -79,7 +79,9 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    Other distros: install the equivalents. Fedora has a Quickshell COPR; Nix has `pkgs.quickshell`.
 2. Put the project in a Quickshell config folder. The folder name is the config name:
    ```sh
-   git clone https://github.com/0-ss/MacShell ~/.config/quickshell/MacShell
+  git clone https://github.com/0-ss/MacShell
+  cd MacShell
+  ./install.sh
    ```
    Don't reach it through a symlink; Quickshell ≥ 0.3 derives its state folders from the link path.
 3. Try it:
