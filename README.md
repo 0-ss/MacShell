@@ -115,6 +115,8 @@ The two are installed as **separate** Quickshell configs (neither lives inside t
 | `Glass.qml`, `Glyph.qml`, `MorphGlyph.qml`, `MorphText.qml`, `ClockGlyph.qml`, `ContourGlow.qml` and the `*.frag` / `*.qsb` shaders | Visuals. |
 | `hyprland.lua` | Snippet with the keybind (copy it into your config). |
 
+and more files...
+
 ## Requirements
 
 ### Required
