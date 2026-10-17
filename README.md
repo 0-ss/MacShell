@@ -5,18 +5,28 @@ A macOS Tahoe–style **menu bar + Dock** for Hyprland, built on [Quickshell](ht
 screenshots, screen recording, desktop widgets (weather, calendar, clock, music player), a wallpaper picker and an
 Alt+Tab switcher — all in one Quickshell process.
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/600f75bc-b4d1-442d-bec5-41ee7dfa5023" />
+<p align="center">
+  <img width="100%" alt="The whole desktop: desktop widgets, the menu bar on top and the Dock at the bottom" src="https://github.com/user-attachments/assets/600f75bc-b4d1-442d-bec5-41ee7dfa5023" />
+  <br>
+  <sub>The whole desktop: widgets, the menu bar on top and the Dock</sub>
+</p>
 
-<img width="1072" height="90" alt="image" src="https://github.com/user-attachments/assets/edf45f8f-b71a-4bc5-9880-46dafbebf47c" />
+<p align="center">
+  <img width="100%" alt="The Dock, with Liquid Glass" src="https://github.com/user-attachments/assets/edf45f8f-b71a-4bc5-9880-46dafbebf47c" />
+  <br>
+  <sub>The Dock</sub>
+</p>
 
-<img width="371" height="549" alt="image" src="https://github.com/user-attachments/assets/681238c7-a661-44a4-8b37-6cbb0b162c87" />
-
-
+<p align="center">
+  <img width="371" alt="Control Center" src="https://github.com/user-attachments/assets/681238c7-a661-44a4-8b37-6cbb0b162c87" />
+  <br>
+  <sub>Control Center</sub>
+</p>
 
 The repository also ships **MacLock**, a matching Liquid Glass lock screen. It is a separate Quickshell config on
 purpose: it runs as its own process, so a shell crash can never take the lock with it.
 
-Best Icon Pack for the shell is here : https://github.com/Scrimas/MacOS-Like
+Best icon pack for the shell: https://github.com/Scrimas/MacOS-Like
 
 > **Heads up:** this targets **Hyprland 0.55+ with a Lua config** (`hyprland.lua`) and a recent **Quickshell (0.3.x)**.
 > See [Requirements](#requirements) and [Known issues](#known-issues).
@@ -40,12 +50,16 @@ The two are installed as **separate** Quickshell configs (neither lives inside t
 | `shell.qml` | Entry point. Shared hub: window geometry, wallpaper lookup, capture gating. |
 | `MacBar.qml` | Menu bar, Control Center, Spotlight, notifications, switcher, screenshots, wallpaper picker. |
 | `MacDock.qml` | Dock, window previews, and the Settings window. |
-| `MacWidgets.qml` | Desktop widgets layer (hosts the widgets below). |
-| `WeatherWidget.qml`, `WeatherIcon.qml`, `CalendarWidget.qml`, `ClockWidget.qml`, `PlayerWidget.qml`, `MarqueeText.qml` | The widgets and their helpers. |
-| `liquidglass.frag` | Liquid Glass fragment shader (compiled to `.qsb` on first run). |
+| `ClockApp.qml` | The Clock app window (opened from the menu bar clock). |
+| `MacWidgets.qml` | Desktop widgets layer (data, placement, editing). |
+| `WidgetVisual.qml` | Draws one widget; shared by the desktop layer and the Liquid Glass backdrop, so menus refract the widgets too. |
+| `WeatherWidget.qml`, `WeatherIcon.qml`, `WeatherHourCol.qml`, `CalendarWidget.qml`, `ClockWidget.qml`, `PlayerWidget.qml`, `PlayerArt.qml`, `PlayerBtn.qml`, `PlayerGlyph.qml`, `MarqueeText.qml` | The widgets and their helpers. |
+| `SPopUp.qml`, `Dissolve.qml`, `MorphText.qml`, `MorphGlyph.qml`, `WGlyph.qml`, `ClockGlyph.qml`, `Wheel.qml` | Shared UI pieces and effects. |
+| `liquidglass.frag` (+ `contourglow`, `tintcard`, `dust`, `burn`, `fade`) | Shaders. Prebuilt `.frag.qsb` files ship next to them; `liquidglass.frag` is recompiled with `qsb` on first run. |
 | `EmojiData.js` | Emoji fallback data for Spotlight (from [gemoji](https://github.com/github/gemoji), MIT). |
 | `macshell-update` | Update tool (installed to `~/.local/bin`, see [Updating](#updating)). |
 | `apple-logo-black.svg`, `apple-logo-white.svg` | Menu bar logo. |
+| `assets/` | Icons and the credits pictures. |
 
 **MacLock**
 
@@ -63,14 +77,14 @@ The two are installed as **separate** Quickshell configs (neither lives inside t
 
 | What | Why |
 |---|---|
-| **Hyprland ≥ 0.55, running a Lua config** (`~/.config/hypr/hyprland.lua`) | Window actions, the Alt+Tab focus, "paste after picking" and Log Out use Lua dispatches (`hyprctl dispatch 'hl.dsp…'`, `hyprctl eval`). On older versions or a `.conf` session these actions fail; the bar, Dock, glass and previews still work. Quick test: `hyprctl dispatch 'hl.dsp.no_op()'` must not error. |
+| **Hyprland ≥ 0.55, running a Lua config** (`~/.config/hypr/hyprland.lua`) | Window actions, the Alt+Tab focus, "paste after picking", Log Out and the floating Settings window use Lua dispatches (`hyprctl dispatch 'hl.dsp…'`, `hyprctl eval`). On older versions or a `.conf` session these actions fail; the bar, Dock, glass and previews still work. Quick test: `hyprctl dispatch 'hl.dsp.no_op()'` must not error. |
 | **Quickshell ≥ 0.3.0** (0.3.2 recommended) | Needs the Hyprland module (`HyprlandToplevel`, `lastIpcObject`, Lua-config support), `ScreencopyView`, `IpcHandler`, and the UPower / Pipewire / Mpris / SystemTray / Notifications services. |
 | Quickshell built with **Wayland**, **Hyprland**, **Screencopy → Hyprland Toplevel Export**, **Pipewire**, **UPower**, **Mpris**, **System Tray** | Distro packages normally enable all of these. Check the build info that `qs` prints in its logs. |
 | **Qt 6.5+** with `qt6-declarative`, `qt6-wayland`, **`qt6-shadertools`** (provides `qsb`) | `QtQuick.Effects` (MultiEffect) needs 6.5+. `qsb` compiles `liquidglass.frag` on first run. Without it (and without a prebuilt `liquidglass.frag.qsb`) the glass falls back to "Normal Blur". |
 | `qt6-svg` (recommended) | SVG app icons. |
 | `hyprctl`, `sh`, `xdg-open` | Core. |
 | An **icon theme** (Papirus, Adwaita, …) set for Qt apps | App icons in the Dock and Spotlight come from the system theme. If icons are blank, set one with `qt6ct` or `QS_ICON_THEME`. |
-| `curl`, `tar` | Used by the installer and the updater. |
+| `curl`, `tar` | Used by the installer and the updater, and by the Weather widget. |
 | Font **Inter** (default) | Falls back to the system font; "Noto Sans" / "System" can be chosen in Settings. |
 
 ### MacLock (only if you use the lock screen)
@@ -102,7 +116,8 @@ The two are installed as **separate** Quickshell configs (neither lives inside t
 | "About This Linux" | `fastfetch` or `neofetch` |
 | Do Not Disturb (Focus) | `dunstctl`, `makoctl` or `swaync-client` (only if you keep one of those) |
 | Emoji search keywords | `emoji-test.txt` from the `unicode-emoji` package (otherwise `EmojiData.js` is used) |
-| Wallpaper detection / applying | one of: Noctalia, `awww`/`swww`, `hyprpaper`, `swaybg`, `wpaperd` — or set a path yourself (see [Wallpaper](#wallpaper)) |
+| Setting the wallpaper | `awww` (recommended; its daemon is started for you). Fallbacks: `swww`, Noctalia, `hyprpaper`, `swaybg` — or set a command yourself (see [Wallpaper](#wallpaper)) |
+| Animated (video) wallpapers | `mpvpaper`, `ffmpeg` (thumbnails and previews) |
 | Installer extras | `rsync` (faster file sync), `systemd` (daily automatic updates) |
 | Default apps | terminal `kitty`, file opener `xdg-open` — change `terminal`, `launcher`, `filesCmd`, `clipboardCmd` in `~/.config/macbar/settings.json` |
 
@@ -199,8 +214,7 @@ hl.layer_rule({ name = "macspot",  match = { namespace = "macspot"  }, blur = tr
 hl.layer_rule({ name = "macbarbg", match = { namespace = "macbarbg" }, blur = true, ignore_alpha = 0.05, no_anim = true })
 hl.layer_rule({ name = "macshot",  match = { namespace = "macshot"  }, no_anim = true })   -- optional: no fade on the screenshot picker
 
--- Settings window (fixed size). Hyprland usually floats it on its own; if it tiles, add a float rule for the title
--- "macshell Settings" (see /usr/share/hypr/hyprland.lua for the window_rule syntax of your version).
+-- The Settings window floats and centres itself when it opens, so it needs no window rule.
 
 -- keybinds (the name after -c is the config folder name, case-sensitive)
 local qs = "qs -c MacShell ipc call "
@@ -252,11 +266,19 @@ Passwords are checked with PAM (`/etc/pam.d/hyprlock`). To lock on idle or befor
 
 ## Wallpaper
 
-The Liquid Glass refracts your wallpaper, so the shell needs its file path. It looks, in order, at: the `wallpaperPath`
-override in `settings.json`, Noctalia's `settings.toml`, `awww`/`swww query`, `hyprctl hyprpaper listactive`, and
-`~/.config/hypr/hyprpaper.conf`. If yours isn't detected (swaybg, wpaperd, a custom script), either pick a wallpaper in the
-built-in picker (Ctrl+Alt+W; it remembers the path), or set `"wallpaperPath": "/path/to/image.png"` in
-`~/.config/macdock/settings.json`. The picker reads `~/Pictures/Wallpapers` by default (`wallpaperDir`).
+Changing the wallpaper from Settings, the wallpaper picker (Ctrl+Alt+W) or `ipc call wallpapers` sets the real desktop
+wallpaper with **`awww`** (its daemon is started automatically if needed), and the widgets, menus and Liquid Glass follow.
+Light/Dark wallpaper pairs (`name-Light.png` / `name-Dark.png`) are applied the same way. Only if `awww` is missing or
+fails are the other tools tried: `swww`, Noctalia, `hyprpaper`, `swaybg`. To use your own command, set
+`"wallpaperCmd": "your-command {}"` (`{}` is the image path) in `~/.config/macbar/settings.json`. Animated (video)
+wallpapers need `mpvpaper` and `ffmpeg`.
+
+The Liquid Glass refracts your wallpaper, so the shell also needs its file path. It looks, in order, at: the
+`wallpaperPath` override in `settings.json`, Noctalia's `settings.toml`, `awww`/`swww query`,
+`hyprctl hyprpaper listactive`, and `~/.config/hypr/hyprpaper.conf`. If yours isn't detected (swaybg, wpaperd, a custom
+script), either pick a wallpaper in the built-in picker (it remembers the path), or set
+`"wallpaperPath": "/path/to/image.png"` in `~/.config/macdock/settings.json`. The picker reads `~/Pictures/Wallpapers`
+by default (`wallpaperDir`).
 
 ## Where things are stored
 
@@ -279,9 +301,10 @@ in `~/.config/macbar/settings.json` if you don't want that.
 |---|---|
 | Glass looks flat / "Normal Blur" | `qsb` missing (install `qt6-shadertools`) — the log shows `[macbar-glass] state: failed`. Or ship a prebuilt `liquidglass.frag.qsb` next to `liquidglass.frag`; it is used as a fallback. |
 | Glass shows no wallpaper | Wallpaper not detected: see [Wallpaper](#wallpaper). |
+| Changing the wallpaper only changes the widgets and menus | `awww` is not installed or its daemon can't start. Install it, or set `wallpaperCmd` (see [Wallpaper](#wallpaper)); the log shows `[wallpaper] error:`. |
 | Blank app icons | No Qt icon theme: set one (`qt6ct`, or `QS_ICON_THEME`) and install it. |
 | No notifications | Another daemon owns the D-Bus name. Disable it and restart the shell. |
-| Window menu actions, Alt+Tab focus, paste-after-pick or Log Out do nothing | Not on a Lua-config Hyprland 0.55+: run `hyprctl dispatch 'hl.dsp.no_op()'`. |
+| Window menu actions, Alt+Tab focus, paste-after-pick, Log Out or the floating Settings window do nothing | Not on a Lua-config Hyprland 0.55+: run `hyprctl dispatch 'hl.dsp.no_op()'`. |
 | No window previews / glass behind windows | Quickshell built without Hyprland Toplevel Export, or Settings → Dock Behavior → *Live window capture* is off. |
 | Log | `qs log` (see `qs --help` for selecting the config). |
 
@@ -296,13 +319,12 @@ does not answer that frame, the shell then destroys it, and the compositor drops
 - The shell already pauses glass captures while windows open/close.
 - Auto-restart it: `sh -c 'while :; do qs -c MacShell; sleep 1; done'` as the autostart command.
 
-Glitchy window capture,
-Can be disabled in Settings:
+**Glitchy window capture** (previews or glass showing a wrong or stale frame): turn off Settings → Dock Behavior →
+**Live window capture**.
 
-- Settings → Dock Behavior → turn **Live window capture** off.
-
-Reproduced on Hyprland 0.56.2 / Quickshell 0.3.2
+Reproduced on Hyprland 0.56.2 / Quickshell 0.3.2.
 
 ## Credits
 
+Created by [Rickky](https://github.com/0-ss) (owner), with [vSuol](https://github.com/vsoultann) (collaborator).
 Emoji data from [GitHub gemoji](https://github.com/github/gemoji) (MIT).
