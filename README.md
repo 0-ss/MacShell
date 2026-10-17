@@ -72,9 +72,6 @@ Best icon pack for the shell: https://github.com/Scrimas/MacOS-Like
       <br>
       <sub>Lock screen media player</sub>
           <td align="center" width="50%">
-      <img width="100%" alt="MacLock lock screen with the media player" src="https://github.com/user-attachments/assets/8db2e2ad-0b52-4d23-a49d-37a5a41e408e" />
-      <br>
-      <sub>Widgets</sub>
     </td>
   </tr>
 </table>
