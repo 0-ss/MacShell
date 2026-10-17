@@ -46,6 +46,10 @@ Best icon pack for the shell: https://github.com/Scrimas/MacOS-Like
   <img width="100%" alt="MacShell desktop: widgets, the menu bar on top and the Dock at the bottom" src="https://github.com/user-attachments/assets/600f75bc-b4d1-442d-bec5-41ee7dfa5023" />
 </p>
 
+<p align="center">
+  <img width="100%" alt="Widgets src="https://github.com/user-attachments/assets/8db2e2ad-0b52-4d23-a49d-37a5a41e408e" />
+</p>
+
 **The Dock,** with Liquid Glass.
 
 <p align="center">
