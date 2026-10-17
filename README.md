@@ -185,9 +185,20 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 
 1. Install the requirements above. On Arch, for example:
    ```sh
-   sudo pacman -S hyprland quickshell qt6-declarative qt6-wayland qt6-shadertools qt6-svg hyprlock \
-        grim wl-clipboard wf-recorder cliphist libnotify brightnessctl networkmanager bluez-utils inotify-tools \
-        ttf-inter noto-fonts-emoji
+    sudo pacman -Syu
+   
+    sudo pacman -S --needed \
+      hyprland quickshell hyprlock \
+      qt6-base qt6-declarative qt6-wayland qt6-shadertools qt6-svg \
+      grim slurp wl-clipboard wf-recorder cliphist \
+      libnotify brightnessctl \
+      networkmanager bluez bluez-utils \
+      inotify-tools \
+      inter-font noto-fonts noto-fonts-emoji \
+      xdg-desktop-portal-hyprland \
+      xdg-utils polkit \
+      pipewire wireplumber pipewire-pulse \
+      kitty
    ```
    Other distros: install the equivalents. Fedora has a Quickshell COPR; Nix has `pkgs.quickshell`.
    You can skip this: the installer checks every requirement (tools, Qt libraries, fonts, `hyprlock`) and installs
