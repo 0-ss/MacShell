@@ -2,7 +2,7 @@
 
 <p align="center">
   A macOS Tahoe–style <b>menu bar + Dock</b> for Hyprland, built on <a href="https://quickshell.org">Quickshell</a>,<br>
-  with a real-time <b>Liquid Glass</b> refraction shader, and a matching lock screen, <b>MacLock</b>.
+  with a real-time <b>Liquid Glass</b> refraction shader, and a lock screen, <b>MacLock</b>.
 </p>
 
 <p align="center">
