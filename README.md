@@ -47,7 +47,8 @@ Best icon pack for the shell: https://github.com/Scrimas/MacOS-Like
 </p>
 
 <p align="center">
-  <img width="100%" alt="Widgets src="https://github.com/user-attachments/assets/8db2e2ad-0b52-4d23-a49d-37a5a41e408e" />
+  <img width="486" height="674" alt="image" src="https://github.com/user-attachments/assets/95f97669-3d3e-4859-965d-affcb1499f6a" />
+
 </p>
 
 **The Dock,** with Liquid Glass.
