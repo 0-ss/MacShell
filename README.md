@@ -1,41 +1,32 @@
-# MacShell
+<h1 align="center">MacShell</h1>
+
+<p align="center">
+  A macOS Tahoe–style <b>menu bar + Dock</b> for Hyprland, built on <a href="https://quickshell.org">Quickshell</a>,<br>
+  with a real-time <b>Liquid Glass</b> refraction shader, and a matching lock screen, <b>MacLock</b>.
+</p>
+
+<p align="center">
+  <img width="854" alt="MacShell quick showcase" src="https://github.com/user-attachments/assets/b75da31c-73a3-4830-af70-2e0b74f85bf0" />
+  <br>
+  <sub>Quick showcase</sub>
+</p>
+
+<p align="center">
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#requirements">Requirements</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#updating">Updating</a> ·
+  <a href="#hyprland-configuration-lua">Hyprland config</a> ·
+  <a href="#maclock">MacLock</a> ·
+  <a href="#troubleshooting">Troubleshooting</a>
+</p>
+
+---
 
 A macOS Tahoe–style **menu bar + Dock** for Hyprland, built on [Quickshell](https://quickshell.org), with a real-time
 "Liquid Glass" refraction shader, window previews, Spotlight, clipboard/emoji picker, notifications, Control Center,
-screenshots, screen recording, desktop widgets (weather, calendar, clock, music player), a wallpaper picker and an
-Alt+Tab switcher, and finally a whole lock screen — all in one Quickshell process.
-
-<p align="center">
-  <img width="100%" alt="The whole desktop: desktop widgets, the menu bar on top and the Dock at the bottom" src="https://github.com/user-attachments/assets/600f75bc-b4d1-442d-bec5-41ee7dfa5023" />
-  <br>
-  <sub>(MacShell) The whole desktop: widgets, the menu bar on top and the Dock</sub>
-</p>
-
-<p align="center">
-  <img width="100%" alt="The Dock, with Liquid Glass" src="https://github.com/user-attachments/assets/edf45f8f-b71a-4bc5-9880-46dafbebf47c" />
-  <br>
-  <sub>(MacShell) The Dock</sub>
-</p>
-
-<p align="center">
-  <img width="371" alt="Control Center" src="https://github.com/user-attachments/assets/681238c7-a661-44a4-8b37-6cbb0b162c87" />
-  <br>
-  <sub>(MacShell) Control Center</sub>
-</p>
-
-<p align="center">
-<img width="1697" height="949" alt="image" src="https://github.com/user-attachments/assets/6ef28e50-612f-4e7b-9822-c0aa0168a6ae" />
-  <br>
-  <sub>(MacLock) Lock screen</sub>
-</p>
-
-
-<p align="center">
-<img width="1688" height="937" alt="image" src="https://github.com/user-attachments/assets/0d15dc6f-8def-47dc-8e42-fa2959e7e5eb" />
-  <br>
-  <sub>(MacLock) Lock screen media player</sub>
-</p>
-
+screenshots, screen recording, desktop widgets (weather, calendar, clock, music player), a wallpaper picker, an
+Alt+Tab switcher and a full lock screen, all in one Quickshell process.
 
 The repository also ships **MacLock**, a matching Liquid Glass lock screen. It is a separate Quickshell config on
 purpose: it runs as its own process, so a shell crash can never take the lock with it.
@@ -44,6 +35,45 @@ Best icon pack for the shell: https://github.com/Scrimas/MacOS-Like
 
 > **Heads up:** this targets **Hyprland 0.55+ with a Lua config** (`hyprland.lua`) and a recent **Quickshell (0.3.x)**.
 > See [Requirements](#requirements) and [Known issues](#known-issues).
+
+## Screenshots
+
+### MacShell
+
+**The whole desktop:** widgets, the menu bar on top and the Dock at the bottom.
+
+<p align="center">
+  <img width="100%" alt="MacShell desktop: widgets, the menu bar on top and the Dock at the bottom" src="https://github.com/user-attachments/assets/600f75bc-b4d1-442d-bec5-41ee7dfa5023" />
+</p>
+
+**The Dock,** with Liquid Glass.
+
+<p align="center">
+  <img width="100%" alt="The MacShell Dock with Liquid Glass" src="https://github.com/user-attachments/assets/edf45f8f-b71a-4bc5-9880-46dafbebf47c" />
+</p>
+
+**Control Center**
+
+<p align="center">
+  <img width="371" alt="MacShell Control Center" src="https://github.com/user-attachments/assets/681238c7-a661-44a4-8b37-6cbb0b162c87" />
+</p>
+
+### MacLock
+
+<table align="center">
+  <tr>
+    <td align="center" width="50%">
+      <img width="100%" alt="MacLock lock screen" src="https://github.com/user-attachments/assets/6ef28e50-612f-4e7b-9822-c0aa0168a6ae" />
+      <br>
+      <sub>Lock screen</sub>
+    </td>
+    <td align="center" width="50%">
+      <img width="100%" alt="MacLock lock screen with the media player" src="https://github.com/user-attachments/assets/0d15dc6f-8def-47dc-8e42-fa2959e7e5eb" />
+      <br>
+      <sub>Lock screen media player</sub>
+    </td>
+  </tr>
+</table>
 
 ## Files
 
@@ -265,8 +295,9 @@ Also make sure **blur is enabled** in your Hyprland `decoration` settings, or th
 
 ## MacLock
 
-A macOS-style lock screen using the same Liquid Glass look. Each lock runs in its own process (a Wayland session lock
-is used once), and `lock-via-ipc.sh` starts a fresh one for every lock, so the keybind above is all you need.
+A macOS-style lock screen using the same Liquid Glass look (see the [screenshots](#maclock-1) above). Each lock runs in
+its own process (a Wayland session lock is used once), and `lock-via-ipc.sh` starts a fresh one for every lock, so the
+keybind above is all you need.
 
 ```sh
 sh ~/.config/quickshell/MacLock/lock-via-ipc.sh        # lock now (what the keybind runs)
