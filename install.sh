@@ -5,8 +5,9 @@
 #   ./install.sh            (from a clone of the repository)
 #
 # What it does
-#   1. checks the tools, libraries and fonts MacShell / MacLock need and installs the missing ones
-#      (pacman, dnf or apt; quickshell from the AUR / the Fedora COPR when the main repositories lack it)
+#   1. checks every tool, library, font and service MacShell / MacLock need and installs the missing ones
+#      (pacman, dnf or apt; packages the main repositories lack come from the AUR / the Fedora COPR, and on Arch it can
+#      even set up an AUR helper for you). It also enables the bluetooth service, which Bluetooth needs.
 #   2. downloads the latest release (or the latest commit of the main branch)
 #   3. installs the shell to   ~/.config/quickshell/MacShell        (start it with:  qs -c MacShell)
 #      the lock screen to      ~/.config/quickshell/MacLock         (lock with:  sh ~/.config/quickshell/MacLock/lock-via-ipc.sh)
@@ -14,13 +15,17 @@
 #      helper scripts to       ~/.config/hypr-macshell/scripts      (only if the repo ships them)
 #      sounds to               ~/.local/share/sounds/macshell       (only if the repo ships them)
 #      the update tool to      ~/.local/share/macshell/bin/macshell-update  (+ ~/.local/bin/macshell-update)
-#   4. optionally adds an exec-once line to hyprland.conf
+#      the start script to     ~/.local/share/macshell/bin/macshell-start   (+ ~/.local/bin/macshell-start)
+#   4. adds the autostart to your Hyprland config: a Lua block in hyprland.lua (Hyprland 0.55+), or an exec-once line
+#      in hyprland.conf. It never writes to a config Hyprland is not using.
 #   5. optionally sets up automatic updates (a daily systemd user timer)
 #
 # Updates
 #   Run from a clone, the installer first asks GitHub whether the repository has something newer. If it does
 #   (and your clone has no uncommitted changes), it downloads the newer version and installs that automatically.
 #   Use --local to install exactly what is in the clone, or --check to only look.
+#   "macshell-update update" does the same from anywhere, installs dependencies that a new version needs, updates
+#   MacShell and MacLock together, and "macshell-update rollback" restores both.
 #
 # Your settings (~/.config/macbar, macdock, macshell, macwidgets, ...) are never touched.
 # Before replacing an existing install, the old one is saved to ~/.local/share/macshell/backups/ (last 3 kept).
@@ -28,7 +33,11 @@
 # Options
 #   -y, --yes             do not ask questions (answer yes)
 #       --no-deps         skip the dependency check
+#       --deps-only       only check / install dependencies, then stop
+#       --no-services     do not enable system services (bluetooth)
 #       --no-autostart    do not touch the Hyprland config
+#       --no-rules        do not add the Liquid Glass layer rules to the Hyprland config
+#       --channel CH      release (default: latest release, else the main branch) or main (always the newest commit)
 #       --ref REF         install a specific tag / commit instead of the latest
 #       --from-dir DIR    install from a local folder instead of downloading
 #       --update          quiet update mode (used by macshell-update)
@@ -40,7 +49,8 @@
 #       --no-auto-update  remove that timer
 #   -h, --help
 #
-# Environment: MACSHELL_REPO (default 0-ss/MacShell), MACSHELL_BRANCH (default main), MACSHELL_DEST, MACLOCK_DEST, GITHUB_TOKEN
+# Environment: MACSHELL_REPO (default 0-ss/MacShell), MACSHELL_BRANCH (default main), MACSHELL_CHANNEL, MACSHELL_DEST,
+#              MACLOCK_DEST, GITHUB_TOKEN
 
 set -euo pipefail
 
@@ -58,10 +68,18 @@ BACKUP_DIR="$STATE_DIR/backups"
 SCRIPTS_DIR="$CONFIG_HOME/hypr-macshell/scripts"
 SOUNDS_DIR="$DATA_HOME/sounds/macshell"
 LINK_DIR="$HOME/.local/bin"
+HYPR_DIR="$CONFIG_HOME/hypr"
+MARK_BEGIN="-- >>> MacShell (added by install.sh) >>>"
+MARK_END="-- <<< MacShell <<<"
+CONF_BEGIN="# >>> MacShell (added by install.sh) >>>"
+CONF_END="# <<< MacShell <<<"
 
 ASSUME_YES=0
 SKIP_DEPS=0
+DEPS_ONLY=0
+SKIP_SERVICES=0
 SKIP_AUTOSTART=0
+SKIP_RULES=0
 SKIP_LOCK=0
 CHECK_ONLY=0
 LOCAL_ONLY=0
@@ -71,6 +89,7 @@ UPDATE_MODE=0
 UNINSTALL=0
 REF=""
 FROM_DIR=""
+CHANNEL="${MACSHELL_CHANNEL:-}"
 RESOLVED_ID=""
 RESOLVED_TYPE=""
 
@@ -104,14 +123,18 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -y|--yes) ASSUME_YES=1 ;;
         --no-deps) SKIP_DEPS=1 ;;
+        --deps-only) DEPS_ONLY=1 ;;
+        --no-services) SKIP_SERVICES=1 ;;
         --no-autostart) SKIP_AUTOSTART=1 ;;
+        --no-rules) SKIP_RULES=1 ;;
         --no-lock) SKIP_LOCK=1 ;;
         --check) CHECK_ONLY=1; SKIP_DEPS=1 ;;
         --local) LOCAL_ONLY=1 ;;
         --auto-update) AUTO_UPDATE=yes ;;
         --no-auto-update) AUTO_UPDATE=no ;;
-        --update) UPDATE_MODE=1; SKIP_DEPS=1; SKIP_AUTOSTART=1 ;;
+        --update) UPDATE_MODE=1; SKIP_AUTOSTART=1; SKIP_SERVICES=1; ASSUME_YES=1 ;;
         --uninstall) UNINSTALL=1 ;;
+        --channel) CHANNEL="${2:-}"; shift ;;
         --ref) REF="${2:-}"; shift ;;
         --from-dir) FROM_DIR="${2:-}"; shift ;;
         --resolved-id) RESOLVED_ID="${2:-}"; shift ;;
@@ -121,6 +144,11 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+state_get() { [ -f "$STATE_DIR/state.env" ] && sed -n "s/^$1=//p" "$STATE_DIR/state.env" | head -n1 || true; }
+[ -n "$CHANNEL" ] || CHANNEL="$(state_get channel_pref)"
+[ -n "$CHANNEL" ] || CHANNEL="release"
+case "$CHANNEL" in release|main) ;; *) die "--channel must be 'release' or 'main'" ;; esac
 
 [ "$(id -u)" -eq 0 ] && warn "running as root: MacShell is installed per user, run this as your normal user instead."
 
@@ -148,7 +176,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=$BIN_DIR/macshell-update update --yes
+ExecStart=$BIN_DIR/macshell-update update --yes --notify
 UNIT
     cat > "$UNIT_DIR/macshell-update.timer" <<UNIT
 [Unit]
@@ -171,6 +199,16 @@ UNIT
 }
 
 # ───────────────────────── uninstall ─────────────────────────
+remove_hypr_blocks() {
+    local f
+    for f in "$HYPR_DIR/hyprland.lua"; do
+        [ -f "$f" ] && grep -qF -- "$MARK_BEGIN" "$f" && { sed -i "\|$MARK_BEGIN|,\|$MARK_END|d" "$f"; ok "removed the MacShell block from $f"; }
+    done
+    f="$HYPR_DIR/hyprland.conf"
+    [ -f "$f" ] && grep -qF -- "$CONF_BEGIN" "$f" && { sed -i "\|$CONF_BEGIN|,\|$CONF_END|d" "$f"; ok "removed the MacShell block from $f"; }
+    return 0
+}
+
 if [ "$UNINSTALL" = 1 ]; then
     step "Uninstalling MacShell"
     if [ -d "$DEST" ]; then
@@ -184,10 +222,11 @@ if [ "$UNINSTALL" = 1 ]; then
         mv "$LOCK_DEST" "$BACKUP_DIR/$ts/$LOCK_NAME"; ok "moved $LOCK_DEST to $BACKUP_DIR/$ts/"
     fi
     remove_auto_update quiet
-    rm -f "$LINK_DIR/macshell-update" "$BIN_DIR/macshell-update" "$STATE_DIR/state.env"
-    ok "removed the update tool"
+    remove_hypr_blocks
+    rm -f "$LINK_DIR/macshell-update" "$LINK_DIR/macshell-start" "$BIN_DIR/macshell-update" "$BIN_DIR/macshell-start" "$STATE_DIR/state.env"
+    ok "removed the update and start tools"
     say "Your settings were kept (~/.config/macbar, macdock, macshell, macwidgets)."
-    say "If you added them, remove the 'exec-once = qs -c $NAME' line and the MacLock lock keybind from your Hyprland config."
+    say "If you added them yourself, remove the MacShell autostart and the MacLock lock keybind from your Hyprland config."
     exit 0
 fi
 
@@ -195,35 +234,52 @@ fi
 # command:arch-package:what-for   (a check by command name; package names are Arch names, translated per distro below)
 REQUIRED=(
     "qs:quickshell:the shell runtime (needs the Hyprland, Screencopy, PipeWire, UPower, Mpris and Notifications modules)"
-    "hyprctl:hyprland:the compositor"
+    "hyprctl:hyprland:the compositor (0.55+ with a Lua config)"
     "curl:curl:weather, update checks, downloads"
     "tar:tar:unpacking downloads"
+    "xdg-open:xdg-utils:opening files and links"
 )
 OPTIONAL=(
     "pw-play:pipewire:UI sound effects"
+    "wpctl:wireplumber:audio device routing"
+    "pactl:pipewire-pulse:volume and audio devices (PulseAudio compatibility)"
     "qsb:qt6-shadertools:recompiling the Liquid Glass shader (precompiled .qsb files are shipped)"
     "wl-copy:wl-clipboard:clipboard"
     "cliphist:cliphist:clipboard history"
     "grim:grim:screenshots"
+    "slurp:slurp:screenshot region picker"
     "wf-recorder:wf-recorder:screen recording"
     "hyprpicker:hyprpicker:color picker"
     "nmcli:networkmanager:Wi-Fi in Control Center"
-    "bluetoothctl:bluez-utils:Bluetooth in Control Center"
+    "bluetoothctl:bluez-utils:Bluetooth (also needs the bluetooth service, enabled below)"
+    "rfkill:util-linux:Bluetooth / Airplane Mode (unblocking the adapter)"
     "brightnessctl:brightnessctl:display brightness"
     "powerprofilesctl:power-profiles-daemon:power profiles / Game Mode"
-    "inotifywait:inotify-tools:live wallpaper watching"
+    "inotifywait:inotify-tools:live wallpaper watching, Trash watching"
     "hyprsunset:hyprsunset:Night Shift"
-    "notify-send:libnotify:update notifications"
-    "wpctl:wireplumber:audio device routing"
+    "notify-send:libnotify:notifications from scripts, update notices"
+    "awww:awww:setting the wallpaper"
+    "mpvpaper:mpvpaper:animated (video) wallpapers"
+    "ffmpeg:ffmpeg:video wallpaper thumbnails and previews"
+    "zenity:zenity:file pickers (image widgets, Settings folders)"
+    "magick:imagemagick:profile picture conversion"
+    "fastfetch:fastfetch:About This Linux"
+    "rsync:rsync:faster, safer file sync in the installer"
+    "kitty:kitty:the default terminal"
+    "hypridle:hypridle:lock on idle (optional)"
 )
-# libraries / fonts without a command to test: arch-package:what-for
+# libraries / fonts / packages without a command to test: arch-package:what-for   (a|b = first one the repositories have)
 LIBS=(
     "qt6-declarative:Qt Quick (QML)"
     "qt6-wayland:Qt Wayland support"
     "qt6-svg:SVG app icons"
     "qt6-shadertools:shader tools"
-    "ttf-inter:the Inter font"
+    "inter-font|ttf-inter:the Inter font"
+    "noto-fonts:fallback fonts"
     "noto-fonts-emoji:emoji font"
+    "papirus-icon-theme:an icon theme for app icons"
+    "xdg-desktop-portal-hyprland:screen sharing and screenshots through portals"
+    "polkit:privilege prompts"
 )
 LIBS_LOCK=(
     "hyprlock:the PAM stack MacLock checks passwords with (/etc/pam.d/hyprlock)"
@@ -231,32 +287,41 @@ LIBS_LOCK=(
 
 PM=""            # pacman | dnf | apt
 SUDO=""
+CAN_INSTALL=1
 detect_pm() {
     if have pacman; then PM=pacman
     elif have dnf; then PM=dnf
     elif have apt-get; then PM=apt
     fi
+    SUDO=""
     if [ "$(id -u)" -ne 0 ]; then
         if have sudo; then SUDO="sudo"; elif have doas; then SUDO="doas"; fi
+        # unattended updates (systemd timer) cannot type a password: only install when sudo works without one
+        if [ "$UPDATE_MODE" = 1 ]; then
+            if [ "$SUDO" = sudo ] && sudo -n true >/dev/null 2>&1; then SUDO="sudo -n"; else CAN_INSTALL=0; fi
+        fi
     fi
 }
 
-# arch package name -> package name for this distro ("" = not available / unknown, skipped)
+# arch package name(s) -> package name(s) for this distro, alternatives separated by "|" ("" = unknown, skipped)
 pkg_for() {
     local p="$1"
     case "$PM" in
         pacman) printf '%s' "$p" ;;
         dnf) case "$p" in
-                pipewire) echo pipewire-utils ;; qt6-shadertools) echo qt6-qtshadertools ;; qt6-declarative) echo qt6-qtdeclarative ;;
+                pipewire) echo pipewire-utils ;; pipewire-pulse) echo pipewire-pulseaudio ;;
+                qt6-shadertools) echo qt6-qtshadertools ;; qt6-declarative) echo qt6-qtdeclarative ;;
                 qt6-wayland) echo qt6-qtwayland ;; qt6-svg) echo qt6-qtsvg ;; networkmanager) echo NetworkManager ;;
-                bluez-utils) echo bluez ;; ttf-inter) echo rsms-inter-fonts ;; noto-fonts-emoji) echo google-noto-emoji-fonts ;;
-                wireplumber) echo wireplumber ;; *) printf '%s' "$p" ;;
+                bluez-utils) echo bluez ;; "inter-font|ttf-inter") echo rsms-inter-fonts ;;
+                noto-fonts) echo google-noto-sans-fonts ;; noto-fonts-emoji) echo "google-noto-color-emoji-fonts|google-noto-emoji-fonts" ;;
+                imagemagick) echo ImageMagick ;; awww|mpvpaper|cliphist) echo "$p" ;; *) printf '%s' "${p%%|*}" ;;
              esac ;;
         apt) case "$p" in
-                pipewire) echo pipewire-bin ;; qt6-shadertools) echo qt6-shader-baker ;; networkmanager) echo network-manager ;;
-                bluez-utils) echo bluez ;; libnotify) echo libnotify-bin ;; ttf-inter) echo fonts-inter ;;
+                pipewire) echo pipewire-bin ;; pipewire-pulse) echo pipewire-pulse ;; qt6-shadertools) echo qt6-shader-baker ;;
+                networkmanager) echo network-manager ;; bluez-utils) echo bluez ;; libnotify) echo libnotify-bin ;;
+                "inter-font|ttf-inter") echo fonts-inter ;; noto-fonts) echo fonts-noto-core ;;
                 noto-fonts-emoji) echo fonts-noto-color-emoji ;; qt6-declarative|qt6-wayland|qt6-svg) echo "" ;;
-                *) printf '%s' "$p" ;;
+                *) printf '%s' "${p%%|*}" ;;
              esac ;;
     esac
 }
@@ -276,9 +341,15 @@ pkg_available() { # in the distro's repositories?
         *) return 1 ;;
     esac
 }
+# first alternative of "a|b" that is installed / available (empty if none)
+first_installed() { local a; IFS='|' read -ra alts <<<"$1"; for a in "${alts[@]}"; do pkg_installed "$a" && { printf '%s' "$a"; return 0; }; done; return 1; }
+first_available() { local a; IFS='|' read -ra alts <<<"$1"; for a in "${alts[@]}"; do pkg_available "$a" && { printf '%s' "$a"; return 0; }; done; return 1; }
 
 install_packages() { # install_packages <distro package names...>
     [ "$#" -gt 0 ] || return 0
+    if [ "$CAN_INSTALL" != 1 ]; then
+        warn "cannot ask for a password in an unattended update; install these yourself: $*"; return 1
+    fi
     if [ -z "$SUDO" ] && [ "$(id -u)" -ne 0 ]; then
         warn "no sudo/doas found: install these yourself: $*"; return 1
     fi
@@ -289,74 +360,104 @@ install_packages() { # install_packages <distro package names...>
     esac
 }
 
+# On Arch: build yay-bin from the AUR so packages that are not in the official repositories (awww, mpvpaper, sometimes
+# quickshell) can be installed too.
+AUR_HELPER=""
+find_aur_helper() { AUR_HELPER=""; if have yay; then AUR_HELPER=yay; elif have paru; then AUR_HELPER=paru; fi; }
+bootstrap_aur_helper() {
+    [ "$PM" = pacman ] && [ "$(id -u)" -ne 0 ] && [ "$CAN_INSTALL" = 1 ] || return 1
+    [ "$UPDATE_MODE" = 1 ] && return 1          # never build an AUR helper unattended
+    confirm "No AUR helper found. Install yay (built from the AUR) to get packages that are not in the official repositories?" y || return 1
+    install_packages git base-devel || return 1
+    local tmp; tmp=$(mktemp -d)
+    if git clone --depth 1 https://aur.archlinux.org/yay-bin.git "$tmp/yay-bin" >/dev/null 2>&1 \
+       && (cd "$tmp/yay-bin" && makepkg -si --noconfirm); then
+        rm -rf "$tmp"; ok "yay installed"; find_aur_helper; return 0
+    fi
+    rm -rf "$tmp"; warn "could not build yay"; return 1
+}
+
 # quickshell (and a few others) are not in every repository: try an AUR helper / the Fedora COPR
+MANUAL_LIST=()
 install_extra_sources() {
     local missing=("$@") p
     [ "${#missing[@]}" -gt 0 ] || return 0
     case "$PM" in
         pacman)
-            local aur=""
-            have yay && aur=yay; [ -z "$aur" ] && have paru && aur=paru
-            if [ -n "$aur" ]; then
+            find_aur_helper
+            [ -n "$AUR_HELPER" ] || bootstrap_aur_helper || true
+            if [ -n "$AUR_HELPER" ] && [ "$CAN_INSTALL" = 1 ]; then
                 for p in "${missing[@]}"; do
-                    say "  $p is not in the official repositories: trying the AUR ($aur)"
-                    "$aur" -S --needed --noconfirm "$p" || warn "could not install $p from the AUR"
+                    say "  $p is not in the official repositories: trying the AUR ($AUR_HELPER)"
+                    "$AUR_HELPER" -S --needed --noconfirm "$p" || { warn "could not install $p from the AUR"; MANUAL_LIST+=("$p"); }
                 done
             else
                 warn "not in the official repositories: ${missing[*]} (install an AUR helper such as yay, then: yay -S ${missing[*]})"
+                MANUAL_LIST+=("${missing[@]}")
             fi ;;
         dnf)
-            if printf '%s\n' "${missing[@]}" | grep -qx quickshell; then
+            if [ "$CAN_INSTALL" = 1 ] && printf '%s\n' "${missing[@]}" | grep -qx quickshell; then
                 say "  quickshell: enabling the errornospam/quickshell COPR"
-                $SUDO dnf copr enable -y errornospam/quickshell && $SUDO dnf install -y quickshell || warn "could not install quickshell"
+                $SUDO dnf copr enable -y errornospam/quickshell && $SUDO dnf install -y quickshell || { warn "could not install quickshell"; MANUAL_LIST+=(quickshell); }
+                missing=("${missing[@]/quickshell}")
             fi
+            for p in "${missing[@]}"; do [ -n "$p" ] && MANUAL_LIST+=("$p"); done
             printf '%s\n' "${missing[@]}" | grep -qx hyprland && warn "hyprland is not in your repositories: see https://wiki.hyprland.org"
             ;;
         apt)
-            warn "not in the Debian/Ubuntu repositories: ${missing[*]}. Build them from source: https://quickshell.org and https://wiki.hyprland.org" ;;
+            warn "not in the Debian/Ubuntu repositories: ${missing[*]}. Build them from source: https://quickshell.org and https://wiki.hyprland.org"
+            MANUAL_LIST+=("${missing[@]}") ;;
     esac
 }
 
 check_deps() {
     step "Checking dependencies"
     detect_pm
-    local to_install=() unavailable=() entry cmd pkg why p dp
-    local miss_req=()
+    [ -n "$PM" ] || warn "no supported package manager (pacman, dnf, apt) found: dependencies can only be listed, not installed"
+    local to_install=() entry cmd pkg why p dp
+    local libs=("${LIBS[@]}")
+    [ "$SKIP_LOCK" = 1 ] || libs+=("${LIBS_LOCK[@]}")
 
     for entry in "${REQUIRED[@]}"; do
         IFS=: read -r cmd pkg why <<<"$entry"
-        if have "$cmd"; then ok "$cmd"; else warn "missing: $cmd  ($why)"; miss_req+=("$cmd"); to_install+=("$pkg"); fi
+        if have "$cmd"; then ok "$cmd"; else warn "missing: $cmd  ($why)"; to_install+=("$pkg"); fi
     done
     for entry in "${OPTIONAL[@]}"; do
         IFS=: read -r cmd pkg why <<<"$entry"
         if have "$cmd"; then ok "$cmd"; else say "  ${D}- not found: $cmd  ($why)${N}"; to_install+=("$pkg"); fi
     done
-    local libs=("${LIBS[@]}"); [ "$SKIP_LOCK" = 1 ] || libs+=("${LIBS_LOCK[@]}")
     for entry in "${libs[@]}"; do
         IFS=: read -r pkg why <<<"$entry"
         dp=$(pkg_for "$pkg")
         [ -n "$dp" ] || continue
-        if [ -n "$PM" ] && pkg_installed "$dp"; then ok "$pkg"; else say "  ${D}- not found: $pkg  ($why)${N}"; to_install+=("$pkg"); fi
+        if [ -n "$PM" ] && first_installed "$dp" >/dev/null; then ok "${pkg%%|*}"; else say "  ${D}- not found: ${pkg%%|*}  ($why)${N}"; to_install+=("$pkg"); fi
     done
 
     # translate to this distro's names, drop duplicates / unknown ones, split into "repo" and "needs another source"
-    local repo=() extra=() seen=" "
+    local repo=() extra=() seen=" " pick
     for p in "${to_install[@]}"; do
         dp=$(pkg_for "$p"); [ -n "$dp" ] || continue
         case "$seen" in *" $dp "*) continue ;; esac; seen="$seen$dp "
-        [ -n "$PM" ] && pkg_installed "$dp" && continue
-        if [ -n "$PM" ] && pkg_available "$dp"; then repo+=("$dp"); else extra+=("$dp"); fi
+        [ -n "$PM" ] && first_installed "$dp" >/dev/null && continue
+        if [ -n "$PM" ] && pick=$(first_available "$dp"); then repo+=("$pick"); else extra+=("${dp%%|*}"); fi
     done
 
     if [ "${#repo[@]}" -eq 0 ] && [ "${#extra[@]}" -eq 0 ]; then
-        :
+        ok "all dependencies are installed"
     elif [ -z "$PM" ]; then
-        say "  No supported package manager (pacman, dnf, apt) found: install the missing tools by hand (see the list above)."
+        say "  Install the missing tools by hand (see the list above)."
     else
         say ""
         say "  Missing packages (${PM}): ${repo[*]:-none}${extra:+  | other sources: ${extra[*]}}"
-        if confirm "Install them now?" y; then
-            [ "${#repo[@]}" -gt 0 ] && { install_packages "${repo[@]}" || warn "the package manager reported an error, continuing"; }
+        if [ "$CAN_INSTALL" != 1 ]; then
+            warn "a newer MacShell may need: ${repo[*]} ${extra[*]}. Run the installer in a terminal to install them: bash install.sh --deps-only"
+        elif confirm "Install them now?" y; then
+            if [ "${#repo[@]}" -gt 0 ]; then
+                install_packages "${repo[@]}" || {
+                    warn "the package manager failed on the whole list, retrying one by one"
+                    for p in "${repo[@]}"; do install_packages "$p" >/dev/null 2>&1 || { warn "could not install $p"; MANUAL_LIST+=("$p"); }; done
+                }
+            fi
             install_extra_sources "${extra[@]}"
         else
             say "  Skipped. Install them later with your package manager, then run the installer again."
@@ -366,27 +467,67 @@ check_deps() {
     if have fc-list && ! fc-list 2>/dev/null | grep -qi "Inter"; then
         warn "the Inter font was not found (the shell falls back to another font)"
     fi
+    if [ "${#MANUAL_LIST[@]}" -gt 0 ]; then
+        warn "still missing, install by hand: ${MANUAL_LIST[*]}"
+    fi
+    check_hyprland_version
 
     # whatever is still missing among the required tools
     for entry in "${REQUIRED[@]}"; do
         IFS=: read -r cmd pkg why <<<"$entry"
         if ! have "$cmd"; then
+            [ "$UPDATE_MODE" = 1 ] && continue
             confirm "Required tool '$cmd' is still missing. Continue anyway?" n || die "install '$cmd' and run the installer again"
             break
         fi
     done
 }
 
+# MacShell needs Hyprland 0.55+ (Lua config). Only a warning: the version can be unreadable outside a session.
+check_hyprland_version() {
+    local v="" maj min
+    if have hyprctl; then v=$(hyprctl version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true); fi
+    [ -n "$v" ] || { have Hyprland && v=$(Hyprland --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true); }
+    [ -n "$v" ] || return 0
+    v="${v#v}"; maj="${v%%.*}"; min="${v#*.}"; min="${min%%.*}"
+    if [ "$maj" -eq 0 ] 2>/dev/null && [ "$min" -lt 55 ] 2>/dev/null; then
+        warn "Hyprland $v found: MacShell needs 0.55 or newer (Lua config). Window actions, Alt+Tab focus and the Settings window need it."
+    else
+        ok "Hyprland $v"
+    fi
+}
+
+# Bluetooth needs bluetoothd to be running; installing bluez does not start it.
+enable_services() {
+    [ "$SKIP_SERVICES" = 1 ] && return 0
+    have systemctl || return 0
+    have bluetoothctl || return 0
+    systemctl cat bluetooth.service >/dev/null 2>&1 || return 0
+    if systemctl is-active --quiet bluetooth.service 2>/dev/null; then ok "bluetooth service is running"; return 0; fi
+    step "Bluetooth service"
+    if confirm "The bluetooth service is not running (Bluetooth does nothing without it). Enable and start it now?" y; then
+        local s=""; [ "$(id -u)" -ne 0 ] && s="${SUDO:-sudo}"
+        if $s systemctl enable --now bluetooth.service; then ok "bluetooth.service enabled and started"; else warn "could not enable bluetooth.service: run  sudo systemctl enable --now bluetooth"; fi
+    fi
+}
+
 # ───────────────────────── GitHub helpers ─────────────────────────
+CURL=(curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused)
 gh_api() { # gh_api <accept> <url>
-    curl -fsSL --max-time 20 ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} -H "Accept: $1" "$2"
+    "${CURL[@]}" --max-time 20 ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} -H "Accept: $1" "$2"
 }
 latest_release() {
     gh_api application/vnd.github+json "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
         | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1 || true
 }
 branch_sha() {
-    gh_api application/vnd.github.sha "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null | head -c 40 || true
+    local s
+    s=$(gh_api application/vnd.github.sha "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null | head -c 40 || true)
+    # the unauthenticated API allows 60 requests an hour: git does not count against that
+    if ! [[ "$s" =~ ^[0-9a-f]{40}$ ]] && have git; then
+        s=$(git ls-remote "https://github.com/$REPO.git" "refs/heads/$BRANCH" 2>/dev/null | cut -c1-40 | head -n1 || true)
+    fi
+    [[ "$s" =~ ^[0-9a-f]{40}$ ]] && printf '%s' "$s" || true
 }
 resolve_version() {
     [ -n "$RESOLVED_ID" ] && return 0
@@ -396,8 +537,10 @@ resolve_version() {
         if [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]]; then RESOLVED_TYPE="commit"; else RESOLVED_TYPE="release"; fi
         return 0
     fi
-    rel=$(latest_release)
-    if [ -n "$rel" ]; then RESOLVED_ID="$rel"; RESOLVED_TYPE="release"; return 0; fi
+    if [ "$CHANNEL" = release ]; then
+        rel=$(latest_release)
+        if [ -n "$rel" ]; then RESOLVED_ID="$rel"; RESOLVED_TYPE="release"; return 0; fi
+    fi
     sha=$(branch_sha)
     if [ -n "$sha" ]; then RESOLVED_ID="$sha"; RESOLVED_TYPE="branch"; return 0; fi
     die "could not reach GitHub (repo $REPO). Check your connection, or use --from-dir with a local copy."
@@ -408,7 +551,7 @@ run_check() {
     step "Checking for updates"
     have curl || die "curl is required"
     resolve_version
-    local inst; inst=$(sed -n 's/^installed=//p' "$STATE_DIR/state.env" 2>/dev/null | head -n1 || true)
+    local inst; inst=$(state_get installed)
     inst="${inst:-none}"
     if [ "$inst" = "$RESOLVED_ID" ]; then
         ok "up to date (${RESOLVED_ID:0:12})"; exit 0
@@ -475,7 +618,7 @@ fetch_source() {
     step "Downloading $REPO ($RESOLVED_TYPE: $RESOLVED_ID)"
     TMP=$(mktemp -d)
     mkdir -p "$TMP/src"
-    curl -fsSL --max-time 180 "https://github.com/$REPO/archive/$RESOLVED_ID.tar.gz" | tar -xz --strip-components=1 -C "$TMP/src" \
+    "${CURL[@]}" --max-time 180 "https://github.com/$REPO/archive/$RESOLVED_ID.tar.gz" | tar -xz --strip-components=1 -C "$TMP/src" \
         || die "download failed (https://github.com/$REPO/archive/$RESOLVED_ID.tar.gz)"
     SRC_ROOT="$TMP/src"
     ok "downloaded"
@@ -493,7 +636,7 @@ backup_current() { # backup_current <dest> <name>
 }
 
 # repository files that are not part of a Quickshell config (MacLock is excluded so it never ends up inside MacShell)
-EXCLUDES=(.git .github install.sh macshell-update README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME")
+EXCLUDES=(.git .github install.sh macshell-update macshell-start README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME")
 LOCK_EXCLUDES=(.git .github)
 
 sync_files() { # sync_files <source-folder> <dest> <exclude>...
@@ -502,13 +645,61 @@ sync_files() { # sync_files <source-folder> <dest> <exclude>...
     if have rsync; then
         local args=()
         for e in "$@"; do args+=("--exclude=/$e"); done
-        rsync -a --delete "${args[@]}" "$qml_root"/ "$dest"/
+        # --delay-updates: every file lands in place at the very end, so Quickshell never reloads a half-copied folder
+        rsync -a --delete --delay-updates "${args[@]}" "$qml_root"/ "$dest"/
     else
-        find "$dest" -mindepth 1 -delete
+        # no rsync: copy into a sibling folder first, then move the files in
+        local stage; stage=$(mktemp -d "$dest.stage.XXXXXX")
         local targs=()
         for e in "$@"; do targs+=("--exclude=./$e"); done
-        tar -C "$qml_root" "${targs[@]}" -cf - . | tar -C "$dest" -xf -
+        tar -C "$qml_root" "${targs[@]}" -cf - . | tar -C "$stage" -xf -
+        find "$dest" -mindepth 1 -delete
+        cp -a "$stage"/. "$dest"/
+        rm -rf "$stage"
     fi
+}
+
+# the start script used by the autostart line: waits for the compositor, never starts a second copy,
+# restarts the shell when it crashes (and gives up when it dies right away over and over)
+write_start_script() {
+    mkdir -p "$BIN_DIR" "$LINK_DIR"
+    cat > "$BIN_DIR/.macshell-start.new" <<'START'
+#!/bin/sh
+# macshell-start: starts MacShell for the Hyprland session (the autostart line runs this).
+#   macshell-start [ConfigName]      default: MacShell
+NAME="${1:-MacShell}"
+PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"; export PATH
+
+command -v qs >/dev/null 2>&1 || { echo "macshell-start: qs (quickshell) not found in PATH" >&2; exit 1; }
+
+# wait (up to 20 s) until the Wayland socket exists
+i=0
+while [ "$i" -lt 100 ]; do
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$WAYLAND_DISPLAY" ]; then break; fi
+    i=$((i + 1)); sleep 0.2
+done
+
+# already running for this user? then there is nothing to do
+if pgrep -u "$(id -u)" -f "(^|/)(qs|quickshell)( .*)? (-c|--config) $NAME( |\$)" >/dev/null 2>&1; then exit 0; fi
+
+fast=0
+while :; do
+    start=$(date +%s)
+    qs -c "$NAME"
+    rc=$?
+    case "$rc" in 0|130|143) exit 0 ;; esac          # quit on purpose (qs kill / Ctrl+C / SIGTERM)
+    if [ $(( $(date +%s) - start )) -lt 5 ]; then fast=$((fast + 1)); else fast=0; fi
+    if [ "$fast" -ge 5 ]; then
+        msg="MacShell keeps crashing right after it starts. Run:  qs -c $NAME   and read the log."
+        echo "macshell-start: $msg" >&2
+        command -v notify-send >/dev/null 2>&1 && notify-send -u critical "MacShell" "$msg"
+        exit 1
+    fi
+    sleep 1
+done
+START
+    chmod +x "$BIN_DIR/.macshell-start.new" && mv -f "$BIN_DIR/.macshell-start.new" "$BIN_DIR/macshell-start"
+    ln -sf "$BIN_DIR/macshell-start" "$LINK_DIR/macshell-start"
 }
 
 install_extras() {
@@ -536,6 +727,8 @@ install_extras() {
     else
         warn "macshell-update not found in the source: update checks will not work"
     fi
+    write_start_script
+    ok "start script -> $BIN_DIR/macshell-start"
 }
 
 write_state() {
@@ -544,39 +737,90 @@ write_state() {
         echo "repo=$REPO"
         echo "branch=$BRANCH"
         echo "channel=$RESOLVED_TYPE"
+        echo "channel_pref=$CHANNEL"
         echo "installed=$RESOLVED_ID"
         echo "installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         echo "dest=$DEST"
+        echo "lock_dest=$LOCK_DEST"
+        echo "lock_installed=$([ -n "${LOCK_ROOT:-}" ] && echo yes || echo no)"
     } > "$STATE_DIR/state.env"
+}
+
+# ───────────────────────── Hyprland autostart ─────────────────────────
+# Hyprland 0.55+ reads hyprland.lua and ignores hyprland.conf when both exist, so the autostart goes where Hyprland
+# actually looks. (The old installer always wrote "exec-once" into hyprland.conf, which a Lua session never reads.)
+START_CMD() { printf 'sh %s' "$LINK_DIR/macshell-start"; }
+
+lua_block() { # lua_block <with-rules 0|1>
+    printf '%s\n' "$MARK_BEGIN"
+    printf '%s\n' '-- autostart: waits for the compositor, restarts MacShell if it crashes (remove this block to undo)'
+    printf 'hl.on("hyprland.start", function()\n    hl.exec_cmd("%s")\nend)\n' "$(START_CMD)"
+    if [ "${1:-0}" = 1 ]; then
+        printf '%s\n' '-- Liquid Glass: blur behind the shell surfaces'
+        printf '%s\n' 'hl.layer_rule({ name = "macdock",  match = { namespace = "macdock"  }, blur = true, ignore_alpha = 0.2,  no_anim = true })'
+        printf '%s\n' 'hl.layer_rule({ name = "macspot",  match = { namespace = "macspot"  }, blur = true, ignore_alpha = 0.05, no_anim = true })'
+        printf '%s\n' 'hl.layer_rule({ name = "macbarbg", match = { namespace = "macbarbg" }, blur = true, ignore_alpha = 0.05, no_anim = true })'
+        printf '%s\n' 'hl.layer_rule({ name = "macshot",  match = { namespace = "macshot"  }, no_anim = true })'
+    fi
+    printf '%s\n' "$MARK_END"
 }
 
 add_autostart() {
     [ "$SKIP_AUTOSTART" = 1 ] && return 0
-    local conf="$CONFIG_HOME/hypr/hyprland.conf" lua
-    lua=$(ls "$CONFIG_HOME"/hypr/hyprland.lua 2>/dev/null | head -n1 || true)
-    if [ -f "$conf" ]; then
-        if grep -Eq "(qs|quickshell)[[:space:]]+(-c|--config)[[:space:]]+$NAME" "$conf"; then
-            ok "Hyprland already starts MacShell"
-        elif confirm "Start MacShell automatically with Hyprland (adds a line to $conf)?" y; then
-            printf '\n# MacShell\nexec-once = qs -c %s\n' "$NAME" >> "$conf"
-            ok "added 'exec-once = qs -c $NAME' to $conf"
+    step "Hyprland autostart"
+    local conf="$HYPR_DIR/hyprland.conf" lua="$HYPR_DIR/hyprland.lua" rules=0
+    if [ -f "$lua" ]; then
+        if grep -qF -- "$MARK_BEGIN" "$lua"; then
+            # refresh our own block (keeps the start command current), keeps everything else as it is
+            local had_rules=0; grep -q 'hl.layer_rule({ name = "macdock"' "$lua" && had_rules=1
+            sed -i "\|$MARK_BEGIN|,\|$MARK_END|d" "$lua"
+            { echo; lua_block "$had_rules"; } >> "$lua"
+            ok "autostart block in $lua refreshed"
+        elif grep -Eq "macshell-start|(qs|quickshell)[[:space:]]+(-c|--config)[[:space:]]+$NAME" "$lua"; then
+            ok "$lua already starts MacShell"
+        elif confirm "Start MacShell automatically with Hyprland (adds a block to $lua)?" y; then
+            if [ "$SKIP_RULES" != 1 ] && ! grep -q 'namespace *= *"macdock"' "$lua" \
+               && confirm "Also add the Liquid Glass layer rules (blur behind the Dock and menus)?" y; then rules=1; fi
+            cp -f "$lua" "$lua.macshell-backup"
+            { echo; lua_block "$rules"; } >> "$lua"
+            ok "added the autostart to $lua (backup: $lua.macshell-backup)"
+            have hyprctl && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl reload >/dev/null 2>&1 && ok "Hyprland config reloaded"
+        else
+            say "  To start MacShell with Hyprland, add this to $lua:"
+            lua_block 0 | sed 's/^/      /'
         fi
-    elif [ -n "$lua" ]; then
-        say "  Add this to $lua to start MacShell with Hyprland:"
-        say "      hl.on(\"hyprland.start\", function() hl.exec_cmd(\"qs -c $NAME\") end)"
+    elif [ -f "$conf" ]; then
+        if grep -qF -- "$CONF_BEGIN" "$conf"; then
+            sed -i "\|$CONF_BEGIN|,\|$CONF_END|d" "$conf"
+            { echo; printf '%s\nexec-once = %s\n%s\n' "$CONF_BEGIN" "$(START_CMD)" "$CONF_END"; } >> "$conf"
+            ok "autostart line in $conf refreshed"
+        elif grep -Eq "macshell-start|(qs|quickshell)[[:space:]]+(-c|--config)[[:space:]]+$NAME" "$conf"; then
+            ok "$conf already starts MacShell"
+        elif confirm "Start MacShell automatically with Hyprland (adds a line to $conf)?" y; then
+            cp -f "$conf" "$conf.macshell-backup"
+            { echo; printf '%s\nexec-once = %s\n%s\n' "$CONF_BEGIN" "$(START_CMD)" "$CONF_END"; } >> "$conf"
+            ok "added the autostart to $conf (backup: $conf.macshell-backup)"
+            say "  Glass blur needs layer rules, see the README (Hyprland configuration)."
+        fi
     else
-        say "  Start MacShell with:  qs -c $NAME   (add it to your Hyprland autostart)"
+        say "  No Hyprland config found in $HYPR_DIR. Start MacShell from your autostart with:"
+        say "      Lua:   hl.on(\"hyprland.start\", function() hl.exec_cmd(\"$(START_CMD)\") end)"
+        say "      conf:  exec-once = $(START_CMD)"
     fi
     if pgrep -x waybar >/dev/null 2>&1 || pgrep -x hyprpanel >/dev/null 2>&1; then
         warn "another bar (waybar / hyprpanel) is running: stop it, MacShell has its own menu bar"
     fi
+    local d
+    for d in dunst mako swaync; do
+        pgrep -x "$d" >/dev/null 2>&1 && warn "$d is running and owns the notification service: systemctl --user disable --now $d (MacShell shows notifications itself)"
+    done
+    return 0
 }
 
 show_lock_hint() {
-    local lua
-    lua=$(ls "$CONFIG_HOME"/hypr/hyprland.lua 2>/dev/null | head -n1 || true)
+    local lua="$HYPR_DIR/hyprland.lua"
     say "  Lock screen:         bind a key to  sh $LOCK_DEST/lock-via-ipc.sh"
-    if [ -n "$lua" ]; then
+    if [ -f "$lua" ] || [ ! -f "$HYPR_DIR/hyprland.conf" ]; then
         say "      hl.bind(\"SUPER + L\", hl.dsp.exec_cmd(\"sh ~/.config/quickshell/$LOCK_NAME/lock-via-ipc.sh\"))"
     else
         say "      bind = SUPER, L, exec, sh ~/.config/quickshell/$LOCK_NAME/lock-via-ipc.sh"
@@ -587,6 +831,7 @@ show_lock_hint() {
 # ───────────────────────── main ─────────────────────────
 [ "$CHECK_ONLY" = 1 ] && run_check
 [ "$SKIP_DEPS" = 1 ] || check_deps
+if [ "$DEPS_ONLY" = 1 ]; then enable_services; ok "dependencies done"; exit 0; fi
 SRC_ROOT=""
 fetch_source
 
@@ -616,10 +861,13 @@ touch "$DEST/shell.qml"
 [ -n "$LOCK_ROOT" ] && touch "$LOCK_DEST/shell.qml" || true
 
 if [ "$UPDATE_MODE" = 1 ]; then
+    # the autostart block may need a newer start command: refresh it only if we wrote it
+    if [ -f "$HYPR_DIR/hyprland.lua" ] && grep -qF -- "$MARK_BEGIN" "$HYPR_DIR/hyprland.lua"; then SKIP_AUTOSTART=0; add_autostart >/dev/null 2>&1 || true; fi
     ok "updated to $RESOLVED_ID"
     exit 0
 fi
 
+enable_services
 add_autostart
 case "$AUTO_UPDATE" in
     yes) setup_auto_update ;;
@@ -628,16 +876,16 @@ case "$AUTO_UPDATE" in
 esac
 
 echo
-printf '%sMacShell %s is installed%s.%s\n' "$G" "$RESOLVED_ID" "${LOCK_ROOT:+ (with MacLock)}" "$N"
-say "  Start it:            qs -c $NAME"
+printf '%sMacShell %s is installed%s.%s\n' "$G" "${RESOLVED_ID:0:12}" "${LOCK_ROOT:+ (with MacLock)}" "$N"
+say "  Start it:            sh $LINK_DIR/macshell-start      (or: qs -c $NAME)"
 [ -n "$LOCK_ROOT" ] && show_lock_hint
-say "  Check for updates:   macshell-update check      (the shell also checks by itself and tells you)"
+say "  Check for updates:   macshell-update check"
 say "  Update:              macshell-update update"
 say "  Roll back:           macshell-update rollback"
 case ":$PATH:" in *":$LINK_DIR:"*) ;; *) say "  Note: add $LINK_DIR to your PATH to use 'macshell-update' from a terminal." ;; esac
-if have qs && pgrep -f "qs.*-c[[:space:]]+$NAME" >/dev/null 2>&1; then
+if have qs && pgrep -f "(qs|quickshell).*(-c|--config)[[:space:]]+$NAME" >/dev/null 2>&1; then
     say "  MacShell is running and reloads by itself."
 elif have qs && [ -n "${WAYLAND_DISPLAY:-}" ] && confirm "Start MacShell now?" y; then
-    nohup qs -c "$NAME" >/dev/null 2>&1 &
+    nohup sh "$LINK_DIR/macshell-start" >/dev/null 2>&1 &
     ok "started"
 fi

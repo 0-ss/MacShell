@@ -277,7 +277,7 @@ Scope {
     // first-fit in the order of `ccControls`, so dragging a control onto another one simply reorders the list.
     readonly property var ccCatalog: [
         { id: "wifi",       label: "Wi-Fi",         glyph: "wifi",       w: 2, h: 1 },
-        { id: "bluetooth",  label: "Bluetooth",     glyph: "bluetooth",  w: 1, h: 1 },
+        { id: "bluetooth",  label: "Bluetooth",     glyph: "bluetooth",  w: 2, h: 1 },
         { id: "airplane",   label: "Airplane Mode", glyph: "airplane",   w: 1, h: 1 },
         { id: "focus",      label: "Focus",         glyph: "moon",       w: 2, h: 1 },
         { id: "nightshift", label: "Night Shift",   glyph: "nightshift", w: 1, h: 1 },
@@ -817,6 +817,8 @@ Scope {
                     property real dark: g.dark ? 1 : 0
                     property real debug: g.debug ? 1 : 0
                     property real shadowAmt: 1
+                    property real rimTint: 0
+                    property real ringW: 0
                 }
             }
         }
@@ -910,6 +912,8 @@ Scope {
                     property real dark: gg.gx.dark ? 1 : 0
                     property real debug: gg.gx.debug ? 1 : 0
                     property real shadowAmt: gg.shadowAmt
+                    property real rimTint: 0
+                    property real ringW: 0
                 }
             }
         }
@@ -1670,29 +1674,134 @@ Scope {
     }
     Timer { id: connectionRefresh; interval: 1200; onTriggered: root.refreshConnections() }
 
-    // bluetooth
+    // ═════════════ BLUETOOTH ═════════════
     property bool btOn: false
     property int btConnected: 0
+    property string btConnectedName: ""
+    property bool btScanning: false
+    property var btDevices: []             // [ { mac, name, icon, connected, paired } ]
+    property string btBusy: ""             // mac of device currently connecting/disconnecting
+    property string btError: ""
+
+    function btIconFor(name) {
+        var n = (name || "").toLowerCase();
+        if (n.indexOf("headphone") >= 0 || n.indexOf("headset") >= 0 || n.indexOf("earbud") >= 0 || n.indexOf("airpod") >= 0 || n.indexOf("buds") >= 0 || n.indexOf("wh-") >= 0 || n.indexOf("wf-") >= 0) return "headphones";
+        if (n.indexOf("mouse") >= 0 || n.indexOf("trackpad") >= 0 || n.indexOf("magic mouse") >= 0) return "mouse";
+        if (n.indexOf("keyboard") >= 0 || n.indexOf("keychron") >= 0) return "keyboard";
+        if (n.indexOf("speaker") >= 0 || n.indexOf("soundbar") >= 0 || n.indexOf("echo") >= 0 || n.indexOf("homepod") >= 0) return "speaker";
+        if (n.indexOf("controller") >= 0 || n.indexOf("gamepad") >= 0 || n.indexOf("xbox") >= 0 || n.indexOf("dualshock") >= 0 || n.indexOf("dualsense") >= 0) return "gamepad";
+        if (n.indexOf("phone") >= 0 || n.indexOf("iphone") >= 0 || n.indexOf("galaxy") >= 0 || n.indexOf("pixel") >= 0) return "phone";
+        return "bluetooth";
+    }
+
     function refreshBt() { if (!btProc.running) btProc.running = true; }
+    // One line per known device: D:<mac> <paired 0|1> <connected 0|1> <battery %> <name>   (tab separated).
+    // Every device is asked with "bluetoothctl info", because the "devices Paired|Connected" filters only exist in
+    // newer BlueZ versions: older ones ignore the argument and print every device (so everything looked connected).
     Process {
         id: btProc
-        command: ["sh", "-c", "bluetoothctl show 2>/dev/null | grep -i 'Powered:' | head -n1; bluetoothctl devices Connected 2>/dev/null | wc -l"]
+        command: ["sh", "-c",
+            "p=$(timeout 4 bluetoothctl show 2>/dev/null </dev/null | grep -i 'Powered:' | head -n1); echo \"P:$p\"; "
+            + "timeout 4 bluetoothctl devices 2>/dev/null </dev/null | while read -r _ mac name; do "
+            + "[ -n \"$mac\" ] || continue; "
+            + "i=$(timeout 3 bluetoothctl info \"$mac\" 2>/dev/null </dev/null); "
+            + "pr=$(printf '%s\\n' \"$i\" | grep -Ec 'Paired: yes|Bonded: yes'); "
+            + "c=$(printf '%s\\n' \"$i\" | grep -c 'Connected: yes'); "
+            + "b=$(printf '%s\\n' \"$i\" | sed -n 's/.*Battery Percentage: 0x[0-9a-fA-F]* (\\([0-9]*\\)).*/\\1/p' | head -n1); "
+            + "printf 'D:%s\\t%s\\t%s\\t%s\\t%s\\n' \"$mac\" \"$pr\" \"$c\" \"$b\" \"$name\"; "
+            + "done"
+        ]
         stdout: StdioCollector {
             onStreamFinished: {
-                var l = text.split("\n");
-                root.btOn = (l[0] || "").toLowerCase().indexOf("yes") >= 0;
-                root.btConnected = parseInt(l[1]) || 0;
+                var lines = text.split("\n"), on = false, devList = [], connCount = 0, firstConnName = "", i;
+                for (i = 0; i < lines.length; i++) {
+                    var l = lines[i].replace(/\r$/, "");
+                    if (!l) continue;
+                    if (l.indexOf("P:") === 0) { on = l.toLowerCase().indexOf("yes") >= 0; continue; }
+                    if (l.indexOf("D:") !== 0) continue;
+                    var f = l.substring(2).split("\t");
+                    if (f.length < 5 || !f[0]) continue;
+                    var mac = f[0], isPair = f[1] === "1", isConn = f[2] === "1", name = (f[4] || "").trim() || mac;
+                    // BlueZ names an unnamed device after its address with dashes: show those last
+                    if (isConn) { connCount++; if (!firstConnName) firstConnName = name; }
+                    devList.push({ mac: mac, name: name, connected: isConn, paired: isPair, bat: f[3] || "", icon: root.btIconFor(name) });
+                }
+                root.btOn = on;
+                devList.sort(function (a, b) {
+                    if (a.connected !== b.connected) return a.connected ? -1 : 1;
+                    if (a.paired !== b.paired) return a.paired ? -1 : 1;
+                    return a.name.localeCompare(b.name);
+                });
+                root.btConnected = connCount;
+                root.btConnectedName = connCount === 1 ? firstConnName : (connCount > 1 ? connCount + " Connected" : "");
+                if (JSON.stringify(devList) !== JSON.stringify(root.btDevices)) root.btDevices = devList;
             }
         }
     }
+
+    // Discovery only lasts while bluetoothctl stays alive (BlueZ stops it when the client exits), so "scan on" has to
+    // run for a while with --timeout instead of being fired and forgotten.
+    function scanBt() {
+        if (!root.btOn || btScanProc.running) return;
+        root.btScanning = true;
+        btScanProc.running = true;
+    }
+    Process {
+        id: btScanProc
+        command: ["sh", "-c", "bluetoothctl --timeout 10 scan on >/dev/null 2>&1 </dev/null; exit 0"]
+        onExited: {
+            root.btScanning = false;
+            root.refreshBt();
+        }
+    }
+    Timer { interval: 2500; repeat: true; running: root.btScanning; onTriggered: root.refreshBt() }
+
+    function connectBt(mac, connected) {
+        if (btActionProc.running || !mac) return;
+        root.btError = "";
+        root.btBusy = mac;
+        if (connected) {
+            btActionProc.command = ["sh", "-c", "bluetoothctl disconnect \"$1\" >/dev/null 2>&1 </dev/null; exit 0", "sh", mac];
+        } else {
+            // pair first when needed (with a simple agent, no PIN prompt), trust, then connect
+            btActionProc.command = ["sh", "-c",
+                "d=\"$1\"; "
+                + "fail() { m=$(printf '%s\\n' \"$1\" | grep -iE 'fail|error|not available|timeout|rejected|canceled' | tail -n1); "
+                + "[ -n \"$m\" ] || m=\"$2\"; echo \"$m\" >&2; exit 1; }; "
+                + "if ! bluetoothctl info \"$d\" 2>/dev/null </dev/null | grep -qE 'Paired: yes|Bonded: yes'; then "
+                + "o=$(timeout 45 bluetoothctl --agent NoInputNoOutput pair \"$d\" 2>&1 </dev/null); "
+                + "printf '%s\\n' \"$o\" | grep -qi 'Pairing successful' || fail \"$o\" 'Could not pair. Put the device in pairing mode and try again.'; "
+                + "fi; "
+                + "bluetoothctl trust \"$d\" >/dev/null 2>&1 </dev/null; "
+                + "o=$(timeout 25 bluetoothctl connect \"$d\" 2>&1 </dev/null); "
+                + "printf '%s\\n' \"$o\" | grep -qi 'Connection successful' || fail \"$o\" 'Could not connect to the device.'",
+                "sh", mac];
+        }
+        btActionProc.running = true;
+    }
+    Process {
+        id: btActionProc
+        stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") root.btError = text.trim(); }
+        onExited: (code, status) => {
+            root.btBusy = "";
+            if (code !== 0 && root.btError === "") root.btError = "Failed to connect to device.";
+            btAfter.restart();
+        }
+    }
+    Timer { id: btAfter; interval: 800; onTriggered: root.refreshBt() }
+
+    // power: a soft-blocked adapter (rfkill, e.g. after Airplane Mode) refuses "power on", so unblock it first
     function toggleBt() {
         root.btOn = !root.btOn;
-        Quickshell.execDetached(["bluetoothctl", "power", root.btOn ? "on" : "off"]);
+        Quickshell.execDetached(["sh", "-c",
+            root.btOn ? "rfkill unblock bluetooth 2>/dev/null; sleep 0.3; bluetoothctl power on"
+                      : "bluetoothctl power off"]);
+        settleTimer.interval = 1500;
         settleTimer.restart();
     }
     readonly property bool airplane: !wifiOn && !btOn
     function toggleAirplane() {
-        sh(airplane ? "rfkill unblock all" : "rfkill block all");
+        sh(airplane ? "rfkill unblock all; sleep 0.5; bluetoothctl power on" : "rfkill block all");
         wifiOn = airplane; btOn = airplane;
         settleTimer.restart();
     }
@@ -3690,6 +3799,11 @@ Scope {
                     running: ui.pop === "wifi" && ui.wifiPrompt === ""     // paused while typing so the list doesn't rebuild under the cursor
                     onTriggered: root.scanWifi()
                 }
+                Timer {
+                    interval: 4000; repeat: true
+                    running: ui.pop === "bt"
+                    onTriggered: root.scanBt()
+                }
 
                 // Spotlight state
                 property string spMode: "home"          // home | actions | apps
@@ -3786,7 +3900,7 @@ Scope {
                 }
                 // bounding box of all glass that is on screen right now (popovers, notification popups) + a refraction margin
                 readonly property rect glassRect: {
-                    var items = [menuPop, cc, cal, wifiPop, trayPop, notifPop, toastArea, volPop, kbPop, levelOsd], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+                    var items = [menuPop, cc, cal, wifiPop, btPop, trayPop, notifPop, toastArea, volPop, kbPop, levelOsd], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
                     for (var i = 0; i < items.length; i++) {
                         var it = items[i];
                         if (!it.visible) continue;
@@ -3796,7 +3910,7 @@ Scope {
                     return any ? Qt.rect(x0 - 64, y0 - 64, x1 - x0 + 128, y1 - y0 + 128) : Qt.rect(0, 0, 0, 0);
                 }
                 readonly property bool isMenu: ["apple", "app", "file", "edit", "view", "window", "help"].indexOf(pop) >= 0
-                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible
+                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || btPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible
                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
                 onPopChanged: {
                     if (pop !== "" && pop !== "spot") toneT.restart();
@@ -3808,6 +3922,7 @@ Scope {
                     root.notifOpen = (pop === "notif");
                     if (root.notifOpen) root.notifUnread = 0;
                     if (pop === "wifi") { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); }
+                    if (pop === "bt") { root.btError = ""; root.scanBt(); root.refreshBt(); }
                     if (pop === "spot") {
                         spMode = "home"; spQuery = ""; spSel = 0; spExpanded = ({}); clipMenu = false;
                         spInput.text = ""; appsInput.text = ""; clipInput.text = ""; emojiInput.text = "";
@@ -3968,6 +4083,7 @@ Scope {
                                 id: mw
                                 required property string wid
                                 required property string wtype
+                                required property string wsrc
                                 required property string wstyle
                                 required property string wsize
                                 required property string wmode
@@ -3980,7 +4096,7 @@ Scope {
                                 WidgetVisual {
                                     anchors.fill: parent
                                     host: root.hub.widgets
-                                    wtype: mw.wtype; wstyle: mw.wstyle; wsize: mw.wsize; wmode: mw.wmode
+                                    wtype: mw.wtype; wstyle: mw.wstyle; wsize: mw.wsize; wmode: mw.wmode; wsrc: mw.wsrc
                                     sx: mw.x; sy: mw.y
                                     sname: win.modelData.name; sw: win.modelData.width; sh: win.modelData.height
                                 }
@@ -4379,10 +4495,16 @@ Scope {
 
                         // Bluetooth has its own optional widget; it remains visible when the radio is off.
                         Item {
+                            id: btBtn
                             visible: root.barWidgetEnabled("bluetooth")
                             width: root.barWidgetEnabled("bluetooth") ? 26 : 0; height: 28
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width - 2; height: parent.height - 6; radius: 6
+                                color: ui.pop === "bt" ? bpal.hover : "transparent"
+                            }
                             Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: "bluetooth"; color: root.btOn && root.btConnected > 0 ? bpal.fg : bpal.fg2 }
-                            MouseArea { anchors.fill: parent; onClicked: ui.openPop("cc", 0) }
+                            MouseArea { anchors.fill: parent; onClicked: ui.openPop("bt", btBtn.mapToItem(ui, 0, 0).x) }
                         }
                         // volume (opens a popover with just the volume slider)
                         Item {
@@ -5715,6 +5837,256 @@ Scope {
                     }
                 }
 
+                // ═════════ bluetooth popover ═════════
+                Item {
+                    id: btPop
+                    z: 10
+                    width: 320
+                    height: btCol.height + 24
+                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX + 14 - width / 2))
+                    y: root.barHeight + 6
+                    opacity: ui.pop === "bt" ? 1 : 0
+                    visible: opacity > 0
+                    scale: root.barPopupScale * (ui.pop === "bt" ? 1 : 0.96)
+                    transformOrigin: Item.Top
+                    Behavior on opacity { NumberAnimation { duration: 110 } }
+                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: glassBackdrop.item
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.darkMode
+                        bx: btPop.x; by: btPop.y
+                        cornerR: 22
+                        tint: root.glassOpacity
+                        thickness: 24
+                        strength: 0.7 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: root.glassBlur
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                    }
+                    MouseArea { anchors.fill: parent }
+
+                    Column {
+                        id: btCol
+                        x: 12; y: 12
+                        width: parent.width - 24
+                        spacing: 6
+
+                        // header: title + on/off switch
+                        Item {
+                            width: parent.width; height: 32
+                            Text {
+                                x: 6; anchors.verticalCenter: parent.verticalCenter
+                                text: "Bluetooth"
+                                color: pal.fg
+                                font.family: pal.fam; font.pixelSize: 15; font.weight: Font.DemiBold
+                            }
+                            PSwitch {
+                                t: pal
+                                anchors.right: parent.right; anchors.rightMargin: 4
+                                anchors.verticalCenter: parent.verticalCenter
+                                checked: root.btOn
+                                onToggled: root.toggleBt()
+                            }
+                        }
+                        Rectangle { width: parent.width; height: 1; color: pal.sep }
+
+                        Text {
+                            visible: !root.btOn
+                            width: parent.width; height: 56
+                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                            text: "Bluetooth is turned off"
+                            color: pal.fg2
+                            font.family: pal.fam; font.pixelSize: 13
+                        }
+
+                        Text {
+                            visible: root.btOn && root.btDevices.length === 0
+                            width: parent.width; height: 56
+                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                            text: root.btScanning ? "Searching for devices\u2026" : "No devices found"
+                            color: pal.fg2
+                            font.family: pal.fam; font.pixelSize: 13
+                        }
+
+                        Item {
+                            visible: root.btOn && root.btDevices.length > 0
+                            width: parent.width; height: 22
+                            Text {
+                                x: 6; anchors.verticalCenter: parent.verticalCenter
+                                text: "Devices"
+                                color: pal.fg2
+                                font.family: pal.fam; font.pixelSize: 11; font.weight: Font.DemiBold
+                            }
+                            Row {
+                                anchors.right: parent.right; anchors.rightMargin: 6
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 4
+                                Text {
+                                    visible: root.btScanning
+                                    text: "Scanning\u2026"
+                                    color: pal.fg2; font.family: pal.fam; font.pixelSize: 11
+                                }
+                                Text {
+                                    visible: !root.btScanning
+                                    text: "Scan"
+                                    color: root.accent; font.family: pal.fam; font.pixelSize: 11; font.weight: Font.DemiBold
+                                    MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: root.scanBt() }
+                                }
+                            }
+                        }
+
+                        // the list
+                        Flickable {
+                            id: btFlick
+                            visible: root.btOn && root.btDevices.length > 0
+                            width: parent.width
+                            height: Math.min(btList.height, 300)
+                            contentWidth: width
+                            contentHeight: btList.height
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+
+                            Column {
+                                id: btList
+                                width: btFlick.width
+                                Repeater {
+                                    model: root.btDevices
+                                    delegate: Item {
+                                        id: devRow
+                                        required property var modelData
+                                        readonly property bool busy: root.btBusy === modelData.mac
+                                        width: btList.width; height: 38
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: 8
+                                            color: root.accent
+                                            visible: bma.containsMouse
+                                        }
+
+                                        Glyph {
+                                            visible: devRow.modelData.connected
+                                            x: 9; anchors.verticalCenter: parent.verticalCenter
+                                            width: 14; height: 14
+                                            kind: "check"
+                                            color: bma.containsMouse ? "white" : pal.fg
+                                        }
+                                        Glyph {
+                                            visible: !devRow.modelData.connected
+                                            x: 9; anchors.verticalCenter: parent.verticalCenter
+                                            width: 14; height: 14
+                                            kind: devRow.modelData.icon || "bluetooth"
+                                            color: bma.containsMouse ? "white" : pal.fg2
+                                        }
+
+                                        Text {
+                                            x: 30
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: parent.width - 30 - 100
+                                            elide: Text.ElideRight
+                                            text: devRow.modelData.name || devRow.modelData.mac
+                                            color: bma.containsMouse ? "white" : pal.fg
+                                            font.family: pal.fam; font.pixelSize: 13
+                                            font.weight: devRow.modelData.connected ? Font.DemiBold : Font.Normal
+                                        }
+
+                                        Text {
+                                            visible: devRow.busy
+                                            anchors.right: parent.right; anchors.rightMargin: 12
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: devRow.modelData.connected ? "Disconnecting\u2026" : "Connecting\u2026"
+                                            color: bma.containsMouse ? "white" : pal.fg2
+                                            font.family: pal.fam; font.pixelSize: 12
+                                        }
+
+                                        Text {
+                                            visible: !devRow.busy && devRow.modelData.connected && bma.containsMouse
+                                            anchors.right: parent.right; anchors.rightMargin: 12
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: "Disconnect"
+                                            color: "white"
+                                            font.family: pal.fam; font.pixelSize: 12
+                                        }
+
+                                        Text {
+                                            visible: !devRow.busy && devRow.modelData.connected && !bma.containsMouse
+                                            anchors.right: parent.right; anchors.rightMargin: 12
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: "Connected"
+                                            color: pal.fg2
+                                            font.family: pal.fam; font.pixelSize: 12
+                                        }
+
+                                        Text {
+                                            visible: !devRow.busy && !devRow.modelData.connected && bma.containsMouse
+                                            anchors.right: parent.right; anchors.rightMargin: 12
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: "Connect"
+                                            color: "white"
+                                            font.family: pal.fam; font.pixelSize: 12
+                                        }
+
+                                        Text {
+                                            visible: !devRow.busy && !devRow.modelData.connected && !bma.containsMouse && devRow.modelData.paired
+                                            anchors.right: parent.right; anchors.rightMargin: 12
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: "Paired"
+                                            color: pal.fg2
+                                            font.family: pal.fam; font.pixelSize: 12
+                                        }
+
+                                        MouseArea {
+                                            id: bma
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            enabled: !devRow.busy
+                                            onClicked: root.connectBt(devRow.modelData.mac, devRow.modelData.connected)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
+                            visible: root.btError !== ""
+                            width: parent.width
+                            leftPadding: 6; rightPadding: 6
+                            wrapMode: Text.WordWrap
+                            text: root.btError
+                            color: "#FF6961"
+                            font.family: pal.fam; font.pixelSize: 12
+                        }
+
+                        Rectangle { width: parent.width; height: 1; color: pal.sep }
+                        Item {
+                            width: parent.width; height: 30
+                            Rectangle {
+                                anchors.fill: parent; radius: 8
+                                color: root.accent
+                                visible: bsa.containsMouse
+                            }
+                            Text {
+                                x: 10; anchors.verticalCenter: parent.verticalCenter
+                                text: "Bluetooth Settings\u2026"
+                                color: bsa.containsMouse ? "white" : pal.fg
+                                font.family: pal.fam; font.pixelSize: 13
+                            }
+                            MouseArea {
+                                id: bsa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: { ui.pop = ""; root.openSettings("bluetooth"); }
+                            }
+                        }
+                    }
+                }
+
                 // ═════════ calendar ═════════
                 Item {
                     id: cal
@@ -5977,9 +6349,35 @@ Scope {
                         CCTile {
                             t: pal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg; anchors.centerIn: parent
+                                t: pal; gx: ccg
+                                x: slot.w > 1 ? 12 : (parent.width - width) / 2
+                                anchors.verticalCenter: parent.verticalCenter
                                 kind: "bluetooth"; on: root.btOn
                                 onClicked: root.toggleBt()
+                            }
+                            MouseArea {
+                                visible: slot.w > 1
+                                x: 56; width: parent.width - 56; height: parent.height
+                                onClicked: ui.openPop("bt", ui.width)
+                            }
+                            Glyph {
+                                visible: slot.w > 1
+                                x: parent.width - 22; anchors.verticalCenter: parent.verticalCenter
+                                width: 12; height: 12
+                                kind: "chevR"; color: pal.fg2
+                            }
+                            Column {
+                                visible: slot.w > 1
+                                x: 62; anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 62 - 24
+                                spacing: 1
+                                Text { text: "Bluetooth"; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                MorphText {
+                                    animateWidth: false; duration: 420
+                                    width: parent.width; elide: Text.ElideRight
+                                    text: !root.btOn ? "Off" : (root.btConnected > 0 ? (root.btConnectedName || (root.btConnected + " Connected")) : "Not Connected")
+                                    color: pal.fg2; font.family: pal.fam; font.pixelSize: 12
+                                }
                             }
                         }
                     }

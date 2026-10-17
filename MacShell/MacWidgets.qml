@@ -30,6 +30,7 @@ Scope {
     property string tempUnit: "C"          // "C" | "F"
     property string locMode: "auto"        // "auto" (IP) | "city"
     property string cityName: ""
+    property real widgetScale: 1.0         // the "Widget size" slider: scales every widget and the grid (0.6 - 1.5)
 
     readonly property string fontFamily: dock ? dock.fontFamily : "Inter"
     readonly property string configDir: Quickshell.env("HOME") + "/.config/macwidgets"
@@ -50,15 +51,18 @@ Scope {
     property int rev: 0                    // bumped on every change to the list, so Settings bindings can re-evaluate count()
 
     readonly property var styleNames: ({ liquid: "Liquid Glass", normal: "Normal", light: "Light", dark: "Dark" })
-    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player" })
+    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image" })
     readonly property var sizeNames: ({ small: "Small", medium: "Medium", large: "Large" })
-    function dims(size) { return size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]); }
+    function dims(size) {
+        var b = size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]);
+        return [Math.round(b[0] * widgetScale), Math.round(b[1] * widgetScale)];
+    }
     // Size of the Player's contents (art, text, buttons) relative to the original design. The card itself fills the
     // normal widget footprint, like every other widget. 1.0 = original size.
     property real playerScale: 0.8
-    readonly property int gridCell: 179
-    readonly property int gridGapX: 28
-    readonly property int gridGapY: 23
+    readonly property int gridCell: Math.round(179 * widgetScale)
+    readonly property int gridGapX: Math.round(28 * widgetScale)
+    readonly property int gridGapY: Math.round(23 * widgetScale)
     readonly property int gridLeft: 21
     readonly property int gridTop: 56
     readonly property int gridRight: 21
@@ -156,12 +160,12 @@ Scope {
                 if (wmodel.get(k).wid === item.id) { wmodel.setProperty(k, "wx", p[0]); wmodel.setProperty(k, "wy", p[1]); break; }
         }
     }
-    function addWidget(type, style, size) {
+    function addWidget(type, style, size, src) {
         var sz = size || "small";
         var p = firstFreeSlot(sz, "");
         if (!p) return false;
         wmodel.append({ wid: "w" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
-                        wtype: type, wstyle: style, wsize: sz, wmode: "auto", wx: p[0], wy: p[1] });
+                        wtype: type, wstyle: style, wsize: sz, wmode: "auto", wsrc: src || "", wx: p[0], wy: p[1] });
         recount(); scheduleSave();
         if (type === "weather") refreshSoon();
         return true;
@@ -183,6 +187,11 @@ Scope {
         for (var i = 0; i < wmodel.count; i++)
             if (wmodel.get(i).wid === id) { wmodel.setProperty(i, "wstyle", style); break; }
         recount(); scheduleSave();
+    }
+    function setSource(id, src) {
+        for (var i = 0; i < wmodel.count; i++)
+            if (wmodel.get(i).wid === id) { wmodel.setProperty(i, "wsrc", src); break; }
+        scheduleSave();
     }
     function setMode(id, mode) {
         var m = (mode === "light" || mode === "dark") ? mode : "auto";
@@ -215,36 +224,82 @@ Scope {
         recount(); scheduleSave();
     }
 
+    // ───────────── image widgets ─────────────
+    // pickImage("", size) adds a new Image widget with the chosen picture; pickImage(id) changes the picture of widget id.
+    // The chosen file is copied into ~/.config/macwidgets/images so the widget keeps working if the original moves.
+    property string pickTargetId: ""
+    property string pickTargetSize: "small"
+    property string pickError: ""
+    function pickImage(id, size) {
+        if (imgPick.running) return;
+        pickTargetId = id || "";
+        pickTargetSize = size || "small";
+        pickError = "";
+        imgPick.running = true;
+    }
+    Process {
+        id: imgPick
+        command: ["sh", "-c",
+            "f=''; "
+            + "if command -v zenity >/dev/null 2>&1; then f=$(zenity --file-selection --title='Choose a picture' --file-filter='Images | *.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg' 2>/dev/null); "
+            + "elif command -v kdialog >/dev/null 2>&1; then f=$(kdialog --getopenfilename \"$HOME/Pictures\" 'image/png image/jpeg image/webp image/gif image/bmp image/svg+xml' 2>/dev/null); "
+            + "elif command -v yad >/dev/null 2>&1; then f=$(yad --file --title='Choose a picture' 2>/dev/null); "
+            + "else echo 'ERR:no file chooser (install zenity, kdialog or yad)'; exit 0; fi; "
+            + "[ -n \"$f\" ] && [ -f \"$f\" ] || exit 0; "
+            + "d=\"$1/images\"; mkdir -p \"$d\" || { echo 'ERR:cannot create the images folder'; exit 0; }; "
+            + "n=\"$(date +%s)-$(printf '%s' \"$(basename \"$f\")\" | tr -c 'A-Za-z0-9._-' '_')\"; "
+            + "cp -f \"$f\" \"$d/$n\" && echo \"OK:$d/$n\" || echo 'ERR:could not copy the picture'",
+            "sh", root.configDir]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var t = text.trim();
+                if (t.indexOf("OK:") === 0) {
+                    var p = t.substring(3);
+                    if (root.pickTargetId === "") { if (!root.addWidget("image", "normal", root.pickTargetSize, p)) root.pickError = "No free space on the desktop for another widget."; }
+                    else root.setSource(root.pickTargetId, p);
+                } else if (t.indexOf("ERR:") === 0) {
+                    root.pickError = t.substring(4);
+                    console.log("[macwidgets] image:", root.pickError);
+                }
+            }
+        }
+    }
+
     // ───────────── persistence ─────────────
     function scheduleSave() { if (ready) saveTimer.restart(); }
     onTempUnitChanged: { scheduleSave(); refreshSoon(); }
     onLocModeChanged: { scheduleSave(); refreshSoon(); }
     onCityNameChanged: { scheduleSave(); refreshSoon(); }
+    onWidgetScaleChanged: { scheduleSave(); if (ready) rescaleTimer.restart(); }
+    // after the slider settles, snap every widget onto the new grid
+    Timer { id: rescaleTimer; interval: 300; onTriggered: { root.normalizePositions(); root.recount(); root.scheduleSave(); } }
 
     function saveSettings() {
         var list = [];
         for (var i = 0; i < wmodel.count; i++) {
             var m = wmodel.get(i);
-            list.push({ id: m.wid, type: m.wtype, style: m.wstyle, size: m.wsize, mode: m.wmode || "auto", x: m.wx, y: m.wy });
+            list.push({ id: m.wid, type: m.wtype, style: m.wstyle, size: m.wsize, mode: m.wmode || "auto", src: m.wsrc || "", x: m.wx, y: m.wy });
         }
-        store.setText(JSON.stringify({ tempUnit: tempUnit, locMode: locMode, cityName: cityName, widgets: list }, null, 2));
+        store.setText(JSON.stringify({ tempUnit: tempUnit, locMode: locMode, cityName: cityName, widgetScale: widgetScale, widgets: list }, null, 2));
     }
     function applySettings(o) {
         if (!o || typeof o !== "object") return;
         if (o.tempUnit === "C" || o.tempUnit === "F") tempUnit = o.tempUnit;
         if (o.locMode === "auto" || o.locMode === "city") locMode = o.locMode;
         if (typeof o.cityName === "string") cityName = o.cityName;
+        if (typeof o.widgetScale === "number" && isFinite(o.widgetScale)) widgetScale = Math.max(0.6, Math.min(1.5, o.widgetScale));
         if (Array.isArray(o.widgets)) {
             wmodel.clear();
             for (var i = 0; i < o.widgets.length; i++) {
                 var w = o.widgets[i];
-                if (!w || (w.type !== "weather" && w.type !== "calendar" && w.type !== "clock" && w.type !== "player")) continue;
+                if (!w || (w.type !== "weather" && w.type !== "calendar" && w.type !== "clock" && w.type !== "player" && w.type !== "image")) continue;
                 wmodel.append({ wid: String(w.id || ("w" + i)), wtype: w.type,
-                                wstyle: (w.type === "clock" || w.type === "player")
+                                wstyle: w.type === "image" ? "normal" : (w.type === "clock" || w.type === "player")
                                     ? ((w.style === "light" || w.style === "dark") ? w.style : "liquid")
                                     : (w.style === "normal" ? "normal" : "liquid"),
                                 wsize: (w.size === "medium" || w.size === "large") ? w.size : "small",
                                 wmode: (w.mode === "light" || w.mode === "dark") ? w.mode : "auto",
+                                wsrc: typeof w.src === "string" ? w.src : "",
                                 wx: Number(w.x) || 0, wy: Number(w.y) || 0 });
             }
         }
@@ -627,6 +682,7 @@ Scope {
                         required property string wstyle
                         required property string wsize
                         required property string wmode
+                        required property string wsrc
                         required property real wx
                         required property real wy
 
@@ -635,7 +691,7 @@ Scope {
                         x: wx + dragDX
                         y: wy + dragDY
                         readonly property var baseDims: root.dims(wsize)
-                        readonly property real radiusPx: 28 * (wsize === "small" ? 168 / 158 : (wsize === "medium" ? 358 / 338 : 1))
+                        readonly property real radiusPx: 28 * root.widgetScale * (wsize === "small" ? 168 / 158 : (wsize === "medium" ? 358 / 338 : 1))
                         width: baseDims[0]
                         height: baseDims[1]
 
@@ -643,7 +699,7 @@ Scope {
                             id: visual
                             anchors.fill: parent
                             host: root
-                            wtype: ww.wtype; wstyle: ww.wstyle; wsize: ww.wsize; wmode: ww.wmode
+                            wtype: ww.wtype; wstyle: ww.wstyle; wsize: ww.wsize; wmode: ww.wmode; wsrc: ww.wsrc
                             sx: ww.x; sy: ww.y
                             sname: win.modelData.name; sw: win.modelData.width; sh: win.modelData.height
                         }
@@ -681,6 +737,17 @@ Scope {
                                 root.moveWidget(ww.wid, ww.wx + ww.dragDX, ww.wy + ww.dragDY);
                                 ww.dragDX = 0; ww.dragDY = 0;
                             }
+                        }
+                        Rectangle {   // image widget: choose another picture
+                            visible: root.editing && ww.wtype === "image"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.bottom: parent.bottom; anchors.bottomMargin: 10
+                            width: chooseText.width + 22; height: 26; radius: 13
+                            color: chooseMa.pressed ? "#D8D8DC" : "#F2F2F5"
+                            border.width: 1
+                            border.color: Qt.rgba(0, 0, 0, 0.18)
+                            Text { id: chooseText; anchors.centerIn: parent; text: "Choose Image\u2026"; color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
+                            MouseArea { id: chooseMa; anchors.fill: parent; onClicked: root.pickImage(ww.wid, "small") }
                         }
                         Rectangle {   // "−" remove badge
                             visible: root.editing

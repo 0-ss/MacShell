@@ -10,6 +10,7 @@ Item {
     property string wstyle: "liquid"
     property string wsize: "small"
     property string wmode: "auto"
+    property string wsrc: ""             // image widget: path of the picture
     property real sx: 0                  // position on the screen (the glass uses it to find the wallpaper behind the widget)
     property real sy: 0
     property string sname: ""            // screen name
@@ -18,6 +19,7 @@ Item {
         Component {
             id: weatherVisual
             WeatherWidget {
+                scaleF: host.widgetScale
                 style: wstyle
                 size: wsize
                 fam: host.fontFamily
@@ -51,6 +53,7 @@ Item {
         Component {
             id: calendarVisual
             CalendarWidget {
+                scaleF: host.widgetScale
                 style: wstyle
                 size: wsize
                 mode: wmode
@@ -75,6 +78,7 @@ Item {
         Component {
             id: clockVisual
             ClockWidget {
+                scaleF: host.widgetScale
                 style: wstyle
                 size: wsize
                 fam: host.fontFamily
@@ -98,6 +102,7 @@ Item {
         Component {
             id: playerVisual
             PlayerWidget {
+                scaleF: host.widgetScale
                 style: wstyle
                 size: wsize
                 contentScale: host.playerScale
@@ -148,11 +153,24 @@ Item {
                 onGlassFailed: host.glassState = "failed"
             }
         }
+        Component {
+            id: imageVisual
+            ImageWidget {
+                size: wsize
+                scaleF: host.widgetScale
+                fam: host.fontFamily
+                screenX: v.sx; screenY: v.sy
+                source: host.fileUrl(v.wsrc)
+                darkGlass: host.darkGlass
+                editing: host.editing
+            }
+        }
         Loader {
             id: visual
             anchors.fill: parent
             sourceComponent: wtype === "calendar" ? calendarVisual
                            : (wtype === "clock" ? clockVisual
-                           : (wtype === "player" ? playerVisual : weatherVisual))
+                           : (wtype === "player" ? playerVisual
+                           : (wtype === "image" ? imageVisual : weatherVisual)))
         }
 }

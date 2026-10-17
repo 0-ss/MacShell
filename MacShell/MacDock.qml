@@ -597,10 +597,10 @@ Scope {
     Window {
         id: prefsWindow
         title: "macshell Settings"
-        width: 820
-        height: 600
-        minimumWidth: 700
-        minimumHeight: 500
+        width: 720
+        height: 520
+        minimumWidth: 620
+        minimumHeight: 420
         visible: false
         color: "transparent"
         flags: Qt.Window | Qt.FramelessWindowHint
@@ -864,6 +864,8 @@ Scope {
                             property real dark: root.darkMode ? 1 : 0
                             property real debug: 0
                             property real shadowAmt: 0.6
+                            property real rimTint: 0
+                            property real ringW: 0
                         }
                     }
                 }
@@ -1242,6 +1244,18 @@ Scope {
                     }
                     SRow {
                         t: pal
+                        title: "Widget size"
+                        subtitle: "Makes every desktop widget smaller or larger (" + Math.round((root.hub && root.hub.widgets ? root.hub.widgets.widgetScale : 1) * 100) + "%)"
+                        SSlider {
+                            t: pal
+                            from: 0.6; to: 1.5; stepSize: 0.05
+                            value: root.hub && root.hub.widgets ? root.hub.widgets.widgetScale : 1
+                            leftLabel: "Small"; rightLabel: "Large"
+                            onMoved: v => { if (root.hub && root.hub.widgets) root.hub.widgets.widgetScale = Math.round(v * 100) / 100; }
+                        }
+                    }
+                    SRow {
+                        t: pal
                         title: "Temperature unit"
                         subtitle: "Used by the Weather widget"
                         SSegmented {
@@ -1300,7 +1314,8 @@ Scope {
                             { type: "weather",  name: "Weather",  hint: "Current conditions, hourly and daily forecast", styles: [["liquid", "Liquid Glass"], ["normal", "Normal"]] },
                             { type: "calendar", name: "Calendar", hint: "Today's date and the month", styles: [["liquid", "Liquid Glass"], ["normal", "Normal"]] },
                             { type: "clock",    name: "Clock",    hint: "Analog clock face", styles: [["liquid", "Liquid Glass"], ["light", "Light"], ["dark", "Dark"]] },
-                            { type: "player",   name: "Player",   hint: "Now Playing with controls and lyrics", styles: [["liquid", "Liquid Glass"], ["light", "Light"], ["dark", "Dark"]] }
+                            { type: "player",   name: "Player",   hint: "Now Playing with controls and lyrics", styles: [["liquid", "Liquid Glass"], ["light", "Light"], ["dark", "Dark"]] },
+                            { type: "image",    name: "Image",    hint: "Your own picture (you choose the file)", styles: [["normal", "Photo"]] }
                         ]
                         delegate: SRow {
                             id: addRow
@@ -1314,6 +1329,7 @@ Scope {
                                 spacing: 8
                                 SSegmented {
                                     t: pal
+                                    visible: addRow.modelData.styles.length > 1
                                     model: addRow.modelData.styles.map(function (s) { return s[1]; })
                                     segWidth: 84
                                     current: addRow.styleIdx
@@ -1325,12 +1341,27 @@ Scope {
                                         required property string modelData
                                         t: pal
                                         text: "+ " + ({ small: "S", medium: "M", large: "L" })[modelData]
-                                        onClicked: { if (addRow.wdg) addRow.wdg.addWidget(addRow.modelData.type, addRow.modelData.styles[addRow.styleIdx][0], modelData); }
+                                        onClicked: {
+                                            if (!addRow.wdg) return;
+                                            if (addRow.modelData.type === "image") addRow.wdg.pickImage("", modelData);
+                                            else addRow.wdg.addWidget(addRow.modelData.type, addRow.modelData.styles[addRow.styleIdx][0], modelData);
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+
+                SLabel {
+                    t: pal
+                    visible: root.hub && root.hub.widgets && root.hub.widgets.pickError !== ""
+                    text: root.hub && root.hub.widgets ? root.hub.widgets.pickError : ""
+                    color: pal.danger
+                }
+                SLabel {
+                    t: pal
+                    text: "Image widgets: pick a picture with + S / M / L (needs zenity, kdialog or yad). To change it later, use Edit on Desktop and press Choose Image on the widget."
                 }
 
                 SLabel { t: pal; header: true; text: "Sound" }
@@ -2276,27 +2307,18 @@ Scope {
             }
         }
 
-        // ── Bluetooth ──
+        // ── Bluetooth ── (uses the Menu Bar's Bluetooth backend, so pairing, scanning and errors behave like the Control Center)
         Component {
             id: paneBt
             Column {
                 id: btPane
                 spacing: 10
-                property var devs: []
-                function refresh() { if (!btList.running) btList.running = true; }
-                Component.onCompleted: refresh()
-                Timer { interval: 3000; repeat: true; running: prefsWindow.visible; onTriggered: btPane.refresh() }
-                Process {
-                    id: btList
-                    command: ["sh", "-c", "bluetoothctl devices Paired 2>/dev/null | while read -r _ mac name; do c=$(bluetoothctl info \"$mac\" 2>/dev/null | grep -c 'Connected: yes'); b=$(bluetoothctl info \"$mac\" 2>/dev/null | sed -n 's/.*Battery Percentage: 0x[0-9a-fA-F]* (\\([0-9]*\\)).*/\\1/p'); printf '%s\\t%s\\t%s\\t%s\\n' \"$mac\" \"$name\" \"$c\" \"$b\"; done"]
-                    stdout: StdioCollector {
-                        onStreamFinished: {
-                            var out = [], l = text.split("\n");
-                            for (var i = 0; i < l.length; i++) { var f = l[i].split("\t"); if (f.length >= 3 && f[0] !== "") out.push({ mac: f[0], name: f[1], on: f[2] === "1", bat: f[3] || "" }); }
-                            btPane.devs = out;
-                        }
-                    }
-                }
+                readonly property var bar: root.bar
+                readonly property var allDevs: bar ? bar.btDevices : []
+                readonly property var myDevs: allDevs.filter(function (d) { return d.paired || d.connected; })
+                readonly property var nearby: allDevs.filter(function (d) { return !d.paired && !d.connected; })
+                Component.onCompleted: { if (bar) { bar.refreshBt(); bar.scanBt(); } }
+                Timer { interval: 4000; repeat: true; running: prefsWindow.visible; onTriggered: if (btPane.bar) btPane.bar.refreshBt() }
                 SCard {
                     t: pal
                     SRow {
@@ -2305,25 +2327,53 @@ Scope {
                         SSwitch { t: pal; checked: root.bar ? root.bar.btOn : false; onToggled: v => { if (root.bar && root.bar.btOn !== v) root.bar.toggleBt(); } }
                     }
                 }
-                SLabel { t: pal; header: true; text: "My Devices"; visible: btPane.devs.length > 0 }
+                SLabel { t: pal; header: true; text: "My Devices"; visible: btPane.myDevs.length > 0 }
                 SCard {
                     t: pal
-                    visible: btPane.devs.length > 0
+                    visible: btPane.myDevs.length > 0
                     Repeater {
-                        model: btPane.devs
+                        model: btPane.myDevs
                         delegate: SRow {
                             required property var modelData
                             t: pal
                             title: modelData.name
-                            subtitle: (modelData.on ? "Connected" : "Not Connected") + (modelData.bat !== "" ? " · " + modelData.bat + "%" : "")
+                            subtitle: (root.bar && root.bar.btBusy === modelData.mac ? (modelData.connected ? "Disconnecting\u2026" : "Connecting\u2026")
+                                       : (modelData.connected ? "Connected" : "Not Connected")) + (modelData.bat !== "" ? " \u00B7 " + modelData.bat + "%" : "")
                             SButton {
-                                t: pal; text: modelData.on ? "Disconnect" : "Connect"
-                                onClicked: { Quickshell.execDetached(["bluetoothctl", modelData.on ? "disconnect" : "connect", modelData.mac]); btLater.restart(); }
+                                t: pal; text: modelData.connected ? "Disconnect" : "Connect"
+                                enabled: !(root.bar && root.bar.btBusy !== "")
+                                onClicked: { if (root.bar) root.bar.connectBt(modelData.mac, modelData.connected); }
                             }
                         }
                     }
                 }
-                Timer { id: btLater; interval: 2500; onTriggered: btPane.refresh() }
+                SLabel { t: pal; header: true; text: (root.bar && root.bar.btScanning) ? "Nearby Devices \u2014 searching\u2026" : "Nearby Devices"; visible: root.bar && root.bar.btOn }
+                SCard {
+                    t: pal
+                    visible: root.bar && root.bar.btOn
+                    Repeater {
+                        model: btPane.nearby
+                        delegate: SRow {
+                            required property var modelData
+                            t: pal
+                            title: modelData.name
+                            subtitle: root.bar && root.bar.btBusy === modelData.mac ? "Pairing\u2026" : "Not paired"
+                            SButton {
+                                t: pal; text: "Connect"
+                                enabled: !(root.bar && root.bar.btBusy !== "")
+                                onClicked: { if (root.bar) root.bar.connectBt(modelData.mac, false); }
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: btPane.nearby.length === 0
+                        title: root.bar && root.bar.btScanning ? "Searching for devices\u2026" : "No new devices found"
+                        subtitle: "Put the device in pairing mode, then scan again"
+                        SButton { t: pal; text: "Scan Again"; enabled: !(root.bar && root.bar.btScanning); onClicked: { if (root.bar) root.bar.scanBt(); } }
+                    }
+                }
+                SLabel { t: pal; text: root.bar ? root.bar.btError : ""; visible: root.bar && root.bar.btError !== "" }
             }
         }
 
@@ -3509,7 +3559,7 @@ Scope {
             bar.kbRepeatRate = 35; bar.kbRepeatDelay = 250; bar.mouseSens = 0; bar.mouseNatural = false;
             bar.tpNatural = true; bar.tpTap = true; bar.tpDwt = true; bar.tpScroll = 0.7;
         }
-        if (hub && hub.widgets) { hub.widgets.tempUnit = "C"; hub.widgets.locMode = "auto"; hub.widgets.cityName = ""; }
+        if (hub && hub.widgets) { hub.widgets.tempUnit = "C"; hub.widgets.locMode = "auto"; hub.widgets.cityName = ""; hub.widgets.widgetScale = 1.0; }
         Quickshell.execDetached(["sh", "-c", "rm -f \"$HOME/.config/maclock/settings.json\""]);
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
@@ -4646,6 +4696,8 @@ Scope {
                                 property real dark: root.darkMode ? 1 : 0
                                 property real debug: root.glassDebug ? 1 : 0
                                 property real shadowAmt: 1
+                                property real rimTint: 0
+                                property real ringW: 0
                             }
                         }
                     }

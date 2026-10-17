@@ -103,11 +103,11 @@ The two are installed as **separate** Quickshell configs (neither lives inside t
 | `ClockApp.qml` | The Clock app window (opened from the menu bar clock). |
 | `MacWidgets.qml` | Desktop widgets layer (data, placement, editing). |
 | `WidgetVisual.qml` | Draws one widget; shared by the desktop layer and the Liquid Glass backdrop, so menus refract the widgets too. |
-| `WeatherWidget.qml`, `WeatherIcon.qml`, `WeatherHourCol.qml`, `CalendarWidget.qml`, `ClockWidget.qml`, `PlayerWidget.qml`, `PlayerArt.qml`, `PlayerBtn.qml`, `PlayerGlyph.qml`, `MarqueeText.qml` | The widgets and their helpers. |
+| `WeatherWidget.qml`, `WeatherIcon.qml`, `WeatherHourCol.qml`, `CalendarWidget.qml`, `ClockWidget.qml`, `PlayerWidget.qml`, `PlayerArt.qml`, `PlayerBtn.qml`, `PlayerGlyph.qml`, `ImageWidget.qml`, `MarqueeText.qml` | The widgets and their helpers (`ImageWidget.qml` shows a picture of your choice). |
 | `SPopUp.qml`, `Dissolve.qml`, `MorphText.qml`, `MorphGlyph.qml`, `WGlyph.qml`, `ClockGlyph.qml`, `Wheel.qml` | Shared UI pieces and effects. |
 | `liquidglass.frag` (+ `contourglow`, `tintcard`, `dust`, `burn`, `fade`) | Shaders. Prebuilt `.frag.qsb` files ship next to them; `liquidglass.frag` is recompiled with `qsb` on first run. |
 | `EmojiData.js` | Emoji fallback data for Spotlight (from [gemoji](https://github.com/github/gemoji), MIT). |
-| `macshell-update` | Update tool (installed to `~/.local/bin`, see [Updating](#updating)). |
+| `macshell-update` | Update tool (installed to `~/.local/bin`, see [Updating](#updating)). The installer also writes `macshell-start`, the script the Hyprland autostart runs. |
 | `apple-logo-black.svg`, `apple-logo-white.svg` | Menu bar logo. |
 | `assets/` | Icons and the credits pictures. |
 
@@ -158,13 +158,13 @@ and more files...
 | Night Shift | `hyprsunset` |
 | Brightness | `brightnessctl` |
 | Wi-Fi / VPN / Ethernet | NetworkManager (`nmcli`); fallback editor `nm-connection-editor` or `nmtui` |
-| Bluetooth | `bluez` (`bluetoothctl`) |
+| Bluetooth | `bluez` (`bluetoothctl`) **and the `bluetooth` service running** (`sudo systemctl enable --now bluetooth`; the installer offers to do this), `rfkill` (util-linux) to un-block the adapter |
 | Audio device routing | `wpctl` (WirePlumber) or `pactl` |
 | Privacy indicators | PipeWire (`pw-dump`) |
 | Keep Awake | `systemd-inhibit` |
 | Lock / Sleep / Restart / Shut Down | `loginctl`, `systemctl` (UWSM sessions are stopped via `uwsm`) |
 | Trash watching / emptying | `inotify-tools` (`inotifywait`), `ktrash6`/`ktrash5`, or a file manager (`dolphin`, `nautilus`, `thunar`, `nemo`, `pcmanfm-qt`) |
-| Folder pickers in Settings | `zenity`, `kdialog` or `yad` |
+| Folder pickers in Settings, picking a picture for an Image widget | `zenity`, `kdialog` or `yad` |
 | "About This Linux" | `fastfetch` or `neofetch` |
 | Do Not Disturb (Focus) | `dunstctl`, `makoctl` or `swaync-client` (only if you keep one of those) |
 | Emoji search keywords | `emoji-test.txt` from the `unicode-emoji` package (otherwise `EmojiData.js` is used) |
@@ -201,9 +201,12 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
       kitty
    ```
    Other distros: install the equivalents. Fedora has a Quickshell COPR; Nix has `pkgs.quickshell`.
-   You can skip this: the installer checks every requirement (tools, Qt libraries, fonts, `hyprlock`) and installs
-   the missing ones for you with pacman, dnf or apt, after asking once (`-y` skips the question). Packages that are
-   not in the main repositories, such as `quickshell`, come from the AUR (`yay` / `paru`) or the Fedora COPR.
+   You can skip this: the installer checks every requirement (tools, Qt libraries, fonts, icon theme, portals,
+   `hyprlock`, the optional helpers such as `awww`, `zenity`, `slurp`, `ffmpeg`) and installs the missing ones for you
+   with pacman, dnf or apt, after asking once (`-y` skips the question). Packages that are not in the main
+   repositories, such as `quickshell` or `awww`, come from the AUR (`yay` / `paru`; on Arch the installer can build
+   `yay` for you) or the Fedora COPR. It also enables the `bluetooth` service, which Bluetooth needs.
+   `bash install.sh --deps-only` does just this step.
    Hyprland 0.55+ with a Lua config may need a newer package than your distro ships, so check `hyprctl version`.
    Debian/Ubuntu have no `quickshell` / `hyprland` packages: build those from source.
 2. Run the installer, either from a clone:
@@ -217,7 +220,10 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    curl -fsSL https://raw.githubusercontent.com/0-ss/MacShell/main/install.sh | bash
    ```
    It installs **MacShell** to `~/.config/quickshell/MacShell` and **MacLock** to `~/.config/quickshell/MacLock`,
-   and can add the autostart line to your Hyprland config. Your settings are never touched, and the previous
+   and adds the autostart to your Hyprland config: a block in `hyprland.lua` (Hyprland 0.55+), or an `exec-once`
+   line in `hyprland.conf` when there is no Lua config. The block runs `~/.local/bin/macshell-start`, which waits for
+   the compositor, never starts a second copy and restarts the shell if it crashes. Remove the block between the
+   `MacShell (added by install.sh)` markers to undo it. Your settings are never touched, and the previous
    install is backed up first (last 3 kept in `~/.local/share/macshell/backups/`).
 
    When run from a clone, the installer first checks GitHub: if the repository has a newer version (and your clone has
@@ -238,7 +244,11 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 |---|---|
 | `-y`, `--yes` | Don't ask questions (answer yes). |
 | `--no-deps` | Skip the dependency check and package installation. |
+| `--deps-only` | Only check / install dependencies (and enable the bluetooth service), then stop. |
+| `--no-services` | Don't enable system services (bluetooth). |
 | `--no-autostart` | Don't touch the Hyprland config. |
+| `--no-rules` | Don't add the Liquid Glass layer rules to the Hyprland config. |
+| `--channel release\|main` | `release` (default): latest release, or the newest commit if there are none. `main`: always the newest commit. |
 | `--no-lock` | Install MacShell only, without MacLock. |
 | `--check` | Only check for a newer version (exit 0 = up to date, 10 = update available). |
 | `--local` | Install the local clone as it is, don't look for a newer version on GitHub. |
@@ -247,16 +257,23 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 | `--from-dir DIR` | Install from a local folder instead of downloading. |
 | `--uninstall` | Remove MacShell and MacLock (settings are kept). |
 
-Environment: `MACSHELL_REPO`, `MACSHELL_BRANCH`, `MACSHELL_DEST`, `MACLOCK_DEST`, `GITHUB_TOKEN`.
+Environment: `MACSHELL_REPO`, `MACSHELL_BRANCH`, `MACSHELL_CHANNEL`, `MACSHELL_DEST`, `MACLOCK_DEST`, `GITHUB_TOKEN`.
 
 ## Updating
 
 ```sh
 macshell-update check       # is there a newer version?
-macshell-update update      # download and install it (MacShell and MacLock)
-macshell-update rollback    # go back to the previous MacShell install
+macshell-update log         # what changed since the installed version
+macshell-update update      # download and install it (MacShell and MacLock), including new dependencies
+macshell-update rollback    # go back to the previous install (MacShell and MacLock)
+macshell-update channel main   # follow the newest commit instead of releases (or: release)
 macshell-update status
 ```
+
+An update runs the *new* version's installer, so new files, new dependencies and a new start script come along. It
+saves the old install first (last 3 kept), updates MacShell and MacLock together, never touches your settings, and
+does one update at a time. Dependencies are installed only when `sudo` works without a password (an unattended timer
+cannot type one); otherwise you get a notice listing what to install with `bash install.sh --deps-only`.
 
 The shell also checks by itself and tells you. `bash install.sh --check` does the same check from a clone, and
 `bash install.sh --auto-update` installs a daily timer (`systemctl --user list-timers macshell-update.timer`) so updates
@@ -266,9 +283,10 @@ time it locks.
 ## Hyprland configuration (Lua)
 
 ```lua
--- autostart (remove other bars / docks / notification daemons first)
+-- autostart (remove other bars / docks / notification daemons first).
+-- install.sh adds this for you; macshell-start waits for the compositor and restarts the shell if it crashes.
 hl.on("hyprland.start", function()
-    hl.exec_cmd("qs -c MacShell")
+    hl.exec_cmd("sh ~/.local/bin/macshell-start")
 end)
 
 -- layer rules: blur for the glass surfaces
@@ -309,7 +327,7 @@ Also make sure **blur is enabled** in your Hyprland `decoration` settings, or th
 | `wallpapers` | `toggle`, `open`, `close` |
 | `switcher` | `next`, `prev`, `commit`, `cancel` |
 | `settings` | `open` (works even if both the bar and the Dock are disabled) |
-| `widgets` | `refresh` (re-fetch the weather), `edit true\|false` (move / resize desktop widgets) |
+| `widgets` | `refresh` (re-fetch the weather), `edit true\|false` (move / remove desktop widgets) |
 | `glass` | `captures true\|false` (window previews on/off, same as Settings → Dock Behavior → *Live window capture*) |
 
 ## MacLock
@@ -327,6 +345,16 @@ MACLOCK_PREVIEW=1 qs -c MacLock                        # preview the design as a
 
 Passwords are checked with PAM (`/etc/pam.d/hyprlock`). To lock on idle or before sleep with `hypridle`, set
 `lock_cmd = sh ~/.config/quickshell/MacLock/lock-via-ipc.sh`.
+
+## Desktop widgets
+
+Settings → General → Desktop Widgets. Weather, Calendar, Clock, Player and **Image** widgets, each in Small, Medium
+and Large. **Widget size** scales every widget and the grid together (60 % to 150 %); widgets snap back onto the
+grid when you let go of the slider.
+
+An Image widget shows a picture you choose: press **+ S / M / L** on the Image row and pick a file (needs `zenity`,
+`kdialog` or `yad`). The picture is copied to `~/.config/macwidgets/images`, so it keeps working if the original
+moves. To change it later use **Edit on Desktop** and press **Choose Image…** on the widget.
 
 ## Wallpaper
 
@@ -351,7 +379,8 @@ by default (`wallpaperDir`).
 | `~/.config/macbar/settings.json` | Menu bar settings |
 | `~/.config/macdock/settings.json`, `pinned.json` | Dock settings and pinned apps |
 | `~/.config/macdock/liquidglass.frag.qsb` | Compiled shader cache |
-| `~/.config/macwidgets/settings.json` | Desktop widgets and their placement |
+| `~/.config/macwidgets/settings.json` | Desktop widgets, their placement and the widget size |
+| `~/.config/macwidgets/images/` | Pictures used by Image widgets |
 | `~/.local/share/macshell/` | Installer state, `macshell-update`, backups |
 | `~/.cache/macbar/` | Clipboard history helper files (images, timestamps) |
 | `~/Pictures/Screenshots` | Default screenshot folder |
@@ -370,6 +399,8 @@ in `~/.config/macbar/settings.json` if you don't want that.
 | No notifications | Another daemon owns the D-Bus name. Disable it and restart the shell. |
 | Window menu actions, Alt+Tab focus, paste-after-pick, Log Out or the floating Settings window do nothing | Not on a Lua-config Hyprland 0.55+: run `hyprctl dispatch 'hl.dsp.no_op()'`. |
 | No window previews / glass behind windows | Quickshell built without Hyprland Toplevel Export, or Settings → Dock Behavior → *Live window capture* is off. |
+| Bluetooth shows nothing / won't power on | `systemctl status bluetooth` must be active (`sudo systemctl enable --now bluetooth`), `bluetoothctl show` must list a controller, and `rfkill list bluetooth` must not say *Soft blocked: yes* (the switch in Control Center un-blocks it). Pairing a new device: put it in pairing mode, open Control Center → Bluetooth (it scans for 10 s) and click it. |
+| MacShell does not start with Hyprland | Hyprland 0.55+ with `hyprland.lua` ignores `hyprland.conf`: the autostart must be in the Lua file (`bash install.sh` puts it there). Test it by hand with `sh ~/.local/bin/macshell-start`. |
 | Log | `qs log` (see `qs --help` for selecting the config). |
 
 ## Known issues
@@ -381,7 +412,7 @@ does not answer that frame, the shell then destroys it, and the compositor drops
 - Settings → Menu Bar → turn **Real-time glass** off (far fewer captures; the biggest win).
 - Settings → Dock Behavior → turn **Live window capture** off.
 - The shell already pauses glass captures while windows open/close.
-- Auto-restart it: `sh -c 'while :; do qs -c MacShell; sleep 1; done'` as the autostart command.
+- Auto-restart: the autostart the installer adds (`macshell-start`) already restarts the shell after a crash.
 
 **Glitchy window capture** (previews or glass showing a wrong or stale frame): turn off Settings → Dock Behavior →
 **Live window capture**.
