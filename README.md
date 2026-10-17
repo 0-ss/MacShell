@@ -23,6 +23,20 @@ Alt+Tab switcher — all in one Quickshell process.
   <sub>Control Center</sub>
 </p>
 
+<p align="center">
+<img width="1697" height="949" alt="image" src="https://github.com/user-attachments/assets/6ef28e50-612f-4e7b-9822-c0aa0168a6ae" />
+  <br>
+  <sub>Lock screen</sub>
+</p>
+
+
+<p align="center">
+<img width="1688" height="937" alt="image" src="https://github.com/user-attachments/assets/0d15dc6f-8def-47dc-8e42-fa2959e7e5eb" />
+  <br>
+  <sub>Lock screen media player</sub>
+</p>
+
+
 The repository also ships **MacLock**, a matching Liquid Glass lock screen. It is a separate Quickshell config on
 purpose: it runs as its own process, so a shell crash can never take the lock with it.
 
