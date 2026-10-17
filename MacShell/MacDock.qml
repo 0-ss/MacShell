@@ -1231,8 +1231,14 @@ Scope {
                     SRow {
                         t: pal
                         title: "Arrange widgets"
-                        subtitle: "Drag a widget to move it (it snaps to the grid). Use the \u2212 badge on a widget to remove it."
-                        SButton { t: pal; text: "Edit on Desktop"; onClicked: { if (root.hub && root.hub.widgets) root.hub.widgets.editing = true; prefsWindow.visible = false; } }
+                        subtitle: (root.hub && root.hub.widgets && root.hub.widgets.editing)
+                                  ? "Editing is on: drag a widget to move it, use the \u2212 badge to remove it, then click Stop Editing."
+                                  : "Drag a widget to move it (it snaps to the grid). Use the \u2212 badge on a widget to remove it."
+                        SButton {
+                            t: pal
+                            text: (root.hub && root.hub.widgets && root.hub.widgets.editing) ? "Stop Editing" : "Edit on Desktop"
+                            onClicked: { if (root.hub && root.hub.widgets) root.hub.widgets.editing = !root.hub.widgets.editing; }
+                        }
                     }
                     SRow {
                         t: pal
