@@ -8,32 +8,32 @@ Alt+Tab switcher — all in one Quickshell process.
 <p align="center">
   <img width="100%" alt="The whole desktop: desktop widgets, the menu bar on top and the Dock at the bottom" src="https://github.com/user-attachments/assets/600f75bc-b4d1-442d-bec5-41ee7dfa5023" />
   <br>
-  <sub>The whole desktop: widgets, the menu bar on top and the Dock</sub>
+  <sub>(MacShell) The whole desktop: widgets, the menu bar on top and the Dock</sub>
 </p>
 
 <p align="center">
   <img width="100%" alt="The Dock, with Liquid Glass" src="https://github.com/user-attachments/assets/edf45f8f-b71a-4bc5-9880-46dafbebf47c" />
   <br>
-  <sub>The Dock</sub>
+  <sub>(MacShell) The Dock</sub>
 </p>
 
 <p align="center">
   <img width="371" alt="Control Center" src="https://github.com/user-attachments/assets/681238c7-a661-44a4-8b37-6cbb0b162c87" />
   <br>
-  <sub>Control Center</sub>
+  <sub>(MacShell) Control Center</sub>
 </p>
 
 <p align="center">
 <img width="1697" height="949" alt="image" src="https://github.com/user-attachments/assets/6ef28e50-612f-4e7b-9822-c0aa0168a6ae" />
   <br>
-  <sub>Lock screen</sub>
+  <sub>(MacLock) Lock screen</sub>
 </p>
 
 
 <p align="center">
 <img width="1688" height="937" alt="image" src="https://github.com/user-attachments/assets/0d15dc6f-8def-47dc-8e42-fa2959e7e5eb" />
   <br>
-  <sub>Lock screen media player</sub>
+  <sub>(MacLock) Lock screen media player</sub>
 </p>
 
 
