@@ -2599,7 +2599,7 @@ Scope {
                 m.push(mi("Search\u2026", "", function () { root.search(); }));
                 if (has) m.push(mi(n + " Help", "", function () { root.helpFor(id, n); }));
                 m.push(msep());
-                m.push(mi("Hyprland Keybinds", "", function () { sh(terminal + " -e sh -c 'hyprctl binds | less'"); }));
+                m.push(mi("Hyprland Keybinds", "", function () { Quickshell.execDetached(["xdg-open", "https://github.com/0-ss/MacShell#hyprland-configuration-lua"]); }));
                 m.push(mi("Reload Hyprland Config", "", function () { Quickshell.execDetached(["hyprctl", "reload"]); }));
                 m.push(msep());
                 m.push(mi("Hyprland Wiki", "", function () { Quickshell.execDetached(["xdg-open", "https://wiki.hypr.land"]); }));
@@ -3312,28 +3312,48 @@ Scope {
         return m[2].toLowerCase() === "light" ? { light: path, dark: cand } : { light: cand, dark: path };
     }
     function hhmmToMin(t) { var m = /T(\d+):(\d+)/.exec(t || ""); return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : -1; }
+    // Sets a picture as the real desktop wallpaper: awww first (its daemon is started if needed), then the other daemons.
+    // $1 = image path. Also stops a running animated wallpaper (mpvpaper) so it does not stay on top of the picture.
+    readonly property string awwwScript: [
+        'p="$1"',
+        'pkill -x mpvpaper >/dev/null 2>&1',
+        'if command -v awww >/dev/null 2>&1; then',
+        '  if ! awww query >/dev/null 2>&1; then',
+        '    if command -v awww-daemon >/dev/null 2>&1; then setsid awww-daemon >/dev/null 2>&1 & fi',
+        '    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do awww query >/dev/null 2>&1 && break; sleep 0.3; done',
+        '  fi',
+        '  if awww img "$p" --transition-type fade --transition-duration 0.7; then echo "applied with: awww"; exit 0; fi',
+        'fi',
+        'if command -v swww >/dev/null 2>&1 && swww query >/dev/null 2>&1 && swww img "$p" --transition-type fade --transition-duration 0.7; then echo "applied with: swww"; exit 0; fi',
+        'if command -v noctalia >/dev/null 2>&1 && noctalia msg wallpaper-set "$p" >/dev/null 2>&1; then echo "applied with: noctalia"; exit 0; fi',
+        'if pgrep -x hyprpaper >/dev/null 2>&1; then',
+        '  if hyprctl hyprpaper wallpaper ",$p" >/dev/null 2>&1 || { hyprctl hyprpaper preload "$p" >/dev/null 2>&1; hyprctl hyprpaper wallpaper ",$p" >/dev/null 2>&1; }; then echo "applied with: hyprpaper"; exit 0; fi',
+        'fi',
+        'if pgrep -f noctalia-shell >/dev/null 2>&1 && qs -c noctalia-shell ipc call wallpaper set "$p" "" >/dev/null 2>&1; then echo "applied with: noctalia-shell (qs ipc)"; exit 0; fi',
+        'if pgrep -x swaybg >/dev/null 2>&1; then pkill -x swaybg; setsid swaybg -i "$p" -m fill >/dev/null 2>&1 & echo "applied with: swaybg"; exit 0; fi',
+        'echo "no wallpaper daemon accepted the image (tried awww, swww, noctalia, hyprpaper, noctalia-shell, swaybg)" >&2',
+        'notify-send "Wallpaper" "Could not set it: install awww (and start awww-daemon), or set wallpaperCmd in settings.json." 2>/dev/null',
+        'exit 1'
+    ].join("\n")
+    property string wpAppliedPair: ""
     function wpApplyAppearance() {
-        if (!wpHasPair || dynProc.running) return;
+        if (!wpHasPair) return;
         var mode = wallpaperAppearance === "auto" ? (darkMode ? "dark" : "light") : wallpaperAppearance;
         var rise = 390, set_ = 1110;
         try {
             var wx = root.hub && root.hub.widgets ? root.hub.widgets.weather : null;
-            if (wx && wx.daily && wx.daily.sunrise) { var a = hhmmToMin(wx.daily.sunrise[0]), b = hhmmToMin(wx.daily.sunset[0]); if (a > 0) rise = a; if (b > 0) set_ = b; }
+            if (wx && wx.daily && wx.daily.sunrise) { var a = hhmmToMin(wx.daily.sunrise[0]), b2 = hhmmToMin(wx.daily.sunset[0]); if (a > 0) rise = a; if (b2 > 0) set_ = b2; }
         } catch (e) {}
-        dynProc.command = [dynwallScript, wpPairLight, wpPairDark, mode, String(rise), String(set_)];
-        dynProc.running = true;
-    }
-    Process {
-        id: dynProc
-        stdout: StdioCollector {
-            onStreamFinished: {
-                var p = text.trim();
-                if (p === "") return;
-                root.wallpaperVideo = "";
-                root.wallpaperPath = p;
-                try { if (root.hub && root.hub.dock) root.hub.dock.wallpaperPath = p; } catch (e) {}
-            }
-        }
+        if (mode === "dynamic") { var d = new Date(), n = d.getHours() * 60 + d.getMinutes(); mode = (n >= rise && n < set_) ? "light" : "dark"; }
+        var p = mode === "dark" ? wpPairDark : wpPairLight;
+        if (p === "") return;
+        root.wallpaperVideo = "";
+        root.wallpaperPath = p;
+        try { if (root.hub && root.hub.dock) root.hub.dock.wallpaperPath = p; } catch (e) {}
+        if (p === root.wpAppliedPair) return;                         // already on screen
+        root.wpAppliedPair = p;
+        wpApplyProc.command = ["sh", "-c", root.awwwScript, "sh", p];  // the real desktop wallpaper, through awww
+        wpApplyProc.running = true;
     }
     onWallpaperAppearanceChanged: wpApplyAppearance()
     onDarkModeChanged: if (wallpaperAppearance === "auto") wpApplyAppearance()
@@ -3349,46 +3369,20 @@ Scope {
 
     function wpApply(path) {
         var pair = wpPairOf(path);
-        if (pair) { wpPairLight = pair.light; wpPairDark = pair.dark; wpApplyAppearance(); return; }
-        wpPairLight = ""; wpPairDark = "";
-        // animated wallpapers (and, with no custom wallpaperCmd, pictures too) go through macshell-setwall.sh:
-        // mpvpaper for videos, awww for pictures; it prints the still image the glass should refract
-        if (root.wpIsVideo(path) || (root.wallpaperCmd || "").trim() === "") {
-            root.wallpaperVideo = root.wpIsVideo(path) ? path : "";
-            if (!root.wpIsVideo(path)) {
-                root.wallpaperPath = path;
-                try { if (root.hub && root.hub.dock) root.hub.dock.wallpaperPath = path; } catch (e) {}
-            }
+        if (pair) { wpPairLight = pair.light; wpPairDark = pair.dark; root.wpAppliedPair = ""; wpApplyAppearance(); return; }
+        wpPairLight = ""; wpPairDark = ""; root.wpAppliedPair = "";
+        // animated wallpapers go through macshell-setwall.sh (mpvpaper for videos); pictures are always set with awww below
+        if (root.wpIsVideo(path)) {
+            root.wallpaperVideo = path;
             setwallProc.command = [root.setwallScript, path];
             setwallProc.running = true;
             return;
         }
+        root.wallpaperVideo = "";
         root.wallpaperPath = path;                                            // the glass refracts the new image straight away
         try { if (root.hub && root.hub.dock) root.hub.dock.wallpaperPath = path; } catch (e) {}
         var cmd = (root.wallpaperCmd || "").trim();
-        var script = cmd !== "" ? cmd.split("{}").join('"$1"') : [
-            'p="$1"',
-            // Noctalia (its settings.toml is where the glass wallpaper is read from): `noctalia msg wallpaper-set <path>`
-            'if command -v noctalia >/dev/null 2>&1 && noctalia msg wallpaper-set "$p" >/dev/null 2>&1; then echo "applied with: noctalia"; exit 0; fi',
-            // awww needs its daemon; start it if it is installed but not running yet
-            'if command -v awww >/dev/null 2>&1; then',
-            '  if ! awww query >/dev/null 2>&1; then',
-            '    if command -v awww-daemon >/dev/null 2>&1; then setsid awww-daemon >/dev/null 2>&1 & fi',
-            '    for i in 1 2 3 4 5 6 7 8 9 10; do awww query >/dev/null 2>&1 && break; sleep 0.3; done',
-            '  fi',
-            '  if awww img "$p" --transition-type fade --transition-duration 0.7; then echo "applied with: awww"; exit 0; fi',
-            'fi',            'if command -v swww >/dev/null 2>&1 && swww query >/dev/null 2>&1 && swww img "$p" --transition-type fade --transition-duration 0.7; then echo "applied with: swww"; exit 0; fi',
-            'if pgrep -x hyprpaper >/dev/null 2>&1; then',
-            '  if hyprctl hyprpaper wallpaper ",$p" >/dev/null 2>&1 || { hyprctl hyprpaper preload "$p" >/dev/null 2>&1; hyprctl hyprpaper wallpaper ",$p" >/dev/null 2>&1; }; then echo "applied with: hyprpaper"; exit 0; fi',
-            'fi',
-            // older Noctalia (QML): qs -c noctalia-shell ipc call wallpaper set <path> <monitor>
-            'if pgrep -f noctalia-shell >/dev/null 2>&1 && qs -c noctalia-shell ipc call wallpaper set "$p" "" >/dev/null 2>&1; then echo "applied with: noctalia-shell (qs ipc)"; exit 0; fi',
-            'if pgrep -x swaybg >/dev/null 2>&1; then pkill -x swaybg; setsid swaybg -i "$p" -m fill >/dev/null 2>&1 & echo "applied with: swaybg"; exit 0; fi',
-            'echo "no wallpaper daemon accepted the image (tried noctalia, awww, swww, hyprpaper, noctalia-shell, swaybg)" >&2',
-            'echo "running: $(ps -eo comm= | grep -E "^(noctalia|noctalia-shell|awww-daemon|swww-daemon|hyprpaper|swaybg|wpaperd)$" | sort -u | tr "\\n" " ")" >&2',
-            'notify-send "Wallpaper" "Could not set it: no supported wallpaper daemon found. Set wallpaperCmd in settings.json." 2>/dev/null',
-            'exit 1'
-        ].join("\n");
+        var script = cmd !== "" ? cmd.split("{}").join('"$1"') : root.awwwScript;
         wpApplyProc.command = ["sh", "-c", script, "sh", path];
         wpApplyProc.running = true;
     }
@@ -7275,6 +7269,11 @@ Scope {
                             GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 18; strengthMul: 0.7; shadowAmt: 0.18 }
                             HoverHandler { id: pillHover }
                             ContourGlow { cornerR: 24; hovered: pillHover.hovered; at: pillHover.point.position; glowColor: root.darkMode ? "white" : root.accent }
+                            // very thin outline
+                            Rectangle {
+                                anchors.fill: parent; radius: 24; color: "transparent"; antialiasing: true
+                                border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.11)
+                            }
                             Glyph {
                                 x: 18; anchors.verticalCenter: parent.verticalCenter
                                 width: 18; height: 18
@@ -7332,6 +7331,11 @@ Scope {
                                     }
                                 }
                                 ContourGlow { cornerR: 24; hovered: btnHover.hovered; at: btnHover.point.position; glowColor: root.darkMode ? "white" : root.accent }
+                                // very thin outline
+                                Rectangle {
+                                    anchors.fill: parent; radius: width / 2; color: "transparent"; antialiasing: true
+                                    border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.11)
+                                }
                                 onClicked: {
                                     if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
                                     else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");

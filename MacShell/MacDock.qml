@@ -697,6 +697,25 @@ Scope {
 
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: prefsWindow.visible = false }
 
+        // Settings always opens as a floating, centred window (no windowrule needed in hyprland.conf)
+        onVisibleChanged: if (visible) { floatTries = 0; floatTimer.restart(); }
+        property int floatTries: 0
+        Timer {
+            id: floatTimer
+            interval: 140
+            repeat: true
+            onTriggered: {
+                // the compositor maps the window a moment after it becomes visible: send the dispatches a few times
+                var sel = 'window = "title:^(' + prefsWindow.title + ')$"';
+                Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
+                if (prefsWindow.floatTries === 1) {
+                    Hyprland.dispatch('hl.dsp.window.resize({ x = ' + prefsWindow.width + ', y = ' + prefsWindow.height + ', "exact", ' + sel + ' })');
+                    Hyprland.dispatch('hl.dsp.window.center({ ' + sel + ' })');
+                }
+                if (++prefsWindow.floatTries >= 4) stop();
+            }
+        }
+
         // ── palette ──
         QtObject {
             id: pal
@@ -3142,8 +3161,7 @@ Scope {
                             Item {
                                 id: wtBox
                                 width: parent.width; height: parent.height - 22
-                                scale: wtMa.pressed ? 0.96 : (wtMa.containsMouse ? 1.025 : 1)
-                                Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.6 } }
+                                scale: wtMa.pressed ? 0.98 : 1
                                 Item {
                                     id: wtMask
                                     anchors.fill: parent; visible: false
@@ -3328,10 +3346,10 @@ Scope {
                     t: pal
                     Repeater {
                         model: [
-                            { img: "assets/credits/vsoultann.png", name: "vSuol", gh: "vsoultann",
-                              role: "MacShell Tahoe edition — the lock screen, widgets, Clock, Settings, and every bug you will ever find" },
                             { img: "assets/credits/0-ss.jpg", name: "Rickky", gh: "0-ss",
-                              role: "Original MacShell — the menu bar, the Dock and the Liquid Glass. The one who actually knew what he was doing" }
+                              role: "Owner — the menu bar, the Dock, the Liquid Glass and the widgets. The one who actually knew what he was doing" },
+                            { img: "assets/credits/vsoultann.png", name: "vSuol", gh: "vsoultann",
+                              role: "Collaborator — improved the Settings app and window, and every bug you will ever find" }
                         ]
                         delegate: Item {
                             id: cr
