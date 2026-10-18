@@ -21,11 +21,11 @@
 #   5. optionally sets up automatic updates (a daily systemd user timer)
 #
 # Updates
-#   Run from a clone, the installer first asks GitHub whether the repository has something newer. If it does
-#   (and your clone has no uncommitted changes), it downloads the newer version and installs that automatically.
-#   Use --local to install exactly what is in the clone, or --check to only look.
-#   "macshell-update update" does the same from anywhere, installs dependencies that a new version needs, updates
-#   MacShell and MacLock together, and "macshell-update rollback" restores both.
+#   Run ./install.sh and pick from the menu: 1) install shell, 2) check for updates (asks whether to install one),
+#   3) uninstall shell, 4) bind help (opens the Hyprland keybind section of the README).
+#   An update installs the dependencies the new version needs, updates MacShell and MacLock together and keeps your
+#   settings. Use --local to install exactly what is in a clone, or --check to only look.
+#   (macshell-update still exists for the daily timer and for scripts; "macshell-update rollback" restores both.)
 #
 # Your settings (~/.config/macbar, macdock, macshell, macwidgets, ...) are never touched.
 # Before replacing an existing install, the old one is saved to ~/.local/share/macshell/backups/ (last 3 kept).
@@ -34,7 +34,9 @@
 #   -y, --yes             do not ask questions (answer yes)
 #       --no-deps         skip the dependency check
 #       --deps-only       only check / install dependencies, then stop
-#       --no-services     do not enable system services (bluetooth)
+#       --no-services     do not enable system services (bluetooth, NetworkManager, power profiles, PipeWire)
+#       --doctor          check the whole setup (environment, services, wallpaper, shaders, Hyprland) and explain problems
+#       --low-power       settings for older computers (no live window capture, no magnification, plain blur)
 #       --no-autostart    do not touch the Hyprland config
 #       --no-rules        do not add the Liquid Glass layer rules to the Hyprland config
 #       --channel CH      release (default: latest release, else the main branch) or main (always the newest commit)
@@ -48,6 +50,9 @@
 #       --auto-update     install a daily systemd user timer that updates MacShell + MacLock by itself
 #       --no-auto-update  remove that timer
 #   -h, --help
+#
+# Environment variables for the shell itself (icon theme, Qt platform, software rendering, ...) go in
+#   ~/.config/macshell/env   (the installer creates it with comments; macshell-start reads it)
 #
 # Environment: MACSHELL_REPO (default 0-ss/MacShell), MACSHELL_BRANCH (default main), MACSHELL_CHANNEL, MACSHELL_DEST,
 #              MACLOCK_DEST, GITHUB_TOKEN
@@ -74,6 +79,10 @@ MARK_END="-- <<< MacShell <<<"
 CONF_BEGIN="# >>> MacShell (added by install.sh) >>>"
 CONF_END="# <<< MacShell <<<"
 
+ENV_DIR="$CONFIG_HOME/macshell"
+DOCTOR=0
+LOW_POWER=0
+MODE_FLAG=0       # a mode option was given (no menu)
 ASSUME_YES=0
 SKIP_DEPS=0
 DEPS_ONLY=0
@@ -123,20 +132,22 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -y|--yes) ASSUME_YES=1 ;;
         --no-deps) SKIP_DEPS=1 ;;
-        --deps-only) DEPS_ONLY=1 ;;
+        --deps-only) DEPS_ONLY=1; MODE_FLAG=1 ;;
         --no-services) SKIP_SERVICES=1 ;;
+        --doctor) DOCTOR=1; MODE_FLAG=1 ;;
+        --low-power) LOW_POWER=1 ;;
         --no-autostart) SKIP_AUTOSTART=1 ;;
         --no-rules) SKIP_RULES=1 ;;
         --no-lock) SKIP_LOCK=1 ;;
-        --check) CHECK_ONLY=1; SKIP_DEPS=1 ;;
-        --local) LOCAL_ONLY=1 ;;
+        --check) CHECK_ONLY=1; SKIP_DEPS=1; MODE_FLAG=1 ;;
+        --local) LOCAL_ONLY=1; MODE_FLAG=1 ;;
         --auto-update) AUTO_UPDATE=yes ;;
         --no-auto-update) AUTO_UPDATE=no ;;
-        --update) UPDATE_MODE=1; SKIP_AUTOSTART=1; SKIP_SERVICES=1; ASSUME_YES=1 ;;
-        --uninstall) UNINSTALL=1 ;;
+        --update) UPDATE_MODE=1; SKIP_AUTOSTART=1; SKIP_SERVICES=1; ASSUME_YES=1; MODE_FLAG=1 ;;
+        --uninstall) UNINSTALL=1; MODE_FLAG=1 ;;
         --channel) CHANNEL="${2:-}"; shift ;;
-        --ref) REF="${2:-}"; shift ;;
-        --from-dir) FROM_DIR="${2:-}"; shift ;;
+        --ref) REF="${2:-}"; MODE_FLAG=1; shift ;;
+        --from-dir) FROM_DIR="${2:-}"; MODE_FLAG=1; shift ;;
         --resolved-id) RESOLVED_ID="${2:-}"; shift ;;
         --resolved-type) RESOLVED_TYPE="${2:-}"; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -209,7 +220,7 @@ remove_hypr_blocks() {
     return 0
 }
 
-if [ "$UNINSTALL" = 1 ]; then
+do_uninstall() {
     step "Uninstalling MacShell"
     if [ -d "$DEST" ]; then
         ts=$(date +%Y%m%d-%H%M%S); mkdir -p "$BACKUP_DIR/$ts"
@@ -228,7 +239,8 @@ if [ "$UNINSTALL" = 1 ]; then
     say "Your settings were kept (~/.config/macbar, macdock, macshell, macwidgets)."
     say "If you added them yourself, remove the MacShell autostart and the MacLock lock keybind from your Hyprland config."
     exit 0
-fi
+}
+[ "$UNINSTALL" = 1 ] && do_uninstall
 
 # ───────────────────────── dependencies ─────────────────────────
 # command:arch-package:what-for   (a check by command name; package names are Arch names, translated per distro below)
@@ -278,6 +290,7 @@ LIBS=(
     "noto-fonts:fallback fonts"
     "noto-fonts-emoji:emoji font"
     "papirus-icon-theme:an icon theme for app icons"
+    "mesa:OpenGL drivers (Qt Quick draws with OpenGL; needed on every GPU)"
     "xdg-desktop-portal-hyprland:screen sharing and screenshots through portals"
     "polkit:privilege prompts"
 )
@@ -497,18 +510,273 @@ check_hyprland_version() {
     fi
 }
 
-# Bluetooth needs bluetoothd to be running; installing bluez does not start it.
+# Services a fresh Arch install does not start by itself: bluetoothd (Bluetooth), NetworkManager (Wi-Fi),
+# power-profiles-daemon (power profiles / Game Mode) and the PipeWire user services (volume, sound).
+unit_exists() { systemctl cat "$1" >/dev/null 2>&1; }
+unit_on() { systemctl is-enabled --quiet "$1" 2>/dev/null || systemctl is-active --quiet "$1" 2>/dev/null; }
 enable_services() {
     [ "$SKIP_SERVICES" = 1 ] && return 0
     have systemctl || return 0
-    have bluetoothctl || return 0
-    systemctl cat bluetooth.service >/dev/null 2>&1 || return 0
-    if systemctl is-active --quiet bluetooth.service 2>/dev/null; then ok "bluetooth service is running"; return 0; fi
-    step "Bluetooth service"
-    if confirm "The bluetooth service is not running (Bluetooth does nothing without it). Enable and start it now?" y; then
-        local s=""; [ "$(id -u)" -ne 0 ] && s="${SUDO:-sudo}"
-        if $s systemctl enable --now bluetooth.service; then ok "bluetooth.service enabled and started"; else warn "could not enable bluetooth.service: run  sudo systemctl enable --now bluetooth"; fi
+    systemctl show-environment >/dev/null 2>&1 || return 0          # not running under systemd (container, chroot)
+    local s="" entry unit why todo=()
+    [ "$(id -u)" -ne 0 ] && s="${SUDO:-sudo}"
+    if have bluetoothctl && unit_exists bluetooth.service && ! systemctl is-active --quiet bluetooth.service 2>/dev/null; then
+        todo+=("bluetooth.service|Bluetooth does nothing without it")
     fi
+    if have powerprofilesctl && unit_exists power-profiles-daemon.service && ! unit_on power-profiles-daemon.service \
+       && ! unit_on tlp.service && ! unit_on auto-cpufreq.service; then
+        todo+=("power-profiles-daemon.service|power profiles and Game Mode need it")
+    fi
+    if have nmcli && unit_exists NetworkManager.service && ! unit_on NetworkManager.service \
+       && ! unit_on systemd-networkd.service && ! unit_on iwd.service && ! unit_on connman.service && ! unit_on dhcpcd.service; then
+        todo+=("NetworkManager.service|Wi-Fi in Control Center needs it, and nothing else manages your network")
+    fi
+    if [ "${#todo[@]}" -gt 0 ]; then
+        step "System services"
+        for entry in "${todo[@]}"; do
+            IFS='|' read -r unit why <<<"$entry"
+            if confirm "Enable and start $unit ($why)?" y; then
+                if $s systemctl enable --now "$unit"; then ok "$unit enabled and started"; else warn "could not enable $unit: run  sudo systemctl enable --now ${unit%.service}"; fi
+            fi
+        done
+    fi
+    # PipeWire (user services): normally socket-activated; start them when nothing does
+    if systemctl --user show-environment >/dev/null 2>&1; then
+        local pw=() u
+        for u in pipewire.service pipewire-pulse.service wireplumber.service; do
+            systemctl --user cat "$u" >/dev/null 2>&1 || continue
+            systemctl --user is-active --quiet "$u" 2>/dev/null && continue
+            systemctl --user is-enabled --quiet "$u" 2>/dev/null && continue
+            pw+=("$u")
+        done
+        if [ "${#pw[@]}" -gt 0 ] && confirm "Enable the audio services (${pw[*]}); volume and sound need them?" y; then
+            systemctl --user enable --now "${pw[@]}" >/dev/null 2>&1 && ok "audio services enabled" || warn "could not enable ${pw[*]}"
+        fi
+    fi
+    return 0
+}
+
+# ───────────────────────── environment, folders, shaders ─────────────────────────
+write_env_template() {
+    mkdir -p "$ENV_DIR"
+    [ -f "$ENV_DIR/env" ] && return 0
+    cat > "$ENV_DIR/env" <<'ENVF'
+# MacShell environment. macshell-start reads this file before it starts the shell.
+# One "export NAME=value" per line; remove the # to use a line.
+
+# Icon theme for the Dock and Spotlight. Left empty, the start script picks your GTK icon theme, else Papirus,
+# WhiteSur, Tela, Adwaita or breeze, whichever is installed.
+#export QS_ICON_THEME=Papirus-Dark
+
+# Qt theming through qt6ct (only if you installed and configured it; it then also decides the icon theme)
+#export QT_QPA_PLATFORMTHEME=qt6ct
+
+# Older graphics (old Intel / AMD, some laptops): if the shell is slow or draws wrongly, try these one at a time
+#export QSG_RHI_BACKEND=opengl        # use OpenGL, not Vulkan
+#export QSG_RENDER_LOOP=basic         # simpler render loop
+#export QT_QUICK_BACKEND=software     # last resort: software drawing (no Liquid Glass)
+ENVF
+    ok "environment file -> $ENV_DIR/env"
+}
+
+ensure_dirs() {
+    mkdir -p "$HOME/Pictures/Wallpapers" "$HOME/Pictures/Screenshots" 2>/dev/null || true
+}
+
+find_qsb() {
+    local q
+    for q in qsb qsb6 qsb-qt6 /usr/lib/qt6/bin/qsb /usr/lib64/qt6/bin/qsb /usr/lib/qt/bin/qsb; do
+        if have "$q"; then printf '%s' "$q"; return 0; fi
+    done
+    return 1
+}
+# compile every shader that has no .qsb next to it (they normally ship precompiled)
+build_shaders() { # build_shaders <installed-dir>
+    local d="$1" q f n=0
+    q=$(find_qsb) || { return 0; }
+    for f in "$d"/*.frag; do
+        [ -f "$f" ] || continue
+        [ -f "$f.qsb" ] && continue
+        if "$q" --qt6 -o "$f.qsb" "$f" >/dev/null 2>&1; then n=$((n+1)); else warn "could not compile $(basename "$f")"; rm -f "$f.qsb"; fi
+    done
+    [ "$n" -gt 0 ] && ok "$n shader(s) compiled with qsb" || true
+    return 0
+}
+
+# settings for older computers: no live window capture or magnification, plain blur
+json_merge() { # json_merge <file> <json-object>
+    local f="$1" obj="$2"
+    mkdir -p "$(dirname "$f")"
+    if [ ! -s "$f" ]; then printf '%s\n' "$obj" > "$f"; return 0; fi
+    if have python3; then
+        python3 - "$f" "$obj" <<'PY'
+import json, sys
+f, add = sys.argv[1], json.loads(sys.argv[2])
+try: cur = json.load(open(f))
+except Exception: cur = {}
+cur.update(add)
+json.dump(cur, open(f, "w"), indent=2)
+PY
+        return $?
+    fi
+    return 1
+}
+apply_low_power() {
+    step "Low-power settings (older computers)"
+    local ok1=0 ok2=0
+    json_merge "$CONFIG_HOME/macdock/settings.json" '{"windowCapture": false, "showThumbs": false, "magnificationEnabled": false, "dockStyle": "blur"}' && ok1=1
+    json_merge "$CONFIG_HOME/macbar/settings.json" '{"barStyle": "blur", "glassRealtime": false}' && ok2=1
+    if [ "$ok1" = 1 ] && [ "$ok2" = 1 ]; then
+        ok "live window capture, magnification and Liquid Glass are off"
+        say "  Restart MacShell (log out and in) so it reads them. Turn things back on in Settings."
+    else
+        warn "could not edit the settings files (python3 missing?). In Settings turn off: Dock Behavior > Live window capture, Magnification, and set the Menu Bar style to Normal Blur."
+    fi
+}
+
+# ───────────────────────── doctor ─────────────────────────
+detect_icon_theme() {
+    local t="" f c
+    for f in "$CONFIG_HOME/gtk-3.0/settings.ini" "$CONFIG_HOME/gtk-4.0/settings.ini"; do
+        [ -n "$t" ] && break
+        [ -f "$f" ] && t=$(sed -n 's/^gtk-icon-theme-name *= *//p' "$f" | head -n1 || true)
+    done
+    has_theme() { [ -f "/usr/share/icons/$1/index.theme" ] || [ -f "$HOME/.local/share/icons/$1/index.theme" ] || [ -f "$HOME/.icons/$1/index.theme" ]; }
+    if [ -n "$t" ] && has_theme "$t"; then printf '%s' "$t"; return 0; fi
+    for c in Papirus-Dark Papirus WhiteSur-dark WhiteSur Tela Adwaita breeze Numix; do
+        has_theme "$c" && { printf '%s' "$c"; return 0; }
+    done
+    return 1
+}
+
+run_doctor() {
+    step "MacShell doctor"
+    local bad=0 t u
+    d_ok()  { ok "$*"; }
+    d_bad() { warn "$*"; bad=$((bad+1)); }
+
+    # install
+    if [ -f "$DEST/shell.qml" ]; then d_ok "MacShell is installed ($DEST, $(state_get installed | cut -c1-12))"; else d_bad "MacShell is not installed in $DEST: run  bash install.sh"; fi
+    [ -f "$LOCK_DEST/shell.qml" ] && d_ok "MacLock is installed" || say "  ${D}- MacLock is not installed${N}"
+    [ -x "$LINK_DIR/macshell-start" ] && d_ok "start script: $LINK_DIR/macshell-start" || d_bad "macshell-start is missing: run  bash install.sh  again"
+    case ":$PATH:" in *":$LINK_DIR:"*) d_ok "$LINK_DIR is in PATH" ;; *) d_bad "$LINK_DIR is not in your PATH (add it to ~/.profile or your shell config, or run the tools with their full path)" ;; esac
+
+    # session
+    have qs && d_ok "quickshell: $(qs --version 2>/dev/null | head -n1)" || d_bad "quickshell (qs) is not installed"
+    check_hyprland_version
+    if [ -f "$HYPR_DIR/hyprland.lua" ]; then
+        if grep -Eq "macshell-start|(qs|quickshell)[[:space:]]+(-c|--config)[[:space:]]+$NAME" "$HYPR_DIR/hyprland.lua"; then d_ok "autostart is in hyprland.lua"
+        else d_bad "hyprland.lua does not start MacShell: run  bash install.sh  to add the autostart"; fi
+        if [ -f "$HYPR_DIR/hyprland.conf" ] && grep -q 'exec-once.*\(macshell\|MacShell\)' "$HYPR_DIR/hyprland.conf"; then
+            warn "hyprland.conf also has a MacShell line, but Hyprland reads hyprland.lua and ignores it"; fi
+    elif [ -f "$HYPR_DIR/hyprland.conf" ]; then
+        if grep -Eq "macshell-start|(qs|quickshell)[[:space:]]+(-c|--config)[[:space:]]+$NAME" "$HYPR_DIR/hyprland.conf"; then d_ok "autostart is in hyprland.conf"
+        else d_bad "hyprland.conf does not start MacShell: run  bash install.sh  to add the autostart"; fi
+    else
+        d_bad "no Hyprland config found in $HYPR_DIR"
+    fi
+    if pgrep -f "(qs|quickshell).*(-c|--config)[[:space:]]+$NAME" >/dev/null 2>&1; then d_ok "MacShell is running"; else say "  ${D}- MacShell is not running right now${N}"; fi
+
+    # environment
+    if [ -n "${QS_ICON_THEME:-}" ]; then d_ok "icon theme (QS_ICON_THEME): $QS_ICON_THEME"
+    elif [ -n "${QT_QPA_PLATFORMTHEME:-}" ]; then d_ok "icon theme comes from the Qt platform theme ($QT_QPA_PLATFORMTHEME)"
+    elif t=$(detect_icon_theme); then d_ok "icon theme: $t (macshell-start sets QS_ICON_THEME for the shell)"
+    else d_bad "no icon theme found: Dock icons will be blank. Install one (sudo pacman -S papirus-icon-theme)"; fi
+    [ -f "$ENV_DIR/env" ] && d_ok "your environment file: $ENV_DIR/env" || say "  ${D}- no $ENV_DIR/env yet (the installer creates it)${N}"
+    if have fc-list && fc-list 2>/dev/null | grep -qi "Inter"; then d_ok "Inter font"; else d_bad "Inter font missing (sudo pacman -S inter-font)"; fi
+
+    # graphics
+    if ls /dev/dri/renderD* >/dev/null 2>&1; then d_ok "GPU render node found"; else d_bad "no /dev/dri/renderD*: Quickshell needs OpenGL (install mesa and your GPU driver)"; fi
+    have lspci && lspci 2>/dev/null | grep -iE 'vga|3d|display' | head -n2 | sed 's/^/    GPU: /'
+    if [ -f "$DEST/liquidglass.frag.qsb" ]; then d_ok "Liquid Glass shader is built"; else d_bad "liquidglass.frag.qsb is missing: install qt6-shadertools and run bash install.sh"; fi
+
+    # services
+    if have systemctl && systemctl show-environment >/dev/null 2>&1; then
+        have bluetoothctl && { systemctl is-active --quiet bluetooth.service 2>/dev/null && d_ok "bluetooth service is running" || d_bad "bluetooth service is not running: sudo systemctl enable --now bluetooth"; }
+        have nmcli && { systemctl is-active --quiet NetworkManager.service 2>/dev/null && d_ok "NetworkManager is running" || d_bad "NetworkManager is not running (Wi-Fi in Control Center): sudo systemctl enable --now NetworkManager"; }
+        have powerprofilesctl && { systemctl is-active --quiet power-profiles-daemon.service 2>/dev/null && d_ok "power-profiles-daemon is running" || say "  ${D}- power-profiles-daemon is not running (power profiles / Game Mode)${N}"; }
+        if systemctl --user show-environment >/dev/null 2>&1; then
+            for u in pipewire wireplumber; do
+                systemctl --user is-active --quiet "$u.service" 2>/dev/null && d_ok "$u is running" || d_bad "$u is not running: systemctl --user enable --now $u"
+            done
+        fi
+    fi
+    [ -e /etc/pam.d/hyprlock ] && d_ok "/etc/pam.d/hyprlock (MacLock passwords)" || d_bad "/etc/pam.d/hyprlock is missing: install hyprlock"
+
+    # wallpaper
+    if have awww; then
+        d_ok "awww is installed"
+        if awww query >/dev/null 2>&1; then d_ok "awww daemon is running"; else say "  ${D}- awww daemon is not running (macshell-start / the shell start it)${N}"; fi
+        if grep -q '"wpRestorePath"' "$CONFIG_HOME/macbar/settings.json" 2>/dev/null; then d_ok "the shell remembers your wallpaper and puts it back at login"
+        else say "  ${D}- pick a wallpaper once in the wallpaper picker: the shell then restores it after every reboot${N}"; fi
+    else
+        d_bad "awww is not installed: the wallpaper picker cannot set the real wallpaper"
+    fi
+
+    # conflicts
+    for u in waybar hyprpanel ags dunst mako swaync nwg-dock-hyprland; do
+        pgrep -x "$u" >/dev/null 2>&1 && d_bad "$u is running and overlaps with MacShell (stop it; dunst / mako / swaync also own the notification service)"
+    done
+
+    # version
+    if have curl; then
+        local inst latest
+        inst=$(state_get installed); latest=$(RESOLVED_ID=""; resolve_version >/dev/null 2>&1 && printf '%s' "$RESOLVED_ID" || true)
+        if [ -z "$latest" ]; then say "  ${D}- could not reach GitHub to look for updates${N}"
+        elif [ "$latest" = "$inst" ]; then d_ok "up to date (${inst:0:12})"
+        else warn "an update is available (${inst:0:12} -> ${latest:0:12}): run  bash install.sh"; fi
+    fi
+    echo
+    if [ "$bad" -eq 0 ]; then printf '%sEverything looks good.%s\n' "$G" "$N"; else printf '%s%s problem(s) found%s (see the lines marked !).\n' "$Y" "$bad" "$N"; fi
+}
+
+# ───────────────────────── menu (every interactive run) ─────────────────────────
+BIND_HELP_URL="https://github.com/0-ss/MacShell#hyprland-configuration-lua"
+maybe_menu() {
+    [ "$MODE_FLAG" = 1 ] || [ "$ASSUME_YES" = 1 ] && return 0
+    [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+    local inst ans latest
+    inst=$(state_get installed)
+    say ""
+    if [ -f "$STATE_DIR/state.env" ] && [ -d "$DEST" ]; then say "${B}MacShell${N} (installed: ${inst:-unknown})"; else say "${B}MacShell${N} (not installed yet)"; fi
+    {
+        printf '\n  1) Install shell\n'
+        printf '  2) Check for updates\n'
+        printf '  3) Uninstall shell\n'
+        printf '  4) Bind help\n'
+        printf '  q) Quit\n\n'
+        printf 'Choose [1]: '
+    } >/dev/tty
+    read -r ans </dev/tty || ans=""
+    case "${ans:-1}" in
+        1) return 0 ;;
+        2)
+            have curl || die "curl is required to check for updates"
+            step "Checking for updates"
+            latest=$(RESOLVED_ID=""; resolve_version >/dev/null 2>&1 && printf '%s' "$RESOLVED_ID" || true)
+            if [ -z "$latest" ]; then warn "could not reach GitHub, check your connection"; exit 1; fi
+            if [ ! -f "$STATE_DIR/state.env" ] || [ ! -d "$DEST" ]; then
+                say "  MacShell is not installed (latest: ${latest:0:12})"
+                confirm "Install it now?" y && return 0
+                exit 0
+            fi
+            if [ "$latest" = "$inst" ]; then ok "up to date (${latest:0:12})"; exit 0; fi
+            say "  installed: ${inst:0:12}"
+            say "  latest:    ${latest:0:12}"
+            confirm "An update is available. Install it now?" y && return 0
+            exit 0
+            ;;
+        3)
+            confirm "Remove MacShell and MacLock (your settings are kept)?" n && do_uninstall
+            exit 0
+            ;;
+        4)
+            say "  Opening: $BIND_HELP_URL"
+            if have xdg-open; then nohup xdg-open "$BIND_HELP_URL" >/dev/null 2>&1 & fi
+            exit 0
+            ;;
+        *) exit 0 ;;
+    esac
 }
 
 # ───────────────────────── GitHub helpers ─────────────────────────
@@ -667,7 +935,9 @@ write_start_script() {
 #!/bin/sh
 # macshell-start: starts MacShell for the Hyprland session (the autostart line runs this).
 #   macshell-start [ConfigName]      default: MacShell
+# Your own environment variables go in ~/.config/macshell/env   (for example: export QS_ICON_THEME=Papirus)
 NAME="${1:-MacShell}"
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}"
 PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"; export PATH
 
 command -v qs >/dev/null 2>&1 || { echo "macshell-start: qs (quickshell) not found in PATH" >&2; exit 1; }
@@ -682,6 +952,45 @@ done
 # already running for this user? then there is nothing to do
 if pgrep -u "$(id -u)" -f "(^|/)(qs|quickshell)( .*)? (-c|--config) $NAME( |\$)" >/dev/null 2>&1; then exit 0; fi
 
+# ── environment: the variables Qt and Quickshell need, whatever started this script ──
+export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-wayland}"
+export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-Hyprland}"
+export XDG_SESSION_DESKTOP="${XDG_SESSION_DESKTOP:-Hyprland}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+# your own settings win over the defaults below
+if [ -f "$CONF/macshell/env" ]; then set -a; . "$CONF/macshell/env"; set +a; fi
+# icon theme: yours (QS_ICON_THEME or qt6ct), else the GTK one, else the first well-known theme that is installed
+if [ -z "${QS_ICON_THEME:-}" ] && [ -z "${QT_QPA_PLATFORMTHEME:-}" ]; then
+    has_theme() { [ -f "/usr/share/icons/$1/index.theme" ] || [ -f "$HOME/.local/share/icons/$1/index.theme" ] || [ -f "$HOME/.icons/$1/index.theme" ]; }
+    t=""
+    for f in "$CONF/gtk-3.0/settings.ini" "$CONF/gtk-4.0/settings.ini"; do
+        [ -n "$t" ] && break
+        [ -f "$f" ] && t=$(sed -n 's/^gtk-icon-theme-name *= *//p' "$f" | head -n1)
+    done
+    if [ -z "$t" ] || ! has_theme "$t"; then
+        t=""
+        for c in Papirus-Dark Papirus WhiteSur-dark WhiteSur Tela Adwaita breeze Numix; do
+            if has_theme "$c"; then t="$c"; break; fi
+        done
+    fi
+    [ -n "$t" ] && export QS_ICON_THEME="$t"
+fi
+# portals and services started later by D-Bus / systemd need to know the session too
+if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+    dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP >/dev/null 2>&1
+fi
+
+# ── wallpaper: awww forgets it at every reboot. If awww was used before (and no other wallpaper tool runs), bring it back
+# now; the shell also re-applies the wallpaper you picked, a few seconds later.
+if command -v awww-daemon >/dev/null 2>&1 && [ -n "$(ls -A "${XDG_CACHE_HOME:-$HOME/.cache}/awww" 2>/dev/null)" ] \
+   && ! pgrep -x hyprpaper >/dev/null 2>&1 && ! pgrep -x swaybg >/dev/null 2>&1 && ! pgrep -x mpvpaper >/dev/null 2>&1; then
+    (
+        awww query >/dev/null 2>&1 || setsid awww-daemon >/dev/null 2>&1 &
+        n=0; while [ "$n" -lt 20 ]; do awww query >/dev/null 2>&1 && break; n=$((n + 1)); sleep 0.25; done
+        awww restore >/dev/null 2>&1
+    ) &
+fi
+
 fast=0
 while :; do
     start=$(date +%s)
@@ -690,7 +999,7 @@ while :; do
     case "$rc" in 0|130|143) exit 0 ;; esac          # quit on purpose (qs kill / Ctrl+C / SIGTERM)
     if [ $(( $(date +%s) - start )) -lt 5 ]; then fast=$((fast + 1)); else fast=0; fi
     if [ "$fast" -ge 5 ]; then
-        msg="MacShell keeps crashing right after it starts. Run:  qs -c $NAME   and read the log."
+        msg="MacShell keeps crashing right after it starts. Run:  qs -c $NAME   and read the log (or: bash install.sh --doctor)."
         echo "macshell-start: $msg" >&2
         command -v notify-send >/dev/null 2>&1 && notify-send -u critical "MacShell" "$msg"
         exit 1
@@ -729,6 +1038,12 @@ install_extras() {
     fi
     write_start_script
     ok "start script -> $BIN_DIR/macshell-start"
+    # a copy of this installer: run  macshell-install  any time to update, check dependencies or run the doctor
+    if [ -f "$root/install.sh" ]; then
+        cp -f "$root/install.sh" "$BIN_DIR/.macshell-install.new" && chmod +x "$BIN_DIR/.macshell-install.new" \
+            && mv -f "$BIN_DIR/.macshell-install.new" "$BIN_DIR/macshell-install" && ln -sf "$BIN_DIR/macshell-install" "$LINK_DIR/macshell-install"
+        ok "installer -> $LINK_DIR/macshell-install"
+    fi
 }
 
 write_state() {
@@ -829,9 +1144,11 @@ show_lock_hint() {
 }
 
 # ───────────────────────── main ─────────────────────────
+[ "$DOCTOR" = 1 ] && { run_doctor; exit 0; }
 [ "$CHECK_ONLY" = 1 ] && run_check
+maybe_menu
 [ "$SKIP_DEPS" = 1 ] || check_deps
-if [ "$DEPS_ONLY" = 1 ]; then enable_services; ok "dependencies done"; exit 0; fi
+if [ "$DEPS_ONLY" = 1 ]; then enable_services; write_env_template; ensure_dirs; ok "dependencies done"; exit 0; fi
 SRC_ROOT=""
 fetch_source
 
@@ -855,6 +1172,9 @@ if [ -n "$LOCK_ROOT" ]; then
     ok "MacLock files copied"
 fi
 install_extras "$SRC_ROOT"
+build_shaders "$DEST"
+write_env_template
+ensure_dirs
 write_state
 # make Quickshell reload once, after every file is in place
 touch "$DEST/shell.qml"
@@ -869,6 +1189,7 @@ fi
 
 enable_services
 add_autostart
+[ "$LOW_POWER" = 1 ] && apply_low_power
 case "$AUTO_UPDATE" in
     yes) setup_auto_update ;;
     no)  remove_auto_update ;;
@@ -879,8 +1200,8 @@ echo
 printf '%sMacShell %s is installed%s.%s\n' "$G" "${RESOLVED_ID:0:12}" "${LOCK_ROOT:+ (with MacLock)}" "$N"
 say "  Start it:            sh $LINK_DIR/macshell-start      (or: qs -c $NAME)"
 [ -n "$LOCK_ROOT" ] && show_lock_hint
-say "  Check for updates:   macshell-update check"
-say "  Update:              macshell-update update"
+say "  Update / repair:     macshell-install      (or run ./install.sh again: it looks for news on GitHub)"
+say "  Find problems:       macshell-install --doctor"
 say "  Roll back:           macshell-update rollback"
 case ":$PATH:" in *":$LINK_DIR:"*) ;; *) say "  Note: add $LINK_DIR to your PATH to use 'macshell-update' from a terminal." ;; esac
 if have qs && pgrep -f "(qs|quickshell).*(-c|--config)[[:space:]]+$NAME" >/dev/null 2>&1; then
