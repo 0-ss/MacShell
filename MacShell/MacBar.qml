@@ -97,6 +97,7 @@ Scope {
     readonly property bool barLayerNeeded: barEnabled || spotlightEnabled || ccEnabled || notificationsEnabled
     property bool darkMode: true             // the resolved look (true = dark); follows appearanceMode
     property string appearanceMode: "dark"   // light | dark | auto (auto = light by day, dark by night)
+    property bool panelDarkMode: true        // independent Light / Dark look for Spotlight and top bar menus
     property color accent: "#0A84FF"
     // "Inter" renders with the single variable file: the static Inter.ttc got mapped once per face (~25×13 MB of RSS)
     property string fontFamily: "Inter Variable"
@@ -239,7 +240,7 @@ Scope {
     property bool fileSearchPending: false
     property var fileHits: []
 
-    readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "accent", "fontFamily", "barHeight", "glassOpacity",
+    readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "panelDarkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch",
         "spotlightEnabled", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
@@ -393,6 +394,26 @@ Scope {
     QtObject {
         id: bpal
         readonly property bool dark: root.darkMode
+        readonly property string fam: root.fontFamily
+        readonly property color accent: root.accent
+        readonly property color fg: dark ? "#FFFFFF" : "#1D1D1F"
+        readonly property color fg2: dark ? Qt.rgba(1, 1, 1, 0.62) : Qt.rgba(0, 0, 0, 0.55)
+        readonly property color fg3: dark ? Qt.rgba(1, 1, 1, 0.34) : Qt.rgba(0, 0, 0, 0.32)
+        readonly property color tile: dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(1, 1, 1, 0.42)
+        readonly property color tileBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.70)
+        readonly property color btnOff: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.10)
+        readonly property color btnHover: dark ? Qt.rgba(1, 1, 1, 0.30) : Qt.rgba(0, 0, 0, 0.16)
+        readonly property color hover: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.09)
+        readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.12)
+        readonly property color track: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.12)
+        readonly property color content: dark ? "#1E1E1E" : "#F5F5F7"
+        readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
+        readonly property color cardBorder: dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.08)
+        readonly property color switchOff: dark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.16)
+    }
+    QtObject {
+        id: panelPal
+        readonly property bool dark: root.panelDarkMode
         readonly property string fam: root.fontFamily
         readonly property color accent: root.accent
         readonly property color fg: dark ? "#FFFFFF" : "#1D1D1F"
@@ -758,6 +779,8 @@ Scope {
         property real thickness: 30
         property real strength: 1.0         // liquid glass strength multiplier
         property real rim: 0.45
+        property real rimTint: 0            // 1 = rim + border line take a brighter shade of the glass's own local colour
+        property real ringW: 0              // width (px) of the thin border line along the edge, 0 = none
         property real grain: 0.03
         property real blur: 5               // backdrop blur radius, px (settings slider)
         property bool debug: false
@@ -858,8 +881,8 @@ Scope {
                     property real dark: g.dark ? 1 : 0
                     property real debug: g.debug ? 1 : 0
                     property real shadowAmt: 1
-                    property real rimTint: 0
-                    property real ringW: 0
+                    property real rimTint: g.rimTint
+                    property real ringW: g.ringW
                 }
             }
         }
@@ -881,6 +904,10 @@ Scope {
         property real liquidMul: 1.0        // scales refraction / dispersion / magnify of every slab in this context
         property real paneOpacity: 1.0      // <1 lets the compositor blur show through the shader pane
         property real rim: 0.45
+        property real rimTint: 0            // 1 = rim + border line take a brighter shade of the glass's own local colour
+        property real ringW: 0              // width (px) of the thin border line along the edge, 0 = none
+        property color borderTint: "#8A9AB5"   // wallpaper's dominant colour, for the MenuBorder drawn over each slab
+        property real borderAmount: 1          // strength of that MenuBorder
         property bool whiteEdge: true       // the light inner ring of the non-liquid pane (off for Spotlight: dark outline only)
         property real grain: 0.03
         property bool debug: false
@@ -955,8 +982,8 @@ Scope {
                     property real dark: gg.gx.dark ? 1 : 0
                     property real debug: gg.gx.debug ? 1 : 0
                     property real shadowAmt: gg.shadowAmt
-                    property real rimTint: 0
-                    property real ringW: 0
+                    property real rimTint: gg.gx.rimTint
+                    property real ringW: gg.gx.ringW
                 }
             }
         }
@@ -969,6 +996,7 @@ Scope {
         required property var gx
         property real radius: 34
         GGlass { anchors.fill: parent; gx: tile.gx; cornerR: tile.radius; thickness: 22; shadowAmt: 0.45 }
+        MenuBorder { z: 2; anchors.fill: parent; cornerR: tile.radius; dark: tile.gx.dark; tint: tile.gx.borderTint; amount: tile.gx.borderAmount }
     }
 
     // small glass pill button ("Edit Controls", "Done", "Reset")
@@ -981,6 +1009,7 @@ Scope {
         signal clicked()
         width: plText.implicitWidth + 32; height: 28
         GGlass { anchors.fill: parent; gx: pl.gx; cornerR: 14; thickness: 14; strengthMul: 0.6; shadowAmt: 0.4 }
+        MenuBorder { z: 2; anchors.fill: parent; cornerR: 14; dark: pl.gx.dark; tint: pl.gx.borderTint; amount: pl.gx.borderAmount }
         Rectangle {
             anchors.fill: parent; radius: 14
             color: pla.containsMouse ? (pl.t.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.34)) : Qt.rgba(1, 1, 1, 0)
@@ -1034,6 +1063,7 @@ Scope {
         scale: (bounce && bma.pressed) ? 0.88 : 1
         Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
         GGlass { anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: b.shadow }
+        MenuBorder { z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: b.gx.dark; tint: b.gx.borderTint; amount: b.gx.borderAmount }
         Rectangle {
             anchors.fill: parent
             radius: b.d / 2
@@ -3085,7 +3115,7 @@ Scope {
     }
     function resetSettings() {
         barEnabled = true;
-        darkMode = true; appearanceMode = "dark"; accent = "#0a84ff"; fontFamily = "Inter Variable"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false;
+        darkMode = true; appearanceMode = "dark"; panelDarkMode = true; accent = "#0a84ff"; fontFamily = "Inter Variable"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
         showTray = true; showSearch = true;
         spotlightEnabled = true; ccEnabled = true; notificationsEnabled = true; clockAppEnabled = true; ccStyle = "tiles";
@@ -3177,6 +3207,88 @@ Scope {
         if (p.indexOf("file://") === 0) return p;
         return "file://" + encodeURI(p).replace(/#/g, "%23").replace(/\?/g, "%3F");
     }
+    property color wallpaperAccent: "#8A9AB5"      // most common colour of the current wallpaper
+    property string wallpaperAccentFor: ""         // image the accent above was sampled from
+    // the menu border: same hue as the wallpaper's dominant colour, lifted (dark panels) or deepened (light panels)
+    // so it stays readable on the glass whatever the wallpaper is
+    readonly property color menuBorderColor: {
+        var c = wallpaperAccent;
+        var h = c.hslHue < 0 ? 0 : c.hslHue, sat = c.hslSaturation, l = c.hslLightness;
+        var s2 = sat < 0.06 ? sat : Math.max(0.28, Math.min(0.75, sat));     // greys stay grey
+        var l2 = panelDarkMode ? Math.max(0.66, Math.min(0.86, l * 0.5 + 0.50))
+                               : Math.max(0.30, Math.min(0.52, l * 0.5 + 0.05));
+        return Qt.hsla(h, s2, l2, 1);
+    }
+    property string awwwWallpaperPath: ""
+    readonly property string dominantWallpaperPath: {
+        if (root.awwwWallpaperPath !== "") return root.awwwWallpaperPath;
+        var screens = Quickshell.screens;
+        return root.wallpaperFor(screens && screens.length ? screens[0].name : "");
+    }
+    property bool wallpaperSampleForce: true
+    onWallpaperPathChanged: { wallpaperSampleForce = true; wallpaperColorTimer.restart(); }
+    onWallpaperMapChanged: { wallpaperSampleForce = true; wallpaperColorTimer.restart(); }
+    onDominantWallpaperPathChanged: { wallpaperSampleForce = true; wallpaperColorTimer.restart(); }
+    function sampleWallpaperColor() {
+        if (awwwQueryProc.running || wallpaperColorProc.running) { wallpaperColorTimer.restart(); return; }
+        awwwQueryProc.running = true;
+    }
+    Timer { id: wallpaperColorTimer; interval: 500; onTriggered: root.sampleWallpaperColor() }
+    // wallpapers changed from outside the shell (another tool, a script): notice within half a minute.
+    // Cheap: it only re-reads the wallpaper's path and re-samples when that path differs.
+    Timer { interval: 30000; repeat: true; running: root.barEnabled && !root.gaming; onTriggered: root.sampleWallpaperColor() }
+    Process {
+        id: awwwQueryProc
+        // always exits 0 (even without awww installed) so the sampler below runs on the fallback wallpaper path
+        command: ["sh", "-c", "awww query -j 2>/dev/null || swww query -j 2>/dev/null || true"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var out = text.trim(), path = "";
+                try {
+                    var data = JSON.parse(out);
+                    function findImage(v) {
+                        if (!v || typeof v !== "object") return "";
+                        if (typeof v.image === "string" && v.image !== "") return v.image;
+                        for (var k in v) { var found = findImage(v[k]); if (found) return found; }
+                        return "";
+                    }
+                    path = findImage(data);
+                } catch (e) {
+                    var match = out.match(/image:\s*(.+)/i);
+                    if (match) path = match[1].trim();
+                }
+                if (path.indexOf("~/") === 0) path = Quickshell.env("HOME") + path.substring(1);
+                if (root.awwwWallpaperPath !== path) root.awwwWallpaperPath = path;
+                var fallback = root.wallpaperFor(Quickshell.screens && Quickshell.screens.length ? Quickshell.screens[0].name : "");
+                var p = path || fallback;
+                if (p.indexOf("file://") === 0) p = decodeURIComponent(p.substring(7));
+                if (p === "") return;
+                if (p === root.wallpaperAccentFor && !root.wallpaperSampleForce) return;   // same picture, nothing to do
+                root.wallpaperSampleForce = false;
+                wallpaperColorProc.samplePath = p;
+                // [0] = first frame only (animated gifs); ImageMagick 7 (magick) or 6 (convert)
+                wallpaperColorProc.command = ["sh", "-c",
+                    'f="$1"; for t in magick convert; do command -v "$t" >/dev/null 2>&1 && ' +
+                    '{ "$t" "${f}[0]" -alpha off -resize 64x64! -colors 8 -depth 8 -format %c histogram:info:- 2>/dev/null && exit 0; }; done; exit 0',
+                    "sh", p];
+                wallpaperColorProc.running = true;
+            }
+        }
+    }
+    Process {
+        id: wallpaperColorProc
+        property string samplePath: ""
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var rows = text.split("\n"), bestCount = -1, bestColor = "";
+                for (var i = 0; i < rows.length; i++) {
+                    var m = rows[i].match(/^\s*(\d+):.*?(#[0-9a-f]{6})/i);
+                    if (m && Number(m[1]) > bestCount) { bestCount = Number(m[1]); bestColor = m[2]; }
+                }
+                if (bestColor) { root.wallpaperAccent = bestColor; root.wallpaperAccentFor = wallpaperColorProc.samplePath; }
+            }
+        }
+    }
 
     // live window geometry for the backdrop (polled only while a glass popover is open)
     readonly property var monData: hub ? hub.monData : []
@@ -3188,6 +3300,7 @@ Scope {
 
     Component.onCompleted: {
         Quickshell.execDetached(["mkdir", "-p", configDir]);
+        wallpaperColorTimer.start();
         refreshBrightness();
         refreshWifi();
         refreshKeyboardLayout();
@@ -3589,6 +3702,7 @@ Scope {
     }
     Process {
         id: wpApplyProc
+        onExited: { root.wallpaperSampleForce = true; wallpaperColorTimer.restart(); }
         stdout: StdioCollector { onStreamFinished: if (text.trim() !== "") console.log("[wallpaper]", text.trim()) }
         stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") console.log("[wallpaper] error:", text.trim()) }
     }
@@ -4353,6 +4467,15 @@ Scope {
                         blur: root.glassBlur
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: height / 2
+                        dark: root.effDark
+                        tint: root.menuBorderColor
                     }
                     Glyph {
                         x: 20; anchors.verticalCenter: parent.verticalCenter
@@ -4796,12 +4919,21 @@ Scope {
                         cornerR: 26
                         tint: root.glassOpacity
                         thickness: 22
-                        strength: 0.7 * root.glassLiquid
+                        strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
-                        blur: root.glassBlur
+                        blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 26
+                        dark: root.effDark
+                        tint: root.menuBorderColor
                     }
                     MouseArea { anchors.fill: parent }      // clicks inside don't close the popover
                     Flickable {
@@ -4940,12 +5072,21 @@ Scope {
                         cornerR: 22
                         tint: root.glassOpacity
                         thickness: 22
-                        strength: 0.7 * root.glassLiquid
+                        strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
-                        blur: root.glassBlur
+                        blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 22
+                        dark: root.effDark
+                        tint: root.menuBorderColor
                     }
                     MouseArea { anchors.fill: parent }
                     Column {
@@ -5096,6 +5237,15 @@ Scope {
                                     blur: root.notifBlur
                                     debug: root.glassDebug
                                     onShaderError: root.glassState = "failed"
+                                    rimTint: 1
+                                    ringW: 1.4
+                                }
+                                MenuBorder {
+                                    z: 2
+                                    anchors.fill: tslab
+                                    cornerR: Math.min(24 + (1 - toast.tc) * 40, height / 2)
+                                    dark: root.effDark
+                                    tint: root.menuBorderColor
                                 }
                                 MouseArea {
                                     anchors.fill: parent
@@ -5171,6 +5321,15 @@ Scope {
                         blur: root.notifBlur
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 26
+                        dark: root.effDark
+                        tint: root.menuBorderColor
                     }
                     MouseArea { anchors.fill: parent }      // clicks inside the panel don't close it
 
@@ -5370,17 +5529,27 @@ Scope {
                         backdrop: ui.glassSrc
                         shaderUrl: root.glassShaderUrl
                         liquid: root.liquidActive
-                        dark: root.effDark
+                        dark: root.panelDarkMode
                         bx: menuPop.x; by: menuPop.y
+                        rimTint: 1
+                        ringW: 1.4
                         cornerR: 14
                         tint: root.glassOpacity
                         thickness: 22
                         strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
-                        blur: root.glassBlur
+                        blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                    }
+                    MenuBorder {
+                        id: menuBorder
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 14
+                        dark: root.panelDarkMode
+                        tint: root.menuBorderColor
                     }
                     Column {
                         id: menuCol
@@ -5402,7 +5571,7 @@ Scope {
                                     visible: it.isSep
                                     anchors.verticalCenter: parent.verticalCenter
                                     x: 8; width: parent.width - 16; height: 1
-                                    color: pal.sep
+                                    color: panelPal.sep
                                 }
                                 Rectangle {
                                     visible: it.hot
@@ -5415,8 +5584,8 @@ Scope {
                                     x: 11
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "\u2713"
-                                    color: it.hot ? "white" : pal.fg
-                                    font.family: pal.fam
+                                    color: it.hot ? "white" : panelPal.fg
+                                    font.family: panelPal.fam
                                     font.pixelSize: 13
                                 }
                                 Text {
@@ -5426,8 +5595,8 @@ Scope {
                                     width: parent.width - x - 12 - (sc.visible ? sc.implicitWidth + 12 : 0)
                                     elide: Text.ElideRight
                                     text: it.isSep ? "" : (it.armedNow ? "Click again to confirm" : it.modelData.label)
-                                    color: it.hot ? "white" : (it.off ? pal.fg2 : pal.fg)
-                                    font.family: pal.fam
+                                    color: it.hot ? "white" : (it.off ? panelPal.fg2 : panelPal.fg)
+                                    font.family: panelPal.fam
                                     font.pixelSize: 13
                                 }
                                 Text {
@@ -5437,8 +5606,8 @@ Scope {
                                     anchors.rightMargin: 12
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: it.isSep ? "" : (it.modelData.shortcut || "")
-                                    color: it.hot ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
-                                    font.family: pal.fam
+                                    color: it.hot ? Qt.rgba(1, 1, 1, 0.8) : panelPal.fg2
+                                    font.family: panelPal.fam
                                     font.pixelSize: 12
                                 }
                                 MouseArea {
@@ -5495,17 +5664,27 @@ Scope {
                         backdrop: ui.glassSrc
                         shaderUrl: root.glassShaderUrl
                         liquid: root.liquidActive
-                        dark: root.effDark
+                        dark: root.panelDarkMode
                         bx: trayPop.x; by: trayPop.y
+                        rimTint: 1
+                        ringW: 1.4
                         cornerR: 14
                         tint: root.glassOpacity
                         thickness: 22
                         strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
-                        blur: root.glassBlur
+                        blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                    }
+                    MenuBorder {
+                        id: trayBorder
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 14
+                        dark: root.panelDarkMode
+                        tint: root.menuBorderColor
                     }
 
                     Flickable {
@@ -5541,8 +5720,8 @@ Scope {
                                     width: parent.width - 24
                                     elide: Text.ElideRight
                                     text: "\u2039  " + (ui.trayStack.length > 0 ? trayPop.clean(ui.trayStack[ui.trayStack.length - 1].text) : "")
-                                    color: backMa.containsMouse ? "white" : pal.fg
-                                    font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold
+                                    color: backMa.containsMouse ? "white" : panelPal.fg
+                                    font.family: panelPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold
                                 }
                                 MouseArea {
                                     id: backMa
@@ -5554,7 +5733,7 @@ Scope {
                             Item {
                                 visible: trayBack.visible
                                 width: trayCol.width; height: visible ? 11 : 0
-                                Rectangle { anchors.verticalCenter: parent.verticalCenter; x: 8; width: parent.width - 16; height: 1; color: pal.sep }
+                                Rectangle { anchors.verticalCenter: parent.verticalCenter; x: 8; width: parent.width - 16; height: 1; color: panelPal.sep }
                             }
 
                             Repeater {
@@ -5572,7 +5751,7 @@ Scope {
                                         visible: te.isSep
                                         anchors.verticalCenter: parent.verticalCenter
                                         x: 8; width: parent.width - 16; height: 1
-                                        color: pal.sep
+                                        color: panelPal.sep
                                     }
                                     Rectangle {
                                         visible: te.hot
@@ -5586,8 +5765,8 @@ Scope {
                                         x: 10
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: te.modelData.buttonType === QsMenuButtonType.RadioButton ? "\u25CF" : "\u2713"
-                                        color: te.hot ? "white" : (te.live ? pal.fg : pal.fg2)
-                                        font.family: pal.fam
+                                        color: te.hot ? "white" : (te.live ? panelPal.fg : panelPal.fg2)
+                                        font.family: panelPal.fam
                                         font.pixelSize: te.modelData.buttonType === QsMenuButtonType.RadioButton ? 8 : 13
                                     }
                                     Image {
@@ -5607,8 +5786,8 @@ Scope {
                                         width: parent.width - x - 12 - (te.modelData.hasChildren ? 14 : 0)
                                         elide: Text.ElideRight
                                         text: te.isSep ? "" : trayPop.clean(te.modelData.text)
-                                        color: te.hot ? "white" : (te.live ? pal.fg : pal.fg2)
-                                        font.family: pal.fam
+                                        color: te.hot ? "white" : (te.live ? panelPal.fg : panelPal.fg2)
+                                        font.family: panelPal.fam
                                         font.pixelSize: 13
                                     }
                                     Text {
@@ -5617,8 +5796,8 @@ Scope {
                                         anchors.rightMargin: 10
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: "\u203A"
-                                        color: te.hot ? "white" : pal.fg2
-                                        font.family: pal.fam; font.pixelSize: 15
+                                        color: te.hot ? "white" : panelPal.fg2
+                                        font.family: panelPal.fam; font.pixelSize: 15
                                     }
                                     MouseArea {
                                         id: tma
@@ -5664,13 +5843,22 @@ Scope {
                         bx: wifiPop.x; by: wifiPop.y
                         cornerR: 22
                         tint: root.glassOpacity
-                        thickness: 24
-                        strength: 0.7 * root.glassLiquid
+                        thickness: 22
+                        strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
-                        blur: root.glassBlur
+                        blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 22
+                        dark: root.effDark
+                        tint: root.menuBorderColor
                     }
                     MouseArea { anchors.fill: parent }          // swallow clicks on empty glass so the popover doesn't close
 
@@ -5942,13 +6130,22 @@ Scope {
                         bx: btPop.x; by: btPop.y
                         cornerR: 22
                         tint: root.glassOpacity
-                        thickness: 24
-                        strength: 0.7 * root.glassLiquid
+                        thickness: 22
+                        strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
-                        blur: root.glassBlur
+                        blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 22
+                        dark: root.darkMode
+                        tint: root.menuBorderColor
                     }
                     MouseArea { anchors.fill: parent }
 
@@ -6192,13 +6389,22 @@ Scope {
                         bx: cal.x; by: cal.y
                         cornerR: 24
                         tint: root.glassOpacity
-                        thickness: 26
-                        strength: 0.8 * root.glassLiquid
+                        thickness: 22
+                        strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
-                        blur: root.glassBlur
+                        blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 24
+                        dark: root.effDark
+                        tint: root.menuBorderColor
                     }
                     Column {
                         id: calCol
@@ -6380,6 +6586,10 @@ Scope {
                         tint: root.ccStyle === "macos" ? root.glassOpacity * 0.30 : root.glassOpacity
                         strength: root.ccStyle === "macos" ? root.glassLiquid * 0.30 : root.glassLiquid
                         rim: root.ccStyle === "macos" ? root.glassRim * 0.45 : root.glassRim
+                        rimTint: 1
+                        ringW: 0.4                          // thinner edge line than the menus: Control Center is busier
+                        borderTint: root.menuBorderColor
+                        borderAmount: 0.45
                         grain: root.glassGrain
                         blur: root.glassBlur
                         debug: root.glassDebug
@@ -6732,6 +6942,7 @@ Scope {
                         width: cc.width + 24; height: ccCol.height + 24
                         sourceComponent: Item {
                             GGlass { anchors.fill: parent; gx: ccg; cornerR: 24; thickness: 26; strengthMul: 1.0; shadowAmt: 0.6 }
+                            MenuBorder { z: 2; anchors.fill: parent; cornerR: 24; dark: ccg.dark; tint: root.menuBorderColor; amount: ccg.borderAmount }
                         }
                     }
 
@@ -7067,6 +7278,16 @@ Scope {
                         blur: swPanel.style === "frosted" ? 30 : root.switcherBlur
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        visible: swPanel.style !== "opaque"
+                        cornerR: 26
+                        dark: root.effDark
+                        tint: root.menuBorderColor
                     }
                     Rectangle {
                         anchors.fill: parent
@@ -7218,6 +7439,15 @@ Scope {
                         blur: root.wpBlur
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 28
+                        dark: root.effDark
+                        tint: root.menuBorderColor
                     }
 
                     // ── header: title, folder path, Choose… ──
@@ -7586,7 +7816,7 @@ Scope {
                     }
                     Rectangle {
                         anchors.fill: parent; radius: 14
-                        color: root.darkMode ? Qt.rgba(0.16, 0.16, 0.18, 0.92) : Qt.rgba(0.97, 0.97, 0.98, 0.95)
+                        color: root.panelDarkMode ? Qt.rgba(0.16, 0.16, 0.18, 0.92) : Qt.rgba(0.97, 0.97, 0.98, 0.95)
                         border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.18)
                     }
                     Image {
@@ -7600,7 +7830,7 @@ Scope {
                         anchors.fill: parent; anchors.margins: 12
                         text: clipGhost.en ? clipGhost.en.text : ""
                         wrapMode: Text.Wrap; elide: Text.ElideRight; maximumLineCount: 2
-                        color: root.darkMode ? "white" : "#1d1d1f"; font.family: root.fontFamily; font.pixelSize: 13
+                        color: root.panelDarkMode ? "white" : "#1d1d1f"; font.family: root.fontFamily; font.pixelSize: 13
                     }
                     SequentialAnimation {
                         id: wiggleClip; loops: Animation.Infinite
@@ -7689,10 +7919,12 @@ Scope {
                     frame: spotRoot
                     liquid: root.liquidActive
                     shaderUrl: root.glassShaderUrl
-                    dark: root.effDark
+                    dark: root.panelDarkMode
                     tint: root.glassOpacity
                     strength: root.glassLiquid               // full refraction, like the Dock / Control Center
-                    rim: 0                                   // no white rim: Spotlight gets a dark outline instead
+                    rim: root.glassRim                       // same wallpaper-coloured rim + border line as the top-bar menus
+                    rimTint: 1
+                    ringW: 1.4
                     whiteEdge: false
                     grain: root.glassGrain
                     blur: 15                                // Spotlight has its own blur: it ignores the global blur slider
@@ -7761,16 +7993,12 @@ Scope {
                             height: 48
                             GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 22; strengthMul: 1.0; shadowAmt: 0.18 }
                             HoverHandler { id: pillHover }
-                            ContourGlow { cornerR: 24; hovered: pillHover.hovered; at: pillHover.point.position; glowColor: root.darkMode ? "white" : root.accent }
-                            // very thin outline
-                            Rectangle {
-                                anchors.fill: parent; radius: 24; color: "transparent"; antialiasing: true
-                                border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2)
-                            }
+                            ContourGlow { cornerR: 24; hovered: pillHover.hovered; at: pillHover.point.position; glowColor: root.panelDarkMode ? "white" : root.accent }
+                            MenuBorder { anchors.fill: parent; cornerR: 24; dark: root.panelDarkMode; tint: root.menuBorderColor }
                             Glyph {
                                 x: 18; anchors.verticalCenter: parent.verticalCenter
                                 width: 18; height: 18
-                                kind: "search"; color: pal.fg2
+                                kind: "search"; color: panelPal.fg2
                             }
                             // placeholder: blur-morphs between "Spotlight Search" and the hovered button's name
                             MorphText {
@@ -7782,8 +8010,8 @@ Scope {
                                 duration: 460
                                 blurMax: 48
                                 text: ui.spHoverLabel !== "" ? ui.spHoverLabel : "Spotlight Search"
-                                color: pal.fg2
-                                font.family: pal.fam; font.pixelSize: 17
+                                color: panelPal.fg2
+                                font.family: panelPal.fam; font.pixelSize: 17
                                 elide: Text.ElideRight
                             }
                             TextInput {
@@ -7792,10 +8020,10 @@ Scope {
                                 width: parent.width - 46 - 18
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
-                                color: pal.fg
+                                color: panelPal.fg
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 17
+                                font.family: panelPal.fam; font.pixelSize: 17
                                 horizontalAlignment: /[\u0590-\u08ff]/.test(text) ? Text.AlignRight : Text.AlignLeft
                                 onTextChanged: { if (!ui.spFull) { ui.spQuery = text; ui.spSel = 0; ui.armed = ""; if (/^(file|find)\s+/i.test(text)) root.updateFileSearch(text.replace(/^(file|find)\s+/i, "").trim()); } }
                                 Keys.onPressed: event => ui.spKey(event)
@@ -7823,12 +8051,8 @@ Scope {
                                         else if (ui.spHoverLabel === modelData.label) spHoverClear.restart();
                                     }
                                 }
-                                ContourGlow { cornerR: 24; hovered: btnHover.hovered; at: btnHover.point.position; glowColor: root.darkMode ? "white" : root.accent }
-                                // very thin outline
-                                Rectangle {
-                                    anchors.fill: parent; radius: width / 2; color: "transparent"; antialiasing: true
-                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2)
-                                }
+                                ContourGlow { cornerR: 24; hovered: btnHover.hovered; at: btnHover.point.position; glowColor: root.panelDarkMode ? "white" : root.accent }
+                                MenuBorder { anchors.fill: parent; cornerR: width / 2; dark: root.panelDarkMode; tint: root.menuBorderColor }
                                 onClicked: {
                                     if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
                                     else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");
@@ -7855,8 +8079,7 @@ Scope {
                         height: (items.length > 0 ? items.length : keep) * 46 + 16
                         Behavior on height { NumberAnimation { duration: 320; easing.type: Easing.OutQuint } }
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 26; thickness: 26; strengthMul: 1.0; shadowAmt: 0.22 }
-                        Rectangle { anchors.fill: parent; radius: 26; color: "transparent"; antialiasing: true
-                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
+                        MenuBorder { anchors.fill: parent; cornerR: 26; dark: root.panelDarkMode; tint: root.menuBorderColor }
                         Item {
                             x: 8; y: 8
                             width: parent.width - 16
@@ -7901,7 +8124,7 @@ Scope {
                                             anchors.centerIn: parent
                                             width: 20; height: 20
                                             kind: (rr.modelData && rr.modelData.glyph) ? rr.modelData.glyph : ""
-                                            color: rr.sel ? "white" : pal.fg
+                                            color: rr.sel ? "white" : panelPal.fg
                                         }
                                     }
                                     Text {
@@ -7910,16 +8133,16 @@ Scope {
                                         width: parent.width - 54 - 140
                                         elide: Text.ElideRight
                                         text: rr.armedNow ? "Press Return again to confirm" : (rr.modelData ? rr.modelData.title : "")
-                                        color: rr.sel ? "white" : pal.fg
-                                        font.family: pal.fam; font.pixelSize: 14
+                                        color: rr.sel ? "white" : panelPal.fg
+                                        font.family: panelPal.fam; font.pixelSize: 14
                                     }
                                     Text {
                                         anchors.right: parent.right
                                         anchors.rightMargin: 16
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: rr.modelData ? rr.modelData.sub : ""
-                                        color: rr.sel ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
-                                        font.family: pal.fam; font.pixelSize: 12
+                                        color: rr.sel ? Qt.rgba(1, 1, 1, 0.8) : panelPal.fg2
+                                        font.family: panelPal.fam; font.pixelSize: 12
                                     }
                                     MouseArea {
                                         anchors.fill: parent
@@ -7956,8 +8179,7 @@ Scope {
                         height: 64 + (items.length > 0 ? shown * rowH + 14 : 118)
                         Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.5 }
-                        Rectangle { anchors.fill: parent; radius: 32; color: "transparent"; antialiasing: true
-                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
+                        MenuBorder { anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
 
                         Item {
                             id: clipHeader
@@ -7976,8 +8198,8 @@ Scope {
                                 x: 46
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "Clipboard"
-                                color: pal.fg
-                                font.family: pal.fam; font.pixelSize: 24; font.weight: Font.Medium
+                                color: panelPal.fg
+                                font.family: panelPal.fam; font.pixelSize: 24; font.weight: Font.Medium
                             }
                             TextInput {
                                 id: clipInput
@@ -7985,10 +8207,10 @@ Scope {
                                 width: parent.width - x - 48
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
-                                color: pal.fg
+                                color: panelPal.fg
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 24
+                                font.family: panelPal.fam; font.pixelSize: 24
                                 onTextChanged: { if (ui.spMode === "clip") { ui.spQuery = text; ui.spSel = 0; } }
                                 Keys.onPressed: event => ui.spKey(event)
                             }
@@ -8044,12 +8266,12 @@ Scope {
                                         visible: cr.modelData.kind === "text" || cr.modelData.kind === "url"
                                         anchors.fill: parent
                                         radius: 10
-                                        color: cr.sel ? Qt.rgba(1, 1, 1, 0.22) : (root.darkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06))
+                                        color: cr.sel ? Qt.rgba(1, 1, 1, 0.22) : (root.panelDarkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06))
                                         Glyph {
                                             anchors.centerIn: parent
                                             width: 20; height: 20
                                             kind: cr.modelData.kind === "url" ? "link" : "doc"
-                                            color: cr.sel ? "white" : pal.fg2
+                                            color: cr.sel ? "white" : panelPal.fg2
                                         }
                                     }
                                     Rectangle {
@@ -8062,7 +8284,7 @@ Scope {
                                     Item {
                                         visible: cr.modelData.kind === "image"
                                         anchors.fill: parent
-                                        Rectangle { anchors.fill: parent; radius: 10; color: root.darkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06) }
+                                        Rectangle { anchors.fill: parent; radius: 10; color: root.panelDarkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06) }
                                         Image {
                                             anchors.fill: parent
                                             source: cr.modelData.kind === "image" ? cr.modelData.thumb : ""
@@ -8091,16 +8313,16 @@ Scope {
                                     width: parent.width - 62 - 56
                                     elide: Text.ElideRight
                                     text: cr.modelData ? cr.modelData.title : ""
-                                    color: cr.sel ? "white" : pal.fg
-                                    font.family: pal.fam; font.pixelSize: 14
+                                    color: cr.sel ? "white" : panelPal.fg
+                                    font.family: panelPal.fam; font.pixelSize: 14
                                 }
                                 Text {
                                     x: 62; y: 31
                                     width: parent.width - 62 - 56
                                     elide: Text.ElideRight
                                     text: cr.modelData ? cr.modelData.sub : ""
-                                    color: cr.sel ? Qt.rgba(1, 1, 1, 0.8) : pal.fg2
-                                    font.family: pal.fam; font.pixelSize: 12
+                                    color: cr.sel ? Qt.rgba(1, 1, 1, 0.8) : panelPal.fg2
+                                    font.family: panelPal.fam; font.pixelSize: 12
                                 }
                                 Glyph {
                                     visible: cr.sel
@@ -8146,16 +8368,16 @@ Scope {
                                 width: parent.width
                                 horizontalAlignment: Text.AlignHCenter
                                 text: clipPanel.emptyTitle
-                                color: pal.fg
-                                font.family: pal.fam; font.pixelSize: 15; font.weight: Font.Medium
+                                color: panelPal.fg
+                                font.family: panelPal.fam; font.pixelSize: 15; font.weight: Font.Medium
                             }
                             Text {
                                 width: parent.width
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.WordWrap
                                 text: clipPanel.emptySub
-                                color: pal.fg2
-                                font.family: pal.fam; font.pixelSize: 12
+                                color: panelPal.fg2
+                                font.family: panelPal.fam; font.pixelSize: 12
                             }
                         }
 
@@ -8170,8 +8392,7 @@ Scope {
                             width: 250
                             height: 3 * 40 + 12
                             GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 26; strengthMul: 1.0; shadowAmt: 0.6 }
-                            Rectangle { anchors.fill: parent; radius: 20; color: "transparent"; antialiasing: true
-                                        border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
+                            MenuBorder { anchors.fill: parent; cornerR: 20; dark: root.panelDarkMode; tint: root.menuBorderColor }
                             Column {
                                 x: 6; y: 6
                                 width: parent.width - 12
@@ -8192,7 +8413,7 @@ Scope {
                                             visible: cm.modelData === "auto" && root.clipAutoPaste
                                             x: 12; anchors.verticalCenter: parent.verticalCenter
                                             width: 16; height: 16
-                                            kind: "check"; color: cmMa.containsMouse ? "white" : pal.fg
+                                            kind: "check"; color: cmMa.containsMouse ? "white" : panelPal.fg
                                         }
                                         Text {
                                             x: 38
@@ -8200,8 +8421,8 @@ Scope {
                                             text: cm.modelData === "auto" ? "Paste Automatically"
                                                   : (cm.modelData === "del" ? "Delete Selected"
                                                   : (cm.armedNow ? "Click again to confirm" : "Clear History"))
-                                            color: cmMa.containsMouse ? "white" : ((cm.modelData === "clear") ? "#FF453A" : pal.fg)
-                                            font.family: pal.fam; font.pixelSize: 14
+                                            color: cmMa.containsMouse ? "white" : ((cm.modelData === "clear") ? "#FF453A" : panelPal.fg)
+                                            font.family: panelPal.fam; font.pixelSize: 14
                                         }
                                         MouseArea {
                                             id: cmMa
@@ -8241,8 +8462,7 @@ Scope {
                         readonly property var cur: items[Math.min(ui.spSel, items.length - 1)]
                         height: 64 + 42 + gridRows * cell + 46
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.5 }
-                        Rectangle { anchors.fill: parent; radius: 32; color: "transparent"; antialiasing: true
-                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
+                        MenuBorder { anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
 
                         Item {
                             x: 20
@@ -8260,8 +8480,8 @@ Scope {
                                 x: 46
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "Emoji"
-                                color: pal.fg
-                                font.family: pal.fam; font.pixelSize: 24; font.weight: Font.Medium
+                                color: panelPal.fg
+                                font.family: panelPal.fam; font.pixelSize: 24; font.weight: Font.Medium
                             }
                             TextInput {
                                 id: emojiInput
@@ -8269,10 +8489,10 @@ Scope {
                                 width: parent.width - x
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
-                                color: pal.fg
+                                color: panelPal.fg
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 24
+                                font.family: panelPal.fam; font.pixelSize: 24
                                 onTextChanged: { if (ui.spMode === "emoji") { ui.spQuery = text; ui.spSel = 0; } }
                                 Keys.onPressed: event => ui.spKey(event)
                             }
@@ -8367,31 +8587,31 @@ Scope {
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                             text: ui.spQuery.trim() !== "" ? "No Results" : "No recently used emoji"
-                            color: pal.fg2
-                            font.family: pal.fam; font.pixelSize: 14
+                            color: panelPal.fg2
+                            font.family: panelPal.fam; font.pixelSize: 14
                         }
 
                         // footer: name of the highlighted emoji
                         Item {
                             x: 20; y: parent.height - 46
                             width: parent.width - 40; height: 46
-                            Rectangle { width: parent.width; height: 1; color: pal.sep }
+                            Rectangle { width: parent.width; height: 1; color: panelPal.sep }
                             Text {
                                 x: 4
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 180
                                 elide: Text.ElideRight
                                 text: emojiPanel.cur ? (emojiPanel.cur[0] + "  " + emojiPanel.cur[1]) : ""
-                                color: pal.fg2
-                                font.family: pal.fam; font.pixelSize: 13
+                                color: panelPal.fg2
+                                font.family: panelPal.fam; font.pixelSize: 13
                             }
                             Text {
                                 anchors.right: parent.right
                                 anchors.rightMargin: 4
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: root.clipAutoPaste ? "Return to insert" : "Return to copy"
-                                color: pal.fg3
-                                font.family: pal.fam; font.pixelSize: 12
+                                color: panelPal.fg3
+                                font.family: panelPal.fam; font.pixelSize: 12
                             }
                         }
                     }
@@ -8408,8 +8628,7 @@ Scope {
                         width: spot.width
                         height: Math.min(64 + appsCol.height + 14, 520)
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.5 }
-                        Rectangle { anchors.fill: parent; radius: 32; color: "transparent"; antialiasing: true
-                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
+                        MenuBorder { anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
 
                         Item {
                             id: appsHeader
@@ -8419,15 +8638,15 @@ Scope {
                             Glyph {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 24; height: 24
-                                kind: "appstore"; color: pal.fg2
+                                kind: "appstore"; color: panelPal.fg2
                             }
                             Text {
                                 x: 40 + 3
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: appsInput.text === ""
                                 text: "Applications"
-                                color: pal.fg3
-                                font.family: pal.fam; font.pixelSize: 24
+                                color: panelPal.fg3
+                                font.family: panelPal.fam; font.pixelSize: 24
                             }
                             TextInput {
                                 id: appsInput
@@ -8435,10 +8654,10 @@ Scope {
                                 width: parent.width - 40 - 48
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
-                                color: pal.fg
+                                color: panelPal.fg
                                 selectionColor: root.accent
                                 selectedTextColor: "white"
-                                font.family: pal.fam; font.pixelSize: 24
+                                font.family: panelPal.fam; font.pixelSize: 24
                                 onTextChanged: { if (ui.spMode === "apps") { ui.spQuery = text; ui.spSel = 0; } }
                                 Keys.onPressed: event => ui.spKey(event)
                             }
@@ -8479,15 +8698,15 @@ Scope {
                                         readonly property int shown: expanded ? modelData.apps.length : Math.min(5, modelData.apps.length)
                                         width: appsCol.width
 
-                                        Rectangle { width: parent.width; height: 1; color: pal.sep }
+                                        Rectangle { width: parent.width; height: 1; color: panelPal.sep }
                                         Item {
                                             width: parent.width
                                             height: 38
                                             Text {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: sec.modelData.name
-                                                color: pal.fg
-                                                font.family: pal.fam; font.pixelSize: 13; font.weight: Font.Bold
+                                                color: panelPal.fg
+                                                font.family: panelPal.fam; font.pixelSize: 13; font.weight: Font.Bold
                                             }
                                             Text {
                                                 visible: !sec.searching && sec.modelData.apps.length > 5
@@ -8495,7 +8714,7 @@ Scope {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: sec.expanded ? "Show Less" : "Show More"
                                                 color: root.accent
-                                                font.family: pal.fam; font.pixelSize: 12; font.weight: Font.Bold
+                                                font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Bold
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     anchors.margins: -6
@@ -8517,7 +8736,7 @@ Scope {
                                                         anchors.fill: parent
                                                         anchors.margins: 2
                                                         radius: 16
-                                                        color: cma.containsMouse ? pal.hover : "transparent"
+                                                        color: cma.containsMouse ? panelPal.hover : "transparent"
                                                     }
                                                     Image {
                                                         anchors.horizontalCenter: parent.horizontalCenter
@@ -8536,8 +8755,8 @@ Scope {
                                                         horizontalAlignment: Text.AlignHCenter
                                                         elide: Text.ElideRight
                                                         text: cell.e.name
-                                                        color: pal.fg
-                                                        font.family: pal.fam; font.pixelSize: 12
+                                                        color: panelPal.fg
+                                                        font.family: panelPal.fam; font.pixelSize: 12
                                                     }
                                                     MouseArea {
                                                         id: cma
@@ -8558,8 +8777,8 @@ Scope {
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     text: "No Results"
-                                    color: pal.fg2
-                                    font.family: pal.fam; font.pixelSize: 14
+                                    color: panelPal.fg2
+                                    font.family: panelPal.fam; font.pixelSize: 14
                                 }
                             }
                         }

@@ -1275,6 +1275,21 @@ Scope {
                         }
                     }
                 }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Spotlight & top bar menus"
+                        subtitle: "Set Light or Dark appearance for Spotlight and dropdown menus only"
+                        SSegmented {
+                            t: pal
+                            model: ["Light", "Dark"]
+                            segWidth: 72
+                            current: root.bar && root.bar.panelDarkMode ? 1 : 0
+                            onPicked: i => { if (root.bar) root.bar.panelDarkMode = (i === 1); }
+                        }
+                    }
+                }
                 SLabel {
                     t: pal
                     text: "If you turn both off, reopen this window with:  qs -c macbar ipc call settings open"
@@ -2067,7 +2082,7 @@ Scope {
                     SRow {
                         t: pal
                         title: "Appearance"
-                        subtitle: "Light, Dark, or Auto (light by day, dark at night). Applies to the Dock, the Menu Bar, Spotlight, menus and this window"
+                        subtitle: "Light, Dark, or Auto for the Dock, Menu Bar and Settings. Spotlight and top bar menus use General → Spotlight & top bar menus."
                         Row {
                             spacing: 14
                             SThemeTile {
