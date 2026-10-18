@@ -995,8 +995,24 @@ Scope {
         required property var t
         required property var gx
         property real radius: 34
+        // the whole tile is the button: a click anywhere fires clicked(); the round icon inside only shows the on / off state
+        property bool on: false
+        property string onTint: ""
+        property bool clickable: false
+        readonly property color fg: t.fg
+        readonly property color fg2: t.fg2
+        signal clicked()
+        scale: (clickable && tma.pressed) ? 0.97 : 1
+        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: 2.4 } }
         GGlass { anchors.fill: parent; gx: tile.gx; cornerR: tile.radius; thickness: 22; shadowAmt: 0.45 }
+        Rectangle {
+            anchors.fill: parent
+            radius: tile.radius
+            color: (tile.clickable && tma.containsMouse) ? (tile.t.dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(1, 1, 1, 0.26)) : Qt.rgba(1, 1, 1, 0)
+            Behavior on color { ColorAnimation { duration: 320; easing.type: Easing.OutCubic } }
+        }
         MenuBorder { z: 2; anchors.fill: parent; cornerR: tile.radius; dark: tile.gx.dark; tint: tile.gx.borderTint; amount: tile.gx.borderAmount }
+        MouseArea { id: tma; anchors.fill: parent; enabled: tile.clickable; hoverEnabled: true; onClicked: tile.clicked() }
     }
 
     // small glass pill button ("Edit Controls", "Done", "Reset")
@@ -1059,16 +1075,19 @@ Scope {
         property real shadow: 0
         signal clicked()
         property bool bounce: false
+        property bool plain: false      // icon only: no glass disc and no click area of its own (the tile is the button)
         width: d; height: d
         scale: (bounce && bma.pressed) ? 0.88 : 1
         Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
-        GGlass { anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: b.shadow }
-        MenuBorder { z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: b.gx.dark; tint: b.gx.borderTint; amount: b.gx.borderAmount }
+        GGlass { visible: !b.plain; anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: b.shadow }
+        MenuBorder { visible: !b.plain; z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: b.gx.dark; tint: b.gx.borderTint; amount: b.gx.borderAmount }
         Rectangle {
             anchors.fill: parent
             radius: b.d / 2
+            // plain (icon on a tile): the accent circle appears only while enabled, nothing when off
             color: b.on ? (b.onTint !== "" ? Qt.color(b.onTint) : Qt.rgba(b.t.accent.r, b.t.accent.g, b.t.accent.b, 0.92))
-                        : (bma.containsMouse ? (b.t.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.34)) : Qt.rgba(1, 1, 1, 0))
+                        : (b.plain ? (b.t.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.14))      // plain: a grey circle while off
+                                   : (bma.containsMouse ? (b.t.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.34)) : Qt.rgba(1, 1, 1, 0)))
             Behavior on color { ColorAnimation { duration: 320; easing.type: Easing.OutCubic } }
         }
         // state flip: the icon dips, turns a touch and springs back (motion), while the fill fades
@@ -1088,7 +1107,7 @@ Scope {
             color: b.on ? "white" : b.t.fg
             Behavior on color { ColorAnimation { duration: 320; easing.type: Easing.OutCubic } }
         }
-        MouseArea { id: bma; anchors.fill: parent; hoverEnabled: true; onClicked: b.clicked() }
+        MouseArea { id: bma; anchors.fill: parent; enabled: !b.plain; hoverEnabled: true; onClicked: b.clicked() }
     }
 
     // thin-line slider: icon at each end, slim rounded track between them
@@ -6617,33 +6636,38 @@ Scope {
                     Component {
                         id: cWifi
                         CCTile {
+                            id: tl
+                            clickable: true
+                            on: root.wifiOn
+                            onClicked: root.toggleWifi()
                             t: ccPal; gx: ccg
                             CCBtn {
+                                plain: true
                                 t: ccPal; gx: ccg
                                 x: 12; anchors.verticalCenter: parent.verticalCenter
                                 kind: "wifi"; level: root.wifiOn ? (root.wifiLevel || 3) : 3
                                 on: root.wifiOn
-                                onClicked: root.toggleWifi()
                             }
                             MouseArea {
-                                x: 56; width: parent.width - 56; height: parent.height
+                                // only the arrow end opens the network list; the rest of the tile switches Wi-Fi on / off
+                                x: parent.width - 48; width: 48; height: parent.height
                                 onClicked: ui.openPop("wifi", ui.width)
                             }
                             Glyph {
                                 x: parent.width - 22; anchors.verticalCenter: parent.verticalCenter
                                 width: 12; height: 12
-                                kind: "chevR"; color: ccPal.fg2
+                                kind: "chevR"; color: tl.fg2
                             }
                             Column {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 62 - 24
                                 spacing: 1
-                                Text { text: "Wi-Fi"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { text: "Wi-Fi"; color: tl.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
                                 MorphText {
                                     animateWidth: false; duration: 420
                                     width: parent.width; elide: Text.ElideRight
                                     text: !root.wifiOn ? "Off" : (root.wifiSsid !== "" ? root.wifiSsid : "Not Connected")
-                                    color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12
+                                    color: tl.fg2; font.family: ccPal.fam; font.pixelSize: 12
                                 }
                             }
                         }
@@ -6651,36 +6675,44 @@ Scope {
                     Component {
                         id: cBt
                         CCTile {
+                            clickable: true
+                            on: root.btOn
+                            onClicked: root.toggleBt()
+                            id: btTile
                             t: ccPal; gx: ccg
+                            // one grid cell is ~70 px wide, two are ~150 px: wide = shows the label and opens the device list
+                            // (the cell's `slot` is not visible from inside this Component, which left the icon unplaced)
+                            readonly property bool wide: width > 110
                             CCBtn {
+                                plain: true
                                 t: ccPal; gx: ccg
-                                x: slot.w > 1 ? 12 : (parent.width - width) / 2
+                                x: btTile.wide ? 12 : (parent.width - width) / 2
                                 anchors.verticalCenter: parent.verticalCenter
                                 kind: "bluetooth"; on: root.btOn
-                                onClicked: root.toggleBt()
                             }
                             MouseArea {
-                                visible: slot.w > 1
-                                x: 56; width: parent.width - 56; height: parent.height
+                                visible: btTile.wide
+                                // only the arrow end opens the device list; the rest of the tile switches Bluetooth on / off
+                                x: parent.width - 48; width: 48; height: parent.height
                                 onClicked: ui.openPop("bt", ui.width)
                             }
                             Glyph {
-                                visible: slot.w > 1
+                                visible: btTile.wide
                                 x: parent.width - 22; anchors.verticalCenter: parent.verticalCenter
                                 width: 12; height: 12
-                                kind: "chevR"; color: ccPal.fg2
+                                kind: "chevR"; color: btTile.fg2
                             }
                             Column {
-                                visible: slot.w > 1
+                                visible: btTile.wide
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 62 - 24
                                 spacing: 1
-                                Text { text: "Bluetooth"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { text: "Bluetooth"; color: btTile.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
                                 MorphText {
                                     animateWidth: false; duration: 420
                                     width: parent.width; elide: Text.ElideRight
                                     text: !root.btOn ? "Off" : (root.btConnected > 0 ? (root.btConnectedName || (root.btConnected + " Connected")) : "Not Connected")
-                                    color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12
+                                    color: btTile.fg2; font.family: ccPal.fam; font.pixelSize: 12
                                 }
                             }
                         }
@@ -6688,101 +6720,131 @@ Scope {
                     Component {
                         id: cAirplane
                         CCTile {
+                            id: tl
+                            clickable: true
+                            on: root.airplane
+                            onClicked: root.toggleAirplane()
                             t: ccPal; gx: ccg
                             CCBtn {
+                                plain: true
                                 t: ccPal; gx: ccg; anchors.centerIn: parent
                                 kind: "airplane"; on: root.airplane
-                                onClicked: root.toggleAirplane()
                             }
                         }
                     }
                     Component {
                         id: cFocus
                         CCTile {
+                            id: tl
+                            clickable: true
+                            on: root.dnd
+                            onClicked: root.toggleDnd()
                             t: ccPal; gx: ccg
                             CCBtn {
+                                plain: true
                                 t: ccPal; gx: ccg
                                 x: 12; anchors.verticalCenter: parent.verticalCenter
                                 kind: "moon"; on: root.dnd
-                                onClicked: root.toggleDnd()
                             }
                             Column {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 spacing: 1
-                                Text { text: "Focus"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                MorphText { animateWidth: false; duration: 420; text: root.dnd ? "Do Not Disturb" : "Off"; color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
+                                Text { text: "Focus"; color: tl.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                MorphText { animateWidth: false; duration: 420; text: root.dnd ? "Do Not Disturb" : "Off"; color: tl.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
                             }
                         }
                     }
                     Component {
                         id: cGaming
                         CCTile {
+                            id: tl
+                            clickable: true
+                            on: root.gaming
+                            onTint: "#30D158"
+                            onClicked: root.gamingMode = !root.gaming
                             t: ccPal; gx: ccg
                             CCBtn {
+                                plain: true
                                 t: ccPal; gx: ccg
                                 x: 12; anchors.verticalCenter: parent.verticalCenter
                                 kind: "gamepad"; on: root.gaming; onTint: "#30D158"
-                                onClicked: root.gamingMode = !root.gaming
                             }
                             Column {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 62 - 10
                                 spacing: 1
-                                Text { width: parent.width; elide: Text.ElideRight; text: "Game Mode"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { width: parent.width; elide: Text.ElideRight; text: "Game Mode"; color: tl.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
                                 MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.gamingAutoActive && !root.gamingMode ? "On (game detected)" : (root.gaming ? "On" : (root.gamingAuto ? "Auto" : "Off"))
-                                       color: root.gaming ? "#30D158" : ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
+                                       color: tl.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
                             }
                         }
                     }
                     Component {
                         id: cRecord
                         CCTile {
+                            id: tl
+                            clickable: true
+                            on: root.recording
+                            onTint: "#FF453A"
+                            onClicked: root.toggleRecording()
                             t: ccPal; gx: ccg
                             CCBtn {
+                                plain: true
                                 t: ccPal; gx: ccg
                                 x: 12; anchors.verticalCenter: parent.verticalCenter
                                 kind: root.recording ? "stoprec" : "record"; on: root.recording; onTint: "#FF453A"
-                                onClicked: root.toggleRecording()
                             }
                             Column {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 62 - 10
                                 spacing: 1
-                                MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.recording ? "Stop" : "Record"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.recording ? root.recTime() : "Screen"; color: root.recording ? "#FF453A" : ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
+                                MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.recording ? "Stop" : "Record"; color: tl.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.recording ? root.recTime() : "Screen"; color: tl.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
                             }
                         }
                     }
                     Component {
                         id: cNight
                         CCTile {
+                            id: tl
+                            clickable: true
+                            on: root.nightOn
+                            onClicked: root.nightOn = !root.nightOn
                             t: ccPal; gx: ccg
                             CCBtn {
+                                plain: true
                                 t: ccPal; gx: ccg; anchors.centerIn: parent
                                 kind: "nightshift"; on: root.nightOn
-                                onClicked: root.nightOn = !root.nightOn
                             }
                         }
                     }
                     Component {
                         id: cAwake
                         CCTile {
+                            id: tl
+                            clickable: true
+                            on: root.keepAwake
+                            onClicked: root.keepAwake = !root.keepAwake
                             t: ccPal; gx: ccg
                             CCBtn {
+                                plain: true
                                 t: ccPal; gx: ccg; anchors.centerIn: parent
                                 kind: "coffee"; on: root.keepAwake
-                                onClicked: root.keepAwake = !root.keepAwake
                             }
                         }
                     }
                     Component {
                         id: cDark
                         CCTile {
+                            id: tl
+                            clickable: true
+                            on: root.darkMode
+                            onClicked: root.setAppearance(root.darkMode ? "light" : "dark")
                             t: ccPal; gx: ccg
                             CCBtn {
+                                plain: true
                                 t: ccPal; gx: ccg; anchors.centerIn: parent
                                 kind: "contrast"; on: root.darkMode
-                                onClicked: root.setAppearance(root.darkMode ? "light" : "dark")
                             }
                         }
                     }
