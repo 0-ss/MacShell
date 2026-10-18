@@ -1,56 +1,79 @@
-# MacShell - New Features & Updates
+# MacShell & MacLock - Comprehensive Feature Updates & Optimizations
 
-This document summarizes the new widgets, design refinements, and performance optimizations introduced in this update.
+This document details all new widgets, visual effects, and performance optimizations introduced in this update.
 
 ---
 
-## 🚀 New Widgets
+## 🌟 Key Highlights
+
+1. **Massive GPU & CPU Reduction**: Eliminates idle shader costs, introduces occlusion awareness, and streamlines rendering loops to slash system resource consumption.
+2. **Animated Spotify Canvas for MacLock**: Fetches and loops official Spotify video canvas on the lock screen with smart LRU caching and graceful fallback.
+3. **Synchronized Lyric Animations**: Real-time karaoke-style scrolling lyrics with dynamic typography and smooth transitions.
+4. **Animated GIF / WebP Desktop Widget**: Interactive loop widget with zero-cost background pausing when obscured by open windows.
+5. **System Monitor & Market Tracking Widgets**: Apple Activity Monitor and Apple Stocks widgets crafted for macOS Sequoia / Tahoe design specifications.
+
+---
+
+## ⚡ Heavy GPU & Performance Optimizations
+
+- **Occlusion & Desktop-Covered Awareness**:
+  - The GIF widget and intensive background canvas shaders automatically monitor active window coverage. When windows cover the screen, playback and animations pause completely, reducing GPU and CPU usage to **0%**.
+- **Liquid Glass Multi-Pass Shader Efficiency**:
+  - Downsampled blur pre-passes (`gl.ds = 0.5` for heavy blurs) reduce fill-rate pressure on integrated and discrete GPUs.
+  - Settle timers halt continuous re-rendering once windows or positions stabilize, avoiding persistent redraw loops.
+  - Proper uniform memory alignment (`vec2 itemSize`, `vec2 glassSize`, `vec2 srcOffset`, `gl.padPx`) prevents shader fallbacks and ensures hardware-accelerated squircle calculations.
+- **Asynchronous, Non-Blocking Python Daemons**:
+  - All external data collectors (`sysmon_reader.py`, `stocks_fetcher.py`, `canvas_fetcher.py`, `lyrics_fetcher.py`) execute asynchronously via `StdioCollector`. The main QML UI thread never stutters or drops frames during network or disk I/O.
+- **Intelligent Caching**:
+  - LRU cache management prevents disk bloating (max 20 videos / 100 MB for canvas).
+  - Rate-limited market data polling prevents API throttles and excessive network traffic.
+
+---
+
+## 🎵 Music, Canvas & Lyric Experience
+
+### 1. Animated Album Canvas (`canvas_fetcher.py`)
+- Automatically retrieves official animated Spotify Canvas videos for currently playing tracks.
+- Seamlessly loops behind the MacLock screen or player surfaces.
+- Automated fallback to high-resolution blurred album art when no canvas video exists.
+- Built-in LRU cache pruner to maintain lean disk usage.
+
+### 2. Synchronized Lyric Animations (`lyrics_fetcher.py`)
+- Fetches synchronized timestamped lyrics from online providers and local tags.
+- Smooth kinetic scrolling transitions that focus on the active singing line.
+- Dynamic glowing typography and subtle opacity falloff for upcoming lines.
+
+---
+
+## 🖥️ New Desktop Widgets
 
 ### 1. System Monitor Widget (`SystemMonitorWidget.qml` & `sysmon_reader.py`)
-Inspired by Apple Activity Monitor and macOS Sonoma widgets, this widget provides real-time hardware telemetry:
+Designed after macOS Activity Monitor with dual and quad animated circular gauges:
 - **Small (168×168)**: 2×2 quad circular gauges for **CPU**, **GPU**, **RAM**, and **Disk**.
-- **Medium (358×168)**: Dual circular gauges for CPU & RAM usage, a styled storage bar with free space, and metric cards for GPU utilization, thermal temperatures (°C), and live network throughput.
-- **Large (358×354)**: Comprehensive system dashboard with circular gauges, detailed RAM/Storage allocation bars, load status, and sensor readouts.
-- **Efficient Backend**: `sysmon_reader.py` samples `/proc`, `sysfs`, and GPU interfaces with low CPU footprint.
+- **Medium (358×168)**: Dual circular gauges (CPU & RAM), a styled storage bar with free space, and metric cards for GPU utilization, thermal temperatures (°C), and live network throughput.
+- **Large (358×354)**: Complete system monitoring dashboard with storage/memory distribution bars, sensor readouts, and load status.
 
 ### 2. Stocks & Cryptocurrency Widget (`StocksWidget.qml` & `stocks_fetcher.py`)
-Live market tracking styled after Apple Stocks:
-- **Small (168×168)**: Highlights a chosen asset (e.g., BTC, ETH, SOL, AAPL, NVDA) with real-time price, 24h change pill, interactive cycling switcher (`⇄`), and an area-gradient sparkline curve.
-- **Medium (358×168)**: Watchlist displaying top crypto and equity assets, responsive mini sparklines, formatted currency numbers, and dynamic green/red change badges.
-- **Large (358×354)**: Featured hero asset with an expanded sparkline chart on top and a full markets watchlist below.
-- **Backend Fetcher**: `stocks_fetcher.py` queries public CoinGecko & financial APIs with rate-limited caching to save bandwidth and compute.
+Styled after Apple Stocks with real-time financial data:
+- **Small (168×168)**: Interactive single-asset card with switcher button (`⇄`), price, 24h change pill, and gradient area sparkline curve.
+- **Medium (358×168)**: Watchlist with multi-asset rows, mini sparkline canvases, formatted prices, and green/red change pills.
+- **Large (358×354)**: Hero featured asset with large chart on top and markets watchlist below.
 
 ### 3. Animated GIF Widget (`GifWidget.qml`)
-- Allows users to display animated GIF and WebP loops on their desktop.
-- **Smart GPU Throttling**: Automatically halts playback when windows cover the desktop, reducing GPU/CPU consumption to 0%.
+- Loops animated GIF and WebP files directly on the desktop with Apple rounded corners.
+- Automatically pauses when obscured by open windows to save battery and GPU cycles.
 
 ### 4. Custom Photo Widget (`ImageWidget.qml`)
-- Display personal photos cropped with Apple-standard rounded corner squircle masks.
+- Desktop picture display with standard macOS squircle corner radius.
 
 ### 5. Battery Widget (`BatteryWidget.qml` & `battery_reader.py`)
-- Clean circular battery indicator with charging animations, power source details, and connected accessory tracking.
+- Circular battery gauge with charging indicators and connected accessory telemetry.
 
 ---
 
-## 🎨 UI Refinements & Apple Design Language
+## 📐 macOS Sequoia / Tahoe Design Consistency
 
-- **Canonical macOS Geometry**:
-  - Unified sizing system: Small (`168×168`), Medium (`358×168`), and Large (`358×354`).
-  - Standardized squircle corner radius (`radiusPx: 28 * s`) matching Apple macOS Sequoia & Tahoe design specs.
-- **Generous Edge Padding**:
-  - Content margins adjusted to `18px - 20px` to prevent text, buttons, and sparkline curves from touching or clipping into curved corners.
-- **Liquid Glass Shader Integration**:
-  - Full vector2d uniform compatibility for `liquidglass.frag` with drop-shadow padding (`gl.padPx`) and rim highlights.
-- **Clean Localization**:
-  - 100% English codebase, headers, and UI strings for upstream merge readiness.
-
----
-
-## ⚡ Performance Optimizations
-
-1. **GPU & CPU Efficiency**:
-   - Decreased unnecessary QML bindings and timer frequencies.
-   - Asynchronous Python collectors with `StdioCollector` preventing UI thread stutters.
-   - Resource-aware rendering when desktop is obscured.
-2. **Safe Settings Management**:
-   - Dynamic widget addition, reordering, and removal via MacDock settings panel.
+- **Canonical Sizing System**: Small (`168×168`), Medium (`358×168`), and Large (`358×354`).
+- **Squircle Corner Radii**: Exactly `28px * scale` matching macOS Sonoma / Sequoia widgets.
+- **Anti-Clipping Edge Margins**: Generous `18px - 20px` margins ensure text and sparklines never clip against curved borders.
+- **100% English Codebase**: Clean, accessible, and ready for upstream merge into `0-ss/MacShell`.
