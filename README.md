@@ -263,6 +263,15 @@ Environment: `MACSHELL_REPO`, `MACSHELL_BRANCH`, `MACSHELL_CHANNEL`, `MACSHELL_D
 
 ## Updating
 
+Best way to make sure you have the latest is to delete the MacShell folder in /home and run this again :
+
+   ```sh
+   git clone https://github.com/0-ss/MacShell
+   cd MacShell
+   bash install.sh
+   ```
+or you can use this method :
+
 Run the installer (`./install.sh` in your clone, or `macshell-install` from anywhere). It shows a menu:
 
 ```
