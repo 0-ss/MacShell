@@ -58,7 +58,7 @@ Best icon pack for the shell: https://github.com/Scrimas/MacOS-Like
 
 </p>
 
-**The Dock,** with Liquid Glass.
+**The Dock,**
 
 <p align="center">
   <img width="100%" alt="The MacShell Dock with Liquid Glass" src="https://github.com/user-attachments/assets/edf45f8f-b71a-4bc5-9880-46dafbebf47c" />
