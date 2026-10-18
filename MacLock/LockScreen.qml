@@ -1416,7 +1416,7 @@ Item {
                             id: lineWrap
                             visible: !ln.gap
                             width: parent.width
-                            height: flowWrap.implicitHeight
+                            height: ln.cur ? flowWrap.implicitHeight : staticTxt.implicitHeight
                             anchors.verticalCenter: parent.verticalCenter
                             x: ln.cur ? 8 * ls.u : 0
                             scale: ln.cur || ls.lyrStatus !== "synced" ? 1.0 : (ln.hovered ? 0.98 : 0.94)
@@ -1424,13 +1424,29 @@ Item {
                             Behavior on x { NumberAnimation { duration: 450; easing.type: Easing.OutBack } }
                             Behavior on scale { NumberAnimation { duration: 420; easing.type: Easing.OutQuint } }
 
+                            // Inactive line: single lightweight Text item (0 per-word overhead)
+                            Text {
+                                id: staticTxt
+                                visible: !ln.cur
+                                width: parent.width
+                                wrapMode: Text.WordWrap
+                                text: ln.rawText || ""
+                                font.family: ls.fam
+                                font.pixelSize: 30 * ls.u
+                                font.weight: Font.DemiBold
+                                color: "white"
+                                opacity: ls.lyrStatus !== "synced" ? 0.9 : (ln.hovered ? 0.88 : Math.max(0.18, 0.44 - Math.abs(ln.rel) * 0.07))
+                            }
+
+                            // Active line: Apple Music style Word-by-word karaoke illumination
                             Flow {
                                 id: flowWrap
+                                visible: ln.cur
                                 width: parent.width
                                 spacing: 8 * ls.u
 
                                 Repeater {
-                                    model: ln.words
+                                    model: ln.cur ? ln.words : []
                                     delegate: Text {
                                         id: wTxt
                                         required property var modelData
@@ -1439,35 +1455,24 @@ Item {
                                         readonly property real wFrac: ln.words.length > 0 ? (index / ln.words.length) : 0
                                         readonly property real wStart: ln.lineStart + wFrac * ln.lineDur
                                         readonly property real wDur: ln.words.length > 0 ? (ln.lineDur / ln.words.length) : 0.4
-                                        readonly property real rawProg: ln.cur ? ((ls.estPos - wStart) / Math.max(0.18, wDur)) : (ln.index < ls.lyrCur ? 1.0 : 0.0)
+                                        readonly property real rawProg: (ls.estPos - wStart) / Math.max(0.18, wDur)
                                         readonly property real prog: Math.max(0.0, Math.min(1.0, rawProg))
-                                        readonly property bool activeNow: ln.cur && prog > 0.05 && prog < 0.96
+                                        readonly property bool activeNow: prog > 0.05 && prog < 0.96
 
                                         text: modelData
                                         font.family: ls.fam
-                                        font.pixelSize: (ln.cur ? 33 : 30) * ls.u
-                                        font.weight: ln.cur ? (prog > 0.1 ? Font.Bold : Font.DemiBold) : Font.DemiBold
+                                        font.pixelSize: 33 * ls.u
+                                        font.weight: prog > 0.1 ? Font.Bold : Font.DemiBold
 
-                                        color: (ls.lyrStatus !== "synced" || !ln.cur) ? "white" : (prog > 0.05 ? "#FFFFFF" : Qt.rgba(1, 1, 1, 0.42))
-                                        opacity: {
-                                            if (ls.lyrStatus !== "synced") return 0.9;
-                                            if (!ln.cur) return ln.hovered ? 0.90 : 1.0;
-                                            return 0.42 + 0.58 * prog;
-                                        }
+                                        color: prog > 0.05 ? "#FFFFFF" : Qt.rgba(1, 1, 1, 0.42)
+                                        opacity: 0.42 + 0.58 * prog
 
                                         scale: activeNow ? 1.06 : 1.0
                                         transformOrigin: Item.Left
-                                        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
-                                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutQuad } }
-                                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutQuad } }
+                                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
                                     }
                                 }
                             }
-
-                            // lines away from the current one go soft, like Apple Music (only near lines get a blur layer)
-                            layer.enabled: ls.lyrStatus === "synced" && !ln.cur && !ln.hovered && Math.abs(ln.rel) <= 6 && height > 0
-                            layer.sourceRect: Qt.rect(-12, -8, width + 24, height + 16)
-                            layer.effect: MultiEffect { blurEnabled: true; blurMax: 16; blur: Math.min(0.55, 0.14 * Math.abs(ln.rel)) }
                         }
                         // instrumental break: three breathing dots
                         Row {

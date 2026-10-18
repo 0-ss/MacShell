@@ -556,11 +556,8 @@ Item {
                                                     : (lineStart + Math.max(2.8, words.length * 0.45))
                     readonly property real lineDur: Math.max(0.6, lineEnd - lineStart)
 
-                    property real bl: (!w.lyricsSynced || cur || hovered) ? 0 : Math.min(1, 0.18 + dist * 0.14)
-                    Behavior on bl { NumberAnimation { duration: 420; easing.type: Easing.OutCubic } }
-
                     width: ListView.view.width
-                    height: isGap ? (22 * w.k) : (flowWrap.implicitHeight + 8 * w.k)
+                    height: isGap ? (22 * w.k) : (cur ? (flowWrap.implicitHeight + 8 * w.k) : (staticTxt.implicitHeight + 8 * w.k))
 
                     Item {
                         id: lineContent
@@ -575,15 +572,29 @@ Item {
                         Behavior on x { NumberAnimation { duration: 450; easing.type: Easing.OutBack } }
                         Behavior on scale { NumberAnimation { duration: 420; easing.type: Easing.OutQuint } }
 
-                        // ── Apple Music style Word-by-word karaoke illumination ──
+                        // Inactive line: single lightweight Text item (0 per-word overhead)
+                        Text {
+                            id: staticTxt
+                            visible: !ln.isGap && !ln.cur
+                            width: parent.width
+                            wrapMode: Text.WordWrap
+                            text: ln.modelData.text || ""
+                            font.family: w.fam
+                            font.pixelSize: (w.isLarge ? 21 : 17) * w.k
+                            font.weight: Font.DemiBold
+                            color: w.fg
+                            opacity: (!w.lyricsSynced) ? 0.9 : (ln.hovered ? 0.88 : Math.max(0.14, 0.46 - ln.dist * 0.09))
+                        }
+
+                        // Active line: Apple Music style Word-by-word karaoke illumination
                         Flow {
                             id: flowWrap
-                            visible: !ln.isGap
+                            visible: !ln.isGap && ln.cur
                             width: parent.width
                             spacing: 6 * w.k
 
                             Repeater {
-                                model: ln.words
+                                model: ln.cur ? ln.words : []
                                 delegate: Text {
                                     id: wTxt
                                     required property var modelData
@@ -592,32 +603,26 @@ Item {
                                     readonly property real wFrac: ln.words.length > 0 ? (index / ln.words.length) : 0
                                     readonly property real wStart: ln.lineStart + wFrac * ln.lineDur
                                     readonly property real wDur: ln.words.length > 0 ? (ln.lineDur / ln.words.length) : 0.35
-                                    readonly property real rawProg: ln.cur ? ((w.evalPos - wStart) / Math.max(0.16, wDur)) : (ln.index < w.lyricIdx ? 1.0 : 0.0)
+                                    readonly property real rawProg: (w.evalPos - wStart) / Math.max(0.16, wDur)
                                     readonly property real prog: Math.max(0.0, Math.min(1.0, rawProg))
-                                    readonly property bool activeNow: ln.cur && prog > 0.05 && prog < 0.96
+                                    readonly property bool activeNow: prog > 0.05 && prog < 0.96
 
                                     text: modelData
                                     font.family: w.fam
-                                    font.pixelSize: (w.isLarge ? (ln.cur ? 26 : 21) : (ln.cur ? 21 : 17)) * w.k
-                                    font.weight: ln.cur ? (prog > 0.1 ? Font.Bold : Font.DemiBold) : Font.DemiBold
+                                    font.pixelSize: (w.isLarge ? 26 : 21) * w.k
+                                    font.weight: prog > 0.1 ? Font.Bold : Font.DemiBold
 
-                                    color: (!w.lyricsSynced || !ln.cur) ? w.fg : (prog > 0.05 ? "#FFFFFF" : Qt.rgba(1, 1, 1, 0.42))
-                                    opacity: {
-                                        if (!w.lyricsSynced) return 0.9;
-                                        if (!ln.cur) return ln.hovered ? 0.88 : Math.max(0.12, 0.42 - ln.dist * 0.10);
-                                        return 0.40 + 0.60 * prog;
-                                    }
+                                    color: prog > 0.05 ? "#FFFFFF" : Qt.rgba(1, 1, 1, 0.42)
+                                    opacity: 0.40 + 0.60 * prog
 
                                     scale: activeNow ? 1.06 : 1.0
                                     transformOrigin: Item.Left
-                                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
-                                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutQuad } }
-                                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
+                                    Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
                                 }
                             }
                         }
 
-                        // ── Instrumental break: 3 breathing / pulsing rhythm dots ──
+                        // Instrumental break: 3 breathing / pulsing rhythm dots
                         Row {
                             visible: ln.isGap
                             anchors.verticalCenter: parent.verticalCenter
@@ -638,11 +643,6 @@ Item {
                                 }
                             }
                         }
-
-                        // Depth of field blur on distant lines
-                        layer.enabled: ln.bl > 0.05
-                        layer.sourceRect: Qt.rect(-12, -8, width + 24, height + 16)
-                        layer.effect: MultiEffect { blurEnabled: true; blurMax: 20; blur: ln.bl }
                     }
 
                     MouseArea {
