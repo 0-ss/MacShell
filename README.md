@@ -186,9 +186,9 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 1. Install the requirements above. On Arch, for example:
    ```sh
     sudo pacman -Syu
-   
+    
     sudo pacman -S --needed \
-      hyprland quickshell hyprlock \
+      hyprland quickshell hyprlock awww \
       qt6-base qt6-declarative qt6-wayland qt6-shadertools qt6-svg \
       grim slurp wl-clipboard wf-recorder cliphist \
       libnotify brightnessctl \
