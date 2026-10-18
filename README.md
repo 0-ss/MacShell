@@ -263,7 +263,7 @@ Environment: `MACSHELL_REPO`, `MACSHELL_BRANCH`, `MACSHELL_CHANNEL`, `MACSHELL_D
 
 ## Updating
 
-The Best way to make sure you have the latest update Is to delete the MacShell folder in /home and run this again :
+The Best way to make sure you have the latest update Is to delete the MacShell folder in /home (IF needed) and run this again :
 
    ```sh
    git clone https://github.com/0-ss/MacShell
