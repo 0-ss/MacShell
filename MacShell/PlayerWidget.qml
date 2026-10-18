@@ -23,7 +23,7 @@ Item {
     property string size: "small"
     property real scaleF: 1.0
     property real contentScale: 1.0          // scales art / text / buttons; the card itself keeps the widget's full size
-    property string fam: "Inter"
+    property string fam: "Open Runde"
     property real screenX: x
     property real screenY: y
     property bool preview: false             // inside the Settings gallery: sample data, no wallpaper, not clickable

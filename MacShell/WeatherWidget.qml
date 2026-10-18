@@ -16,7 +16,7 @@ Item {
     property string style: "liquid"
     property string size: "small"
     property real scaleF: 1.0
-    property string fam: "Inter"
+    property string fam: "Open Runde"
     property real screenX: x
     property real screenY: y
 

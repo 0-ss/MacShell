@@ -1,21 +1,12 @@
 #!/usr/bin/env bash
-# macshell-update: checks GitHub for a newer MacShell and installs it (MacShell and MacLock together).
+# macshell-update: checks GitHub for a newer MacShell and installs it.
 #
 #   macshell-update check [--json]     is there a newer version?   (exit 0 = up to date, 10 = update available)
-#   macshell-update update [--yes] [--force] [--ref REF] [--notify]
-#   macshell-update log                what changed between the installed version and the latest one
-#   macshell-update rollback           go back to the previous install (MacShell and MacLock)
-#   macshell-update channel [release|main]   show / set the update channel
+#   macshell-update update [--yes] [--force] [--ref REF]
+#   macshell-update rollback           go back to the previous install
 #   macshell-update status             what is installed
 #
-#   release (default)  the latest GitHub release, or the newest commit of the main branch if there are no releases
-#   main               always the newest commit of the main branch
-#
-# An update downloads the new version, runs ITS installer (so new dependencies, new files and a new start script
-# come along), saves the old install first, and never touches your settings. --notify shows a desktop notification
-# with the result (the daily timer uses it).
-#
-# Environment: MACSHELL_REPO, MACSHELL_BRANCH, MACSHELL_CHANNEL, GITHUB_TOKEN
+# The shell calls this itself (UpdateChecker.qml). Environment: MACSHELL_REPO, MACSHELL_BRANCH, GITHUB_TOKEN
 
 set -uo pipefail
 
@@ -25,44 +16,27 @@ STATE_DIR="$DATA_HOME/macshell"
 STATE_FILE="$STATE_DIR/state.env"
 BACKUP_DIR="$STATE_DIR/backups"
 
-state_get() { [ -f "$STATE_FILE" ] && sed -n "s/^$1=//p" "$STATE_FILE" | head -n1 || true; }
-state_set() { # state_set key value
-    mkdir -p "$STATE_DIR"; touch "$STATE_FILE"
-    if grep -q "^$1=" "$STATE_FILE"; then sed -i "s|^$1=.*|$1=$2|" "$STATE_FILE"; else echo "$1=$2" >> "$STATE_FILE"; fi
-}
+state_get() { [ -f "$STATE_FILE" ] && sed -n "s/^$1=//p" "$STATE_FILE" | head -n1; }
 
 REPO="${MACSHELL_REPO:-$(state_get repo)}"; REPO="${REPO:-0-ss/MacShell}"
 BRANCH="${MACSHELL_BRANCH:-$(state_get branch)}"; BRANCH="${BRANCH:-main}"
-CHANNEL="${MACSHELL_CHANNEL:-$(state_get channel_pref)}"; CHANNEL="${CHANNEL:-release}"
 DEST="$(state_get dest)"; DEST="${DEST:-$CONFIG_HOME/quickshell/MacShell}"
-LOCK_DEST="$(state_get lock_dest)"; LOCK_DEST="${LOCK_DEST:-$CONFIG_HOME/quickshell/MacLock}"
 INSTALLED="$(state_get installed)"; INSTALLED="${INSTALLED:-unknown}"
 
-JSON=0 YES=0 FORCE=0 NOTIFY=0 REF=""
+JSON=0 YES=0 FORCE=0 REF=""
 
-CURL=(curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused)
-gh_api() { "${CURL[@]}" --max-time 15 ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} -H "Accept: $1" "$2"; }
+gh_api() { curl -fsSL --max-time 15 ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} -H "Accept: $1" "$2"; }
 latest_release() {
     gh_api application/vnd.github+json "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
         | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1
 }
-# the GitHub API allows 60 unauthenticated requests an hour; git ls-remote has no such limit
-branch_sha() {
-    local s
-    s=$(gh_api application/vnd.github.sha "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null | head -c 40)
-    if ! [[ "$s" =~ ^[0-9a-f]{40}$ ]] && command -v git >/dev/null 2>&1; then
-        s=$(git ls-remote "https://github.com/$REPO.git" "refs/heads/$BRANCH" 2>/dev/null | cut -c1-40 | head -n1)
-    fi
-    [[ "$s" =~ ^[0-9a-f]{40}$ ]] && printf '%s' "$s"
-}
+branch_sha() { gh_api application/vnd.github.sha "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null | head -c 40; }
 
 LATEST="" LATEST_TYPE=""
 fetch_latest() {
     local rel sha
-    if [ "$CHANNEL" = release ]; then
-        rel=$(latest_release)
-        if [ -n "$rel" ]; then LATEST="$rel"; LATEST_TYPE="release"; return 0; fi
-    fi
+    rel=$(latest_release)
+    if [ -n "$rel" ]; then LATEST="$rel"; LATEST_TYPE="release"; return 0; fi
     sha=$(branch_sha)
     if [ -n "$sha" ]; then LATEST="$sha"; LATEST_TYPE="branch"; return 0; fi
     return 1
@@ -70,11 +44,6 @@ fetch_latest() {
 
 short() { case "$1" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) printf '%.7s' "$1" ;; *) printf '%s' "$1" ;; esac; }
 clean() { printf '%s' "$1" | tr -d '"\\\n\r' | cut -c1-200; }
-
-notify() { # notify <title> <message>
-    [ "$NOTIFY" = 1 ] && command -v notify-send >/dev/null 2>&1 && notify-send -a MacShell "$1" "$2" >/dev/null 2>&1
-    return 0
-}
 
 emit() { # emit <status> <message>
     local status="$1" msg="$2" url=""
@@ -88,16 +57,6 @@ emit() { # emit <status> <message>
     else
         printf '%s\n' "$msg"
     fi
-}
-
-# one update at a time (the timer and a hand-started update must not collide)
-with_lock() {
-    mkdir -p "$STATE_DIR"
-    if command -v flock >/dev/null 2>&1; then
-        exec 9>"$STATE_DIR/update.lock"
-        flock -n 9 || { echo "Another update is already running." >&2; return 1; }
-    fi
-    return 0
 }
 
 cmd_check() {
@@ -118,21 +77,8 @@ cmd_check() {
     return 10
 }
 
-cmd_log() {
-    fetch_latest || { echo "Could not reach GitHub." >&2; return 1; }
-    if [ "$INSTALLED" = "$LATEST" ]; then echo "Already up to date ($(short "$INSTALLED"))."; return 0; fi
-    if [ "$INSTALLED" != unknown ] && [ "$INSTALLED" != local ]; then
-        local out
-        out=$(gh_api application/vnd.github+json "https://api.github.com/repos/$REPO/compare/$INSTALLED...$LATEST" 2>/dev/null \
-              | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 40)
-        if [ -n "$out" ]; then echo "Changes since $(short "$INSTALLED"):"; printf '%s\n' "$out" | sed 's/^/  - /'; return 0; fi
-    fi
-    echo "Could not list the changes. See https://github.com/$REPO/commits/$BRANCH"
-}
-
 cmd_update() {
     command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1 || { echo "curl and tar are required" >&2; return 1; }
-    with_lock || return 1
     local id type tmp
     if [ -n "$REF" ]; then
         id="$REF"; type="release"; [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]] && type="commit"
@@ -153,74 +99,47 @@ cmd_update() {
     trap "rm -rf '$tmp'" RETURN
     mkdir -p "$tmp/src"
     echo "Downloading $REPO ($(short "$id"))..."
-    "${CURL[@]}" --max-time 180 "https://github.com/$REPO/archive/$id.tar.gz" | tar -xz --strip-components=1 -C "$tmp/src" \
-        || { echo "Download failed." >&2; notify "MacShell update failed" "The download did not work."; return 1; }
-    if [ ! -f "$tmp/src/install.sh" ]; then echo "install.sh is missing in that version." >&2; notify "MacShell update failed" "install.sh is missing in that version."; return 1; fi
-    if MACSHELL_REPO="$REPO" MACSHELL_BRANCH="$BRANCH" MACSHELL_DEST="$DEST" MACLOCK_DEST="$LOCK_DEST" MACSHELL_CHANNEL="$CHANNEL" \
-        bash "$tmp/src/install.sh" --update --yes --from-dir "$tmp/src" --resolved-id "$id" --resolved-type "$type"; then
-        notify "MacShell updated" "Now on $(short "$id"). It reloads by itself."
-        return 0
-    fi
-    echo "The installer reported an error. Roll back with: macshell-update rollback" >&2
-    notify "MacShell update failed" "The installer reported an error. Run: macshell-update rollback"
-    return 1
+    curl -fsSL --max-time 180 "https://github.com/$REPO/archive/$id.tar.gz" | tar -xz --strip-components=1 -C "$tmp/src" \
+        || { echo "Download failed." >&2; return 1; }
+    if [ ! -f "$tmp/src/install.sh" ]; then echo "install.sh is missing in that version." >&2; return 1; fi
+    MACSHELL_REPO="$REPO" MACSHELL_BRANCH="$BRANCH" MACSHELL_DEST="$DEST" \
+        bash "$tmp/src/install.sh" --update --yes --from-dir "$tmp/src" --resolved-id "$id" --resolved-type "$type"
 }
 
 cmd_rollback() {
     local last
     last=$(ls -1dt "$BACKUP_DIR"/*/ 2>/dev/null | head -n1)
-    [ -n "$last" ] && { [ -d "${last}MacShell" ] || [ -d "${last}MacLock" ]; } || { echo "No backup to restore." >&2; return 1; }
+    [ -n "$last" ] && [ -d "${last}MacShell" ] || { echo "No backup to restore." >&2; return 1; }
     if [ "$YES" = 0 ]; then
         printf 'Restore the install saved in %s? [y/N] ' "$last"
         read -r a || a=""
         case "$a" in [Yy]*) ;; *) echo "Cancelled."; return 1 ;; esac
     fi
-    if [ -d "${last}MacShell" ]; then
-        rm -rf "$DEST" && mkdir -p "$DEST" && cp -a "${last}MacShell/." "$DEST/" || return 1
-        touch "$DEST/shell.qml"
-    fi
-    if [ -d "${last}MacLock" ]; then
-        rm -rf "$LOCK_DEST" && mkdir -p "$LOCK_DEST" && cp -a "${last}MacLock/." "$LOCK_DEST/" || return 1
-        touch "$LOCK_DEST/shell.qml"
-    fi
-    state_set installed unknown
-    echo "Restored. MacShell reloads by itself; MacLock is used the next time you lock."
-}
-
-cmd_channel() {
-    case "${1:-}" in
-        "") echo "channel: $CHANNEL" ;;
-        release|main) state_set channel_pref "$1"; echo "channel: $1" ;;
-        *) echo "channel must be 'release' or 'main'" >&2; return 2 ;;
-    esac
+    rm -rf "$DEST" && mkdir -p "$DEST" && cp -a "${last}MacShell/." "$DEST/" || return 1
+    sed -i 's/^installed=.*/installed=unknown/' "$STATE_FILE" 2>/dev/null
+    touch "$DEST/shell.qml"
+    echo "Restored. MacShell reloads by itself."
 }
 
 cmd_status() {
     echo "installed : $(short "$INSTALLED")"
-    echo "repo      : $REPO ($BRANCH, channel: $CHANNEL)"
+    echo "repo      : $REPO ($BRANCH)"
     echo "location  : $DEST"
-    [ -d "$LOCK_DEST" ] && echo "lock      : $LOCK_DEST"
     local when; when=$(state_get installed_at); [ -n "$when" ] && echo "installed : $when"
-    if command -v systemctl >/dev/null 2>&1; then
-        if systemctl --user is-enabled macshell-update.timer >/dev/null 2>&1; then echo "auto-update: on (daily)"; else echo "auto-update: off  (bash install.sh --auto-update)"; fi
-    fi
     return 0
 }
 
 usage() { sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
 cmd="${1:-help}"; [ $# -gt 0 ] && shift
-ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --json) JSON=1 ;;
         -y|--yes) YES=1 ;;
         --force) FORCE=1 ;;
-        --notify) NOTIFY=1 ;;
         --ref) REF="${2:-}"; shift ;;
         -h|--help) cmd=help ;;
-        -*) echo "unknown option: $1" >&2; exit 2 ;;
-        *) ARGS+=("$1") ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
 done
@@ -228,9 +147,7 @@ done
 case "$cmd" in
     check) cmd_check ;;
     update) cmd_update ;;
-    log|changes) cmd_log ;;
     rollback) cmd_rollback ;;
-    channel) cmd_channel "${ARGS[0]:-}" ;;
     status) cmd_status ;;
     help|-h|--help) usage ;;
     *) echo "unknown command: $cmd" >&2; usage >&2; exit 2 ;;

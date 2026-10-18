@@ -14,8 +14,8 @@ Item {
     property bool isPrimary: true
     property bool shown: false          // entrance animation done / running
     readonly property real u: Math.max(0.6, height / 1200)   // layout unit, 1.0 on a 1200 px tall screen
-    // one variable font file for every weight (the static Inter.ttc was mapped once per face)
-    readonly property string fam: Qt.fontFamilies().indexOf("Inter Variable") >= 0 ? "Inter Variable" : "Inter"
+    // UI font: Open Runde (bundled in fonts/, loaded by shell.qml)
+    readonly property string fam: "Open Runde"
     readonly property string famDisplay: fam
     readonly property bool leaving: st.unlocking
 
@@ -673,16 +673,16 @@ Item {
     // figure-height axis (YTFI) plus width and weight, so the digits get taller/condensed with even strokes.
     //   room to spare → tall, condensed digits;  artwork / lyrics open → regular-width, shorter, smaller digits
     // ── clock style (Settings → Lock Screen → Clock) ──
-    //   font: condensed (Roboto Flex, can go tall) | rounded (Nunito) | serif (Noto Serif Display) | inter (Inter Display)
+    //   font: condensed (Roboto Flex, can go tall) | rounded (Nunito) | serif (Noto Serif Display) | inter (Open Runde)
     //   material: frosted (milky glass) | liquid (clear glass with a bright rim)
     readonly property var ckCfg: (ls.st.clockCfg && !ls.st.clockCfg.__ignore) ? ls.st.clockCfg : ({})
     readonly property string ckFont: ["condensed", "rounded", "serif", "inter"].indexOf(ckCfg.f) >= 0 ? ckCfg.f : "condensed"
     readonly property bool ckFontOk: {
-        var want = ckFont === "rounded" ? "Nunito" : (ckFont === "serif" ? "Noto Serif Display" : (ckFont === "inter" ? "Inter Variable" : "Roboto Flex"));
+        var want = ckFont === "rounded" ? "Nunito" : (ckFont === "serif" ? "Noto Serif Display" : (ckFont === "inter" ? "Open Runde" : "Roboto Flex"));
         return Qt.fontFamilies().indexOf(want) >= 0;
     }
-    readonly property string ckFamily: !ckFontOk ? "Inter Variable"
-        : (ckFont === "rounded" ? "Nunito" : (ckFont === "serif" ? "Noto Serif Display" : (ckFont === "inter" ? "Inter Variable" : "Roboto Flex")))
+    readonly property string ckFamily: !ckFontOk ? "Open Runde"
+        : (ckFont === "rounded" ? "Nunito" : (ckFont === "serif" ? "Noto Serif Display" : (ckFont === "inter" ? "Open Runde" : "Roboto Flex")))
     readonly property int ckWeight: (typeof ckCfg.w === "number" && ckCfg.w >= 100 && ckCfg.w <= 1000) ? ckCfg.w : 680
     readonly property bool ckTall: ckFont === "condensed" && ckCfg.t !== false
     // material: "solid" (vibrancy) | "glass" (Liquid Glass); older settings: liquid → clear glass, frosted → frosted glass

@@ -24,7 +24,7 @@ Item {
     property string size: "small"
     property string mode: "auto"        // "auto" | "light" | "dark"
     property real scaleF: 1.0
-    property string fam: "Inter"
+    property string fam: "Open Runde"
     property real screenX: x
     property real screenY: y
     property int weekStart: 0           // 0 = Sunday, 1 = Monday

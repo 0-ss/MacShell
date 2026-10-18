@@ -156,8 +156,8 @@ Scope {
     // "always" = always auto-hide, "never" = always visible and reserves space
     property string hideMode: "smart"
     property bool showTrash: true
-    property string fontFamily: "Inter Variable"  // "Inter" (one variable font file; falls back to the system font if missing)
-    onFontFamilyChanged: if (fontFamily === "Inter" || fontFamily === "Inter Display") fontFamily = "Inter Variable"
+    property string fontFamily: "Open Runde"  // bundled in assets/fonts (shell.qml loads it); falls back to the system font if missing
+    onFontFamilyChanged: if (fontFamily.indexOf("Inter") === 0) fontFamily = "Open Runde"
     property bool magnificationEnabled: true
     property bool showLabels: true       // hover tooltips
     property bool showIndicators: true   // dots under running apps
@@ -2226,10 +2226,10 @@ Scope {
                         subtitle: "Used for labels and menus"
                         SSegmented {
                             t: pal
-                            model: ["Inter", "Noto Sans", "System"]
+                            model: ["Open Runde", "Noto Sans", "System"]
                             segWidth: 76
-                            current: root.fontFamily.indexOf("Inter") === 0 ? 0 : (root.fontFamily === "Noto Sans" ? 1 : 2)
-                            onPicked: i => root.setLook("fontFamily", ["Inter Variable", "Noto Sans", "sans-serif"][i])
+                            current: root.fontFamily === "Open Runde" ? 0 : (root.fontFamily === "Noto Sans" ? 1 : 2)
+                            onPicked: i => root.setLook("fontFamily", ["Open Runde", "Noto Sans", "sans-serif"][i])
                         }
                     }
                 }
@@ -3811,7 +3811,7 @@ Scope {
         Quickshell.execDetached(["sh", "-c", "rm -f \"$HOME/.config/maclock/settings.json\""]);
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
-        darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter Variable";
+        darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Open Runde";
         iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
         showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true;

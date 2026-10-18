@@ -32,7 +32,7 @@ Scope {
     property string cityName: ""
     property real widgetScale: 1.0         // the "Widget size" slider: scales every widget and the grid (0.6 - 1.5)
 
-    readonly property string fontFamily: dock ? dock.fontFamily : "Inter"
+    readonly property string fontFamily: dock ? dock.fontFamily : "Open Runde"
     readonly property string configDir: Quickshell.env("HOME") + "/.config/macwidgets"
 
     // Liquid Glass look = the Appearance sliders (Translucency / Blur / Liquid strength) of the Dock + Menu Bar

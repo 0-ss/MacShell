@@ -8,7 +8,7 @@ Item {
 
     property string text: ""
     property color color: "white"
-    property string fam: "Inter"
+    property string fam: "Open Runde"
     property real pixelSize: 16
     property int weight: Font.Medium
     property real fade: 18            // px of fade at each end while scrolling
