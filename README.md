@@ -51,14 +51,7 @@ Best icon pack for the shell: https://github.com/Scrimas/MacOS-Like
 
 </p>
 
-**The Dock,** with tinted icons.
-
-<p align="center">
-<img width="1131" height="93" alt="image" src="https://github.com/user-attachments/assets/ce2cc645-5a19-44b3-b9c6-e3e4d2915acf" />
-
-</p>
-
-**The Dock,**
+**The Dock,** with Liquid Glass.
 
 <p align="center">
   <img width="100%" alt="The MacShell Dock with Liquid Glass" src="https://github.com/user-attachments/assets/edf45f8f-b71a-4bc5-9880-46dafbebf47c" />
@@ -270,20 +263,24 @@ Environment: `MACSHELL_REPO`, `MACSHELL_BRANCH`, `MACSHELL_CHANNEL`, `MACSHELL_D
 
 ## Updating
 
-Run the installer again (`./install.sh` in your clone, or `macshell-install` from anywhere). When MacShell is already
-installed it looks at GitHub and shows a menu:
+Run the installer (`./install.sh` in your clone, or `macshell-install` from anywhere). It shows a menu:
 
 ```
-MacShell is already installed (a1b2c3d4e5f6). Looking for news on GitHub...
-  update available: a1b2c3d4e5f6 -> 9f8e7d6c5b4a
+MacShell (installed: a1b2c3d4e5f6)
 
-  1) Update to the latest version
-  2) Check and install dependencies
-  3) Doctor: find and explain problems
-  4) Low-power mode for older computers
-  5) Uninstall
+  1) Install shell
+  2) Check for updates
+  3) Uninstall shell
+  4) Bind help
   q) Quit
 ```
+
+- **Install shell** installs MacShell and MacLock (or reinstalls them).
+- **Check for updates** compares your version with GitHub and, if there is a newer one, asks whether to install it (y/n).
+- **Uninstall shell** removes MacShell and MacLock (your settings are kept).
+- **Bind help** opens the Hyprland keybind section of this README in your browser.
+
+The other tools are still available as options: `--doctor`, `--low-power`, `--deps-only` (see `--help`).
 
 An update also installs the dependencies the new version needs, updates MacShell and MacLock together, saves the old
 install first, and never touches your settings. The command-line tool is still there for scripts and the daily timer:

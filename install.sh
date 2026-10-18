@@ -21,8 +21,8 @@
 #   5. optionally sets up automatic updates (a daily systemd user timer)
 #
 # Updates
-#   Run ./install.sh again whenever you like. When MacShell is already installed it asks GitHub whether there is
-#   something new and shows a small menu: update, check dependencies, run the doctor, low-power mode, uninstall.
+#   Run ./install.sh and pick from the menu: 1) install shell, 2) check for updates (asks whether to install one),
+#   3) uninstall shell, 4) bind help (opens the Hyprland keybind section of the README).
 #   An update installs the dependencies the new version needs, updates MacShell and MacLock together and keeps your
 #   settings. Use --local to install exactly what is in a clone, or --check to only look.
 #   (macshell-update still exists for the daily timer and for scripts; "macshell-update rollback" restores both.)
@@ -730,37 +730,51 @@ run_doctor() {
     if [ "$bad" -eq 0 ]; then printf '%sEverything looks good.%s\n' "$G" "$N"; else printf '%s%s problem(s) found%s (see the lines marked !).\n' "$Y" "$bad" "$N"; fi
 }
 
-# ───────────────────────── menu (when MacShell is already installed) ─────────────────────────
+# ───────────────────────── menu (every interactive run) ─────────────────────────
+BIND_HELP_URL="https://github.com/0-ss/MacShell#hyprland-configuration-lua"
 maybe_menu() {
     [ "$MODE_FLAG" = 1 ] || [ "$ASSUME_YES" = 1 ] && return 0
     [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
-    [ -f "$STATE_DIR/state.env" ] && [ -d "$DEST" ] || return 0
-    have curl || return 0
-    local inst latest note first ans
-    inst=$(state_get installed); inst="${inst:-unknown}"
+    local inst ans latest
+    inst=$(state_get installed)
     say ""
-    say "${B}MacShell is already installed${N} (${inst:0:12}). Looking for news on GitHub..."
-    latest=$(RESOLVED_ID=""; resolve_version >/dev/null 2>&1 && printf '%s' "$RESOLVED_ID" || true)
-    if [ -z "$latest" ]; then note="could not reach GitHub"; first="Reinstall / repair"
-    elif [ "$latest" = "$inst" ]; then note="you are up to date"; first="Reinstall / repair"
-    else note="${G}update available${N}: ${inst:0:12} -> ${latest:0:12}"; first="Update to the latest version"; fi
-    say "  $note"
+    if [ -f "$STATE_DIR/state.env" ] && [ -d "$DEST" ]; then say "${B}MacShell${N} (installed: ${inst:-unknown})"; else say "${B}MacShell${N} (not installed yet)"; fi
     {
-        printf '\n  1) %s\n' "$first"
-        printf '  2) Check and install dependencies\n'
-        printf '  3) Doctor: find and explain problems\n'
-        printf '  4) Low-power mode for older computers\n'
-        printf '  5) Uninstall\n'
+        printf '\n  1) Install shell\n'
+        printf '  2) Check for updates\n'
+        printf '  3) Uninstall shell\n'
+        printf '  4) Bind help\n'
         printf '  q) Quit\n\n'
         printf 'Choose [1]: '
     } >/dev/tty
     read -r ans </dev/tty || ans=""
     case "${ans:-1}" in
         1) return 0 ;;
-        2) DEPS_ONLY=1; return 0 ;;
-        3) run_doctor; exit 0 ;;
-        4) apply_low_power; exit 0 ;;
-        5) confirm "Remove MacShell and MacLock (your settings are kept)?" n && do_uninstall; exit 0 ;;
+        2)
+            have curl || die "curl is required to check for updates"
+            step "Checking for updates"
+            latest=$(RESOLVED_ID=""; resolve_version >/dev/null 2>&1 && printf '%s' "$RESOLVED_ID" || true)
+            if [ -z "$latest" ]; then warn "could not reach GitHub, check your connection"; exit 1; fi
+            if [ ! -f "$STATE_DIR/state.env" ] || [ ! -d "$DEST" ]; then
+                say "  MacShell is not installed (latest: ${latest:0:12})"
+                confirm "Install it now?" y && return 0
+                exit 0
+            fi
+            if [ "$latest" = "$inst" ]; then ok "up to date (${latest:0:12})"; exit 0; fi
+            say "  installed: ${inst:0:12}"
+            say "  latest:    ${latest:0:12}"
+            confirm "An update is available. Install it now?" y && return 0
+            exit 0
+            ;;
+        3)
+            confirm "Remove MacShell and MacLock (your settings are kept)?" n && do_uninstall
+            exit 0
+            ;;
+        4)
+            say "  Opening: $BIND_HELP_URL"
+            if have xdg-open; then nohup xdg-open "$BIND_HELP_URL" >/dev/null 2>&1 & fi
+            exit 0
+            ;;
         *) exit 0 ;;
     esac
 }
