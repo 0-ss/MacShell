@@ -95,7 +95,8 @@ Scope {
     property bool notificationsEnabled: true // banners + Notification Center (off = no D-Bus daemon at all, so mako/dunst can take over)
     property bool clockAppEnabled: true      // the Clock app (alarms and timers still ring while it is on)
     readonly property bool barLayerNeeded: barEnabled || spotlightEnabled || ccEnabled || notificationsEnabled
-    property bool darkMode: true
+    property bool darkMode: true             // the resolved look (true = dark); follows appearanceMode
+    property string appearanceMode: "dark"   // light | dark | auto (auto = light by day, dark by night)
     property color accent: "#0A84FF"
     // "Inter" renders with the single variable file: the static Inter.ttc got mapped once per face (~25×13 MB of RSS)
     property string fontFamily: "Inter Variable"
@@ -238,7 +239,7 @@ Scope {
     property bool fileSearchPending: false
     property var fileHits: []
 
-    readonly property var settingKeys: ["barEnabled", "darkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
+    readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "accent", "fontFamily", "barHeight", "glassOpacity",
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch",
         "spotlightEnabled", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
@@ -365,10 +366,30 @@ Scope {
     // switches to dark text / light glass on bright backgrounds and the reverse on dark ones; colours cross-fade.
     property bool autoContrast: true
     property int bgTone: 0
-    readonly property bool effDark: (autoContrast && bgTone !== 0) ? bgTone < 0 : darkMode
+    // System look (Settings → Appearance: Light / Dark / Auto): every panel follows it, like a normal OS. Only the Control Center
+    // keeps the adaptive look below (it measures what is behind it): ccDark / ccPal.
+    readonly property bool effDark: darkMode
     property real dk: effDark ? 1 : 0
     Behavior on dk { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
     function mixc(l, d) { return Qt.rgba(l.r + (d.r - l.r) * dk, l.g + (d.g - l.g) * dk, l.b + (d.b - l.b) * dk, l.a + (d.a - l.a) * dk); }
+    readonly property bool ccDark: (autoContrast && bgTone !== 0) ? bgTone < 0 : darkMode
+    property real ccDk: ccDark ? 1 : 0
+    Behavior on ccDk { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
+    function ccMix(l, d) { return Qt.rgba(l.r + (d.r - l.r) * ccDk, l.g + (d.g - l.g) * ccDk, l.b + (d.b - l.b) * ccDk, l.a + (d.a - l.a) * ccDk); }
+
+    // Appearance: light / dark / auto. darkMode is the resolved look; the Dock window is kept in step.
+    function autoIsDark() { var h = new Date().getHours(); return h < 7 || h >= 19; }
+    function setAppearance(mode) {
+        if (["light", "dark", "auto"].indexOf(mode) < 0) return;
+        appearanceMode = mode;
+        darkMode = mode === "auto" ? autoIsDark() : mode === "dark";
+        try { if (hub && hub.dock) { hub.dock.appearanceMode = mode; hub.dock.darkMode = darkMode; } } catch (e) {}
+    }
+    Timer {
+        interval: 60000; repeat: true; triggeredOnStart: true
+        running: root.appearanceMode === "auto"
+        onTriggered: { var d = root.autoIsDark(); if (d !== root.darkMode) root.setAppearance("auto"); }
+    }
     QtObject {
         id: bpal
         readonly property bool dark: root.darkMode
@@ -408,6 +429,26 @@ Scope {
         readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
         readonly property color cardBorder: root.mixc(Qt.rgba(0, 0, 0, 0.08), Qt.rgba(1, 1, 1, 0.07))
         readonly property color switchOff: root.mixc(Qt.rgba(0, 0, 0, 0.16), Qt.rgba(1, 1, 1, 0.22))
+    }
+    QtObject {
+        id: ccPal
+        readonly property bool dark: root.ccDark
+        readonly property string fam: root.fontFamily
+        readonly property color accent: root.accent
+        readonly property color fg: root.ccMix(Qt.color("#1D1D1F"), Qt.color("#FFFFFF"))
+        readonly property color fg2: root.ccMix(Qt.rgba(0, 0, 0, 0.55), Qt.rgba(1, 1, 1, 0.62))
+        readonly property color fg3: root.ccMix(Qt.rgba(0, 0, 0, 0.32), Qt.rgba(1, 1, 1, 0.34))
+        readonly property color tile: root.ccMix(Qt.rgba(1, 1, 1, 0.42), Qt.rgba(1, 1, 1, 0.10))
+        readonly property color tileBorder: root.ccMix(Qt.rgba(1, 1, 1, 0.70), Qt.rgba(1, 1, 1, 0.16))
+        readonly property color btnOff: root.ccMix(Qt.rgba(0, 0, 0, 0.10), Qt.rgba(1, 1, 1, 0.20))
+        readonly property color btnHover: root.ccMix(Qt.rgba(0, 0, 0, 0.16), Qt.rgba(1, 1, 1, 0.30))
+        readonly property color hover: root.ccMix(Qt.rgba(0, 0, 0, 0.09), Qt.rgba(1, 1, 1, 0.14))
+        readonly property color sep: root.ccMix(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.14))
+        readonly property color track: root.ccMix(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.20))
+        readonly property color content: dark ? "#1E1E1E" : "#F5F5F7"
+        readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
+        readonly property color cardBorder: root.ccMix(Qt.rgba(0, 0, 0, 0.08), Qt.rgba(1, 1, 1, 0.07))
+        readonly property color switchOff: root.ccMix(Qt.rgba(0, 0, 0, 0.16), Qt.rgba(1, 1, 1, 0.22))
     }
 
     // ═════════════ REUSABLE COMPONENTS ═════════════
@@ -840,6 +881,7 @@ Scope {
         property real liquidMul: 1.0        // scales refraction / dispersion / magnify of every slab in this context
         property real paneOpacity: 1.0      // <1 lets the compositor blur show through the shader pane
         property real rim: 0.45
+        property bool whiteEdge: true       // the light inner ring of the non-liquid pane (off for Spotlight: dark outline only)
         property real grain: 0.03
         property bool debug: false
         signal failed()
@@ -874,6 +916,7 @@ Scope {
             border.color: gg.gx.dark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(0, 0, 0, 0.12)
             Rectangle {
                 anchors.fill: parent
+                visible: gg.gx.whiteEdge
                 anchors.margins: 1
                 radius: parent.radius - 1
                 color: "transparent"
@@ -2678,7 +2721,7 @@ Scope {
                     }
                     m.push(msep());
                 }
-                m.push(mchk("Dark Mode", "", root.darkMode, function () { root.darkMode = !root.darkMode; }));
+                m.push(mchk("Dark Mode", "", root.darkMode, function () { root.setAppearance(root.darkMode ? "light" : "dark"); }));
             } else if (name === "window") {
                 if (has) {
                     m.push(mi("Minimize", "", disp('hl.dsp.window.move({ workspace = "special:minimized", follow = false })')));
@@ -3042,7 +3085,7 @@ Scope {
     }
     function resetSettings() {
         barEnabled = true;
-        darkMode = true; accent = "#0a84ff"; fontFamily = "Inter Variable"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false;
+        darkMode = true; appearanceMode = "dark"; accent = "#0a84ff"; fontFamily = "Inter Variable"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
         showTray = true; showSearch = true;
         spotlightEnabled = true; ccEnabled = true; notificationsEnabled = true; clockAppEnabled = true; ccStyle = "tiles";
@@ -3059,7 +3102,7 @@ Scope {
         onLoaded: {
             try {
                 var o = JSON.parse(text());
-                root.applySettings(o, ["darkMode", "accent", "fontFamily", "glassOpacity", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "wallpaperPath"]);
+                root.applySettings(o, ["darkMode", "appearanceMode", "accent", "fontFamily", "glassOpacity", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "wallpaperPath"]);
                 if (o.dockStyle !== undefined) root.barStyle = (o.dockStyle === "liquid") ? "liquid" : "blur";
             } catch (err) { }
             store.path = root.configDir + "/settings.json";
@@ -3367,6 +3410,33 @@ Scope {
         root.wpDirList = dir;
         root.wpFavOk = ok;
         root.wpRebuild();
+
+        // Return the file list immediately; build missing video thumbnails in a separate process.
+        var videos = [];
+        for (var j = 0; j < dir.length; j++) if (root.wpIsVideo(dir[j])) videos.push(dir[j]);
+        if (videos.length && !wpThumbBuild.running) {
+            var script = [
+                'tc="$HOME/.cache/macshell/thumbs"; mkdir -p "$tc"',
+                'for v do',
+                '  t="$tc/$(printf "%s:%s" "$v" "$(stat -c %Y "$v" 2>/dev/null)" | md5sum | cut -c1-16).jpg"',
+                '  if [ ! -s "$t" ]; then ffmpeg -loglevel error -y -ss 1 -i "$v" -frames:v 1 -vf "scale=360:-2" "$t" </dev/null >/dev/null 2>&1; fi',
+                '  [ -s "$t" ] && printf "T:%s\\t%s\\n" "$v" "$t"',
+                '  w="${t%.jpg}.webp"; if [ ! -s "$w" ] && [ -x "$HOME/.config/hypr-macshell/scripts/macshell-setwall.sh" ]; then setsid nice -n 15 "$HOME/.config/hypr-macshell/scripts/macshell-setwall.sh" --prepare "$v" >/dev/null 2>&1 </dev/null & fi',
+                'done'
+            ].join("\n");
+            wpThumbBuild.command = ["sh", "-c", script, "sh"].concat(videos);
+            wpThumbBuild.running = true;
+        }
+    }
+    function wpMergeThumbs(text) {
+        var th = Object.assign({}, root.wpThumbs || {}), lines = text.split("\n");
+        for (var i = 0; i < lines.length; i++) {
+            if (lines[i].indexOf("T:") !== 0) continue;
+            var k = lines[i].indexOf("\t");
+            if (k > 2) th[lines[i].substring(2, k)] = lines[i].substring(k + 1);
+        }
+        root.wpThumbs = th;
+        root.wpRebuild();
     }
     function wpRefresh() {
         if (wpScan.running) return;
@@ -3374,16 +3444,6 @@ Scope {
             'd="$1"; mk="$2"; shift 2',
             '[ "$mk" = "1" ] && [ ! -d "$d" ] && mkdir -p "$d" 2>/dev/null',
             'if [ -d "$d" ]; then find -L "$d" -maxdepth 3 -type f 2>/dev/null | grep -iE "[.](jpe?g|png|webp|bmp|gif|mp4|webm|mkv|mov|m4v)$" | sort -V | sed "s/^/A:/"; fi',
-            // animated wallpapers: a cached thumbnail frame per video
-            'tc="$HOME/.cache/macshell/thumbs"; mkdir -p "$tc"',
-            'if [ -d "$d" ]; then find -L "$d" -maxdepth 3 -type f 2>/dev/null | grep -iE "[.](mp4|webm|mkv|mov|m4v)$" | while IFS= read -r v; do',
-            '  t="$tc/$(printf "%s:%s" "$v" "$(stat -c %Y "$v" 2>/dev/null)" | md5sum | cut -c1-16).jpg"',
-            '  [ -s "$t" ] || ffmpeg -loglevel error -y -ss 1 -i "$v" -frames:v 1 -vf "scale=480:-2" "$t" </dev/null >/dev/null 2>&1',
-            '  [ -s "$t" ] && printf "T:%s\\t%s\\n" "$v" "$t"',
-            // animated preview + optimized playback copy: built once, in the background, at low priority
-            '  w="${t%.jpg}.webp"',
-            '  if [ -s "$w" ]; then printf "P:%s\\t%s\\n" "$v" "$w"; else setsid nice -n 15 "$HOME/.config/hypr-macshell/scripts/macshell-setwall.sh" --prepare "$v" >/dev/null 2>&1 </dev/null & fi',
-            'done; fi',
             'for f in "$@"; do [ -f "$f" ] && echo "F:$f"; done',
             'exit 0'
         ].join("\n");
@@ -3550,6 +3610,7 @@ Scope {
         wpPick.running = true;
     }
     Process { id: wpScan; stdout: StdioCollector { onStreamFinished: root.wpParse(text) } }
+    Process { id: wpThumbBuild; stdout: StdioCollector { onStreamFinished: root.wpMergeThumbs(text) } }
     Process {
         id: wpPick
         stdout: StdioCollector {
@@ -6314,7 +6375,7 @@ Scope {
                         frame: ui
                         liquid: root.liquidActive
                         shaderUrl: root.glassShaderUrl
-                        dark: root.effDark
+                        dark: root.ccDark
                         // macOS style: the panel is the glass, so each control only keeps a faint shape on top of it
                         tint: root.ccStyle === "macos" ? root.glassOpacity * 0.30 : root.glassOpacity
                         strength: root.ccStyle === "macos" ? root.glassLiquid * 0.30 : root.glassLiquid
@@ -6346,9 +6407,9 @@ Scope {
                     Component {
                         id: cWifi
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg
+                                t: ccPal; gx: ccg
                                 x: 12; anchors.verticalCenter: parent.verticalCenter
                                 kind: "wifi"; level: root.wifiOn ? (root.wifiLevel || 3) : 3
                                 on: root.wifiOn
@@ -6361,18 +6422,18 @@ Scope {
                             Glyph {
                                 x: parent.width - 22; anchors.verticalCenter: parent.verticalCenter
                                 width: 12; height: 12
-                                kind: "chevR"; color: pal.fg2
+                                kind: "chevR"; color: ccPal.fg2
                             }
                             Column {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 62 - 24
                                 spacing: 1
-                                Text { text: "Wi-Fi"; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { text: "Wi-Fi"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
                                 MorphText {
                                     animateWidth: false; duration: 420
                                     width: parent.width; elide: Text.ElideRight
                                     text: !root.wifiOn ? "Off" : (root.wifiSsid !== "" ? root.wifiSsid : "Not Connected")
-                                    color: pal.fg2; font.family: pal.fam; font.pixelSize: 12
+                                    color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12
                                 }
                             }
                         }
@@ -6380,9 +6441,9 @@ Scope {
                     Component {
                         id: cBt
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg
+                                t: ccPal; gx: ccg
                                 x: slot.w > 1 ? 12 : (parent.width - width) / 2
                                 anchors.verticalCenter: parent.verticalCenter
                                 kind: "bluetooth"; on: root.btOn
@@ -6397,19 +6458,19 @@ Scope {
                                 visible: slot.w > 1
                                 x: parent.width - 22; anchors.verticalCenter: parent.verticalCenter
                                 width: 12; height: 12
-                                kind: "chevR"; color: pal.fg2
+                                kind: "chevR"; color: ccPal.fg2
                             }
                             Column {
                                 visible: slot.w > 1
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 62 - 24
                                 spacing: 1
-                                Text { text: "Bluetooth"; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { text: "Bluetooth"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
                                 MorphText {
                                     animateWidth: false; duration: 420
                                     width: parent.width; elide: Text.ElideRight
                                     text: !root.btOn ? "Off" : (root.btConnected > 0 ? (root.btConnectedName || (root.btConnected + " Connected")) : "Not Connected")
-                                    color: pal.fg2; font.family: pal.fam; font.pixelSize: 12
+                                    color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12
                                 }
                             }
                         }
@@ -6417,9 +6478,9 @@ Scope {
                     Component {
                         id: cAirplane
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg; anchors.centerIn: parent
+                                t: ccPal; gx: ccg; anchors.centerIn: parent
                                 kind: "airplane"; on: root.airplane
                                 onClicked: root.toggleAirplane()
                             }
@@ -6428,9 +6489,9 @@ Scope {
                     Component {
                         id: cFocus
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg
+                                t: ccPal; gx: ccg
                                 x: 12; anchors.verticalCenter: parent.verticalCenter
                                 kind: "moon"; on: root.dnd
                                 onClicked: root.toggleDnd()
@@ -6438,17 +6499,17 @@ Scope {
                             Column {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 spacing: 1
-                                Text { text: "Focus"; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                MorphText { animateWidth: false; duration: 420; text: root.dnd ? "Do Not Disturb" : "Off"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12 }
+                                Text { text: "Focus"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                MorphText { animateWidth: false; duration: 420; text: root.dnd ? "Do Not Disturb" : "Off"; color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
                             }
                         }
                     }
                     Component {
                         id: cGaming
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg
+                                t: ccPal; gx: ccg
                                 x: 12; anchors.verticalCenter: parent.verticalCenter
                                 kind: "gamepad"; on: root.gaming; onTint: "#30D158"
                                 onClicked: root.gamingMode = !root.gaming
@@ -6457,18 +6518,18 @@ Scope {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 62 - 10
                                 spacing: 1
-                                Text { width: parent.width; elide: Text.ElideRight; text: "Game Mode"; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { width: parent.width; elide: Text.ElideRight; text: "Game Mode"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
                                 MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.gamingAutoActive && !root.gamingMode ? "On (game detected)" : (root.gaming ? "On" : (root.gamingAuto ? "Auto" : "Off"))
-                                       color: root.gaming ? "#30D158" : pal.fg2; font.family: pal.fam; font.pixelSize: 12 }
+                                       color: root.gaming ? "#30D158" : ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
                             }
                         }
                     }
                     Component {
                         id: cRecord
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg
+                                t: ccPal; gx: ccg
                                 x: 12; anchors.verticalCenter: parent.verticalCenter
                                 kind: root.recording ? "stoprec" : "record"; on: root.recording; onTint: "#FF453A"
                                 onClicked: root.toggleRecording()
@@ -6477,17 +6538,17 @@ Scope {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 62 - 10
                                 spacing: 1
-                                MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.recording ? "Stop" : "Record"; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.recording ? root.recTime() : "Screen"; color: root.recording ? "#FF453A" : pal.fg2; font.family: pal.fam; font.pixelSize: 12 }
+                                MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.recording ? "Stop" : "Record"; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.recording ? root.recTime() : "Screen"; color: root.recording ? "#FF453A" : ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
                             }
                         }
                     }
                     Component {
                         id: cNight
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg; anchors.centerIn: parent
+                                t: ccPal; gx: ccg; anchors.centerIn: parent
                                 kind: "nightshift"; on: root.nightOn
                                 onClicked: root.nightOn = !root.nightOn
                             }
@@ -6496,9 +6557,9 @@ Scope {
                     Component {
                         id: cAwake
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg; anchors.centerIn: parent
+                                t: ccPal; gx: ccg; anchors.centerIn: parent
                                 kind: "coffee"; on: root.keepAwake
                                 onClicked: root.keepAwake = !root.keepAwake
                             }
@@ -6507,11 +6568,11 @@ Scope {
                     Component {
                         id: cDark
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             CCBtn {
-                                t: pal; gx: ccg; anchors.centerIn: parent
+                                t: ccPal; gx: ccg; anchors.centerIn: parent
                                 kind: "contrast"; on: root.darkMode
-                                onClicked: root.darkMode = !root.darkMode
+                                onClicked: root.setAppearance(root.darkMode ? "light" : "dark")
                             }
                         }
                     }
@@ -6519,14 +6580,14 @@ Scope {
                         id: cNowPlaying
                         CCTile {
                             id: np
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             readonly property var pl: root.player
                             Rectangle {
                                 id: art
                                 x: 12; y: 12
                                 width: 52; height: 52; radius: 10
-                                color: pal.btnOff
-                                Glyph { visible: artImg.status !== Image.Ready; anchors.centerIn: parent; width: 22; height: 22; kind: "note"; color: pal.fg2 }
+                                color: ccPal.btnOff
+                                Glyph { visible: artImg.status !== Image.Ready; anchors.centerIn: parent; width: 22; height: 22; kind: "note"; color: ccPal.fg2 }
                                 // `clip: true` only clips to a plain rectangle, so the cover is masked with a rounded shape instead
                                 Item {
                                     id: artMask
@@ -6558,7 +6619,7 @@ Scope {
                                     radius: art.radius
                                     color: "transparent"
                                     border.width: 1
-                                    border.color: pal.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10)
+                                    border.color: ccPal.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10)
                                 }
                             }
                             Column {
@@ -6568,14 +6629,14 @@ Scope {
                                 Text {
                                     width: parent.width; elide: Text.ElideRight
                                     text: np.pl && np.pl.trackTitle ? np.pl.trackTitle : "Now Playing"
-                                    color: np.pl ? pal.fg : pal.fg2
-                                    font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold
+                                    color: np.pl ? ccPal.fg : ccPal.fg2
+                                    font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold
                                 }
                                 Text {
                                     visible: np.pl !== null && np.pl !== undefined
                                     width: parent.width; elide: Text.ElideRight
                                     text: np.pl && np.pl.trackArtist ? np.pl.trackArtist : ""
-                                    color: pal.fg2; font.family: pal.fam; font.pixelSize: 12
+                                    color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12
                                 }
                             }
                             Row {
@@ -6593,7 +6654,7 @@ Scope {
                                             anchors.centerIn: parent
                                             width: 26; height: 26
                                             kind: pbtn.modelData === "play" ? (np.pl && np.pl.isPlaying ? "pause" : "play") : pbtn.modelData
-                                            color: pal.fg
+                                            color: ccPal.fg
                                             scale: pma.pressed ? 0.88 : 1
                                             Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
                                         }
@@ -6615,15 +6676,15 @@ Scope {
                     Component {
                         id: cDisplay
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             radius: 26
                             Text {
                                 x: 14; y: 8
                                 text: "Display"
-                                color: pal.fg; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
+                                color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
                             }
                             CCSlider {
-                                t: pal
+                                t: ccPal
                                 x: 12; y: 28
                                 width: parent.width - 24
                                 value: root.brightness
@@ -6636,15 +6697,15 @@ Scope {
                     Component {
                         id: cSound
                         CCTile {
-                            t: pal; gx: ccg
+                            t: ccPal; gx: ccg
                             radius: 26
                             Text {
                                 x: 14; y: 8
                                 text: "Sound"
-                                color: pal.fg; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
+                                color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
                             }
                             CCSlider {
-                                t: pal
+                                t: ccPal
                                 x: 12; y: 28
                                 width: parent.width - 24 - 36
                                 value: root.muted ? 0 : root.volume
@@ -6653,7 +6714,7 @@ Scope {
                                 onMoved: v => root.setVolume(v)
                             }
                             CCBtn {
-                                t: pal; gx: ccg
+                                t: ccPal; gx: ccg
                                 d: 28
                                 x: parent.width - 12 - 28; y: 28
                                 kind: "speaker"; level: root.muted ? 0 : 3
@@ -6686,7 +6747,7 @@ Scope {
                             visible: root.privacyAny && root.barWidgetEnabled("privacy")
                             width: parent.width
                             height: visible ? root.privacyRows.length * 46 + 14 : 0
-                            CCTile { anchors.fill: parent; t: pal; gx: ccg; radius: 22 }
+                            CCTile { anchors.fill: parent; t: ccPal; gx: ccg; radius: 22 }
                             Column {
                                 x: 8; y: 7
                                 width: parent.width - 16
@@ -6708,8 +6769,8 @@ Scope {
                                             anchors.verticalCenter: parent.verticalCenter
                                             width: parent.width - 44 - (pr.modelData.k === "rec" ? 70 : 6)
                                             spacing: 1
-                                            Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.title; color: pal.fg; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                            Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.sub; color: pal.fg2; font.family: pal.fam; font.pixelSize: 11 }
+                                            Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.title; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                            Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.sub; color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 11 }
                                         }
                                         Rectangle {
                                             visible: pr.modelData.k === "rec"
@@ -6717,7 +6778,7 @@ Scope {
                                             anchors.verticalCenter: parent.verticalCenter
                                             width: 54; height: 24; radius: 12
                                             color: "#FF453A"
-                                            Text { anchors.centerIn: parent; text: "Stop"; color: "white"; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
+                                            Text { anchors.centerIn: parent; text: "Stop"; color: "white"; font.family: ccPal.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
                                             MouseArea { anchors.fill: parent; onClicked: root.toggleRecording() }
                                         }
                                     }
@@ -6737,7 +6798,7 @@ Scope {
                                 visible: root.ccPlan.items.length === 0
                                 anchors.centerIn: parent
                                 text: "No controls. Use Edit Controls to add some."
-                                color: pal.fg2; font.family: pal.fam; font.pixelSize: 12
+                                color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 12
                             }
 
                             Repeater {
@@ -6820,9 +6881,9 @@ Scope {
                                         z: 60
                                         x: -5; y: -5
                                         width: 22; height: 22; radius: 11
-                                        color: pal.dark ? "#636366" : "#8E8E93"
+                                        color: ccPal.dark ? "#636366" : "#8E8E93"
                                         border.width: 1.5
-                                        border.color: pal.dark ? Qt.rgba(1, 1, 1, 0.35) : "white"
+                                        border.color: ccPal.dark ? Qt.rgba(1, 1, 1, 0.35) : "white"
                                         Rectangle { anchors.centerIn: parent; width: 10; height: 2; radius: 1; color: "white" }
                                         MouseArea {
                                             anchors.fill: parent; anchors.margins: -3
@@ -6841,8 +6902,8 @@ Scope {
                             Text {
                                 leftPadding: 4
                                 text: "Add Controls"
-                                color: pal.fg2
-                                font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
+                                color: ccPal.fg2
+                                font.family: ccPal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
                             }
                             Flow {
                                 width: parent.width
@@ -6853,7 +6914,7 @@ Scope {
                                     delegate: CCTile {
                                         id: chip
                                         required property var modelData
-                                        t: pal; gx: ccg
+                                        t: ccPal; gx: ccg
                                         radius: 17
                                         width: chipRow.implicitWidth + 24; height: 34
                                         Row {
@@ -6869,12 +6930,12 @@ Scope {
                                             Glyph {
                                                 width: 16; height: 16
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                kind: chip.modelData.glyph; color: pal.fg
+                                                kind: chip.modelData.glyph; color: ccPal.fg
                                             }
                                             Text {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: chip.modelData.label
-                                                color: pal.fg; font.family: pal.fam; font.pixelSize: 12
+                                                color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 12
                                             }
                                         }
                                         MouseArea { anchors.fill: parent; onClicked: root.ccAdd(chip.modelData.id) }
@@ -6905,12 +6966,12 @@ Scope {
                                 spacing: 8
                                 CCPill {
                                     visible: ui.ccEdit
-                                    t: pal; gx: ccg
+                                    t: ccPal; gx: ccg
                                     text: "Reset"
                                     onClicked: root.ccControls = root.ccDefault.slice()
                                 }
                                 CCPill {
-                                    t: pal; gx: ccg
+                                    t: ccPal; gx: ccg
                                     text: ui.ccEdit ? "Done" : "Edit Controls"
                                     strong: ui.ccEdit
                                     onClicked: ui.ccEdit = !ui.ccEdit
@@ -7630,11 +7691,12 @@ Scope {
                     shaderUrl: root.glassShaderUrl
                     dark: root.effDark
                     tint: root.glassOpacity
-                    strength: root.glassLiquid * 0.6        // Spotlight: gentler refraction than the Dock
-                    rim: root.glassRim * 0.4                 // and a subtle rim (no heavy outline)
+                    strength: root.glassLiquid               // full refraction, like the Dock / Control Center
+                    rim: 0                                   // no white rim: Spotlight gets a dark outline instead
+                    whiteEdge: false
                     grain: root.glassGrain
-                    blur: root.glassBlur
-                    blurMul: 12.0                   // Spotlight: strong smooth blur (two stacked Gaussian passes); lower to soften, raise to blur more
+                    blur: 15                                // Spotlight has its own blur: it ignores the global blur slider
+                    blurMul: 10.0                   // strong smooth blur (two stacked Gaussian passes); lower to see more refraction, raise to frost more
                     debug: root.glassDebug
                     onFailed: root.glassState = "failed"
                 }
@@ -7649,7 +7711,7 @@ Scope {
                     x: Math.round((spotRoot.width - width) / 2)
                     // the search pill sits a little above the vertical centre of the screen (0.4 of the height; 0.5 = dead centre); the Applications panel centres itself instead
                     y: Math.round(spotRoot.height * 0.4 - (ui.spFull ? curPanel.height / 2 : 24))
-                    Behavior on y { enabled: spot.vis > 0.99; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                    Behavior on y { enabled: spot.vis > 0.99; NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                     // opens with a springy pop; dismiss: quick fade + shrink
                     property real vis: 0
                     opacity: vis
@@ -7665,15 +7727,15 @@ Scope {
                         Transition {
                             from: ""; to: "open"
                             ParallelAnimation {
-                                NumberAnimation { property: "vis"; duration: 520; easing.type: Easing.OutCubic }
-                                NumberAnimation { property: "scale"; duration: ui.spCalm ? 460 : 580; easing.type: Easing.OutQuint }
+                                NumberAnimation { property: "vis"; duration: 260; easing.type: Easing.OutCubic }
+                                NumberAnimation { property: "scale"; duration: ui.spCalm ? 240 : 300; easing.type: Easing.OutQuint }
                             }
                         },
                         Transition {
                             from: "open"; to: ""
                             ParallelAnimation {
-                                NumberAnimation { property: "vis"; duration: 400; easing.type: Easing.OutCubic }
-                                NumberAnimation { property: "scale"; to: 0.95; duration: 400; easing.type: Easing.OutCubic }
+                                NumberAnimation { property: "vis"; duration: 190; easing.type: Easing.OutCubic }
+                                NumberAnimation { property: "scale"; to: 0.95; duration: 190; easing.type: Easing.OutCubic }
                             }
                         }
                     ]
@@ -7691,19 +7753,19 @@ Scope {
                         spacing: 12
                         opacity: !ui.spFull ? 1 : 0
                         visible: opacity > 0
-                        Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
                         Item {
                             id: spPill
                             width: spot.width - 5 * 60
                             height: 48
-                            GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 18; strengthMul: 0.7; shadowAmt: 0.18 }
+                            GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 22; strengthMul: 1.0; shadowAmt: 0.18 }
                             HoverHandler { id: pillHover }
                             ContourGlow { cornerR: 24; hovered: pillHover.hovered; at: pillHover.point.position; glowColor: root.darkMode ? "white" : root.accent }
                             // very thin outline
                             Rectangle {
                                 anchors.fill: parent; radius: 24; color: "transparent"; antialiasing: true
-                                border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.11)
+                                border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2)
                             }
                             Glyph {
                                 x: 18; anchors.verticalCenter: parent.verticalCenter
@@ -7765,7 +7827,7 @@ Scope {
                                 // very thin outline
                                 Rectangle {
                                     anchors.fill: parent; radius: width / 2; color: "transparent"; antialiasing: true
-                                    border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.11)
+                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2)
                                 }
                                 onClicked: {
                                     if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
@@ -7792,7 +7854,9 @@ Scope {
                         Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
                         height: (items.length > 0 ? items.length : keep) * 46 + 16
                         Behavior on height { NumberAnimation { duration: 320; easing.type: Easing.OutQuint } }
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 26; thickness: 22; strengthMul: 0.75; shadowAmt: 0.22 }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 26; thickness: 26; strengthMul: 1.0; shadowAmt: 0.22 }
+                        Rectangle { anchors.fill: parent; radius: 26; color: "transparent"; antialiasing: true
+                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
                         Item {
                             x: 8; y: 8
                             width: parent.width - 16
@@ -7891,7 +7955,9 @@ Scope {
                             : (ui.spQuery.trim() === "" && !root.clipLoading ? "Copy some text or an image and it will show up here" : ""))
                         height: 64 + (items.length > 0 ? shown * rowH + 14 : 118)
                         Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.5 }
+                        Rectangle { anchors.fill: parent; radius: 32; color: "transparent"; antialiasing: true
+                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
 
                         Item {
                             id: clipHeader
@@ -8103,7 +8169,9 @@ Scope {
                             y: 58
                             width: 250
                             height: 3 * 40 + 12
-                            GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 22; strengthMul: 0.8; shadowAmt: 0.6 }
+                            GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 26; strengthMul: 1.0; shadowAmt: 0.6 }
+                            Rectangle { anchors.fill: parent; radius: 20; color: "transparent"; antialiasing: true
+                                        border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
                             Column {
                                 x: 6; y: 6
                                 width: parent.width - 12
@@ -8172,7 +8240,9 @@ Scope {
                         readonly property var items: ui.spMode === "emoji" ? ui.spResults : []
                         readonly property var cur: items[Math.min(ui.spSel, items.length - 1)]
                         height: 64 + 42 + gridRows * cell + 46
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.5 }
+                        Rectangle { anchors.fill: parent; radius: 32; color: "transparent"; antialiasing: true
+                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
 
                         Item {
                             x: 20
@@ -8337,7 +8407,9 @@ Scope {
                         Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                         width: spot.width
                         height: Math.min(64 + appsCol.height + 14, 520)
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 0.85; shadowAmt: 0.5 }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.5 }
+                        Rectangle { anchors.fill: parent; radius: 32; color: "transparent"; antialiasing: true
+                                    border.width: 0.7; border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(0, 0, 0, 0.2) }
 
                         Item {
                             id: appsHeader

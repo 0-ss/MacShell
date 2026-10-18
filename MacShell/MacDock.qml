@@ -123,6 +123,12 @@ Scope {
     readonly property bool captureHold: hub ? hub.captureHold : false     // windows opening / closing: the dock PREVIEW capture stops (source released 0.5 s later); the glass is not affected
     // appearance values shared by Dock and Menu Bar
     function setLook(k, v) { root[k] = v; if (bar) bar[k] = v; }
+    // Appearance: the Menu Bar resolves "auto" (light by day, dark by night) and keeps both windows in step
+    function setAppearance(mode) {
+        if (bar && bar.setAppearance) { bar.setAppearance(mode); return; }
+        appearanceMode = mode;
+        if (mode === "auto") { var h = new Date().getHours(); darkMode = (h < 7 || h >= 19); } else darkMode = (mode === "dark");
+    }
 
     // ───────────── CONFIG ───────────── Lachowski
     property string monitor: ""          // "" = every monitor, or e.g. "DP-1"
@@ -135,6 +141,7 @@ Scope {
     property int cornerRadius: 18
     property int margin: 6
     property bool darkMode: true
+    property string appearanceMode: "dark"      // light | dark | auto (kept in step with the Menu Bar, see setAppearance)
     property string dockStyle: "blur"   // "blur" = Normal Blur, "liquid" = Apple Liquid Glass
     // Liquid Glass tuning (settings.json): rim = edge highlight, grain = noise, liquid = refraction depth
     property real glassRim: 0.45
@@ -461,32 +468,65 @@ Scope {
         id: tile
         required property var t
         property bool dark: false
+        property bool split: false            // Auto: left half light, right half dark
         property bool selected: false
         property string label: ""
         signal clicked()
         width: 84; height: 78
-        Rectangle {
+        readonly property bool leftDark: split ? false : dark
+        // the little desktop picture (left half, or the whole tile)
+        Item {
             width: 84; height: 56
-            radius: 8
-            color: tile.dark ? "#141416" : "#D9DDE6"
-            border.width: tile.selected ? 3 : 1
-            border.color: tile.selected ? tile.t.accent : tile.t.sep
+            Rectangle { width: 84; height: 56; radius: 8; color: tile.leftDark ? "#141416" : "#D9DDE6" }
             Rectangle {   // mini window
                 x: 14; y: 9
                 width: 56; height: 32
                 radius: 4
-                color: tile.dark ? "#2C2C2E" : "#FFFFFF"
-                Rectangle { x: 0; y: 0; width: 15; height: parent.height; radius: 4; color: tile.dark ? "#3A3A3C" : "#E9E9EE" }
-                Rectangle { x: 20; y: 7;  width: 28; height: 3; radius: 1.5; color: tile.dark ? "#5A5A5E" : "#C8C8CE" }
-                Rectangle { x: 20; y: 14; width: 20; height: 3; radius: 1.5; color: tile.dark ? "#48484A" : "#DADADF" }
-                Rectangle { x: 20; y: 21; width: 24; height: 3; radius: 1.5; color: tile.dark ? "#48484A" : "#DADADF" }
+                color: tile.leftDark ? "#2C2C2E" : "#FFFFFF"
+                Rectangle { x: 0; y: 0; width: 15; height: parent.height; radius: 4; color: tile.leftDark ? "#3A3A3C" : "#E9E9EE" }
+                Rectangle { x: 20; y: 7;  width: 28; height: 3; radius: 1.5; color: tile.leftDark ? "#5A5A5E" : "#C8C8CE" }
+                Rectangle { x: 20; y: 14; width: 20; height: 3; radius: 1.5; color: tile.leftDark ? "#48484A" : "#DADADF" }
+                Rectangle { x: 20; y: 21; width: 24; height: 3; radius: 1.5; color: tile.leftDark ? "#48484A" : "#DADADF" }
             }
             Rectangle {   // mini dock
                 x: 26; y: 46
                 width: 32; height: 6
                 radius: 3
-                color: tile.dark ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.75)
+                color: tile.leftDark ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.75)
             }
+        }
+        // Auto: the right half is the dark picture
+        Item {
+            visible: tile.split
+            x: 42; width: 42; height: 56
+            clip: true
+            Item {
+                x: -42; width: 84; height: 56
+                Rectangle { width: 84; height: 56; radius: 8; color: true ? "#141416" : "#D9DDE6" }
+                Rectangle {   // mini window
+                    x: 14; y: 9
+                    width: 56; height: 32
+                    radius: 4
+                    color: true ? "#2C2C2E" : "#FFFFFF"
+                    Rectangle { x: 0; y: 0; width: 15; height: parent.height; radius: 4; color: true ? "#3A3A3C" : "#E9E9EE" }
+                    Rectangle { x: 20; y: 7;  width: 28; height: 3; radius: 1.5; color: true ? "#5A5A5E" : "#C8C8CE" }
+                    Rectangle { x: 20; y: 14; width: 20; height: 3; radius: 1.5; color: true ? "#48484A" : "#DADADF" }
+                    Rectangle { x: 20; y: 21; width: 24; height: 3; radius: 1.5; color: true ? "#48484A" : "#DADADF" }
+                }
+                Rectangle {   // mini dock
+                    x: 26; y: 46
+                    width: 32; height: 6
+                    radius: 3
+                    color: true ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.75)
+                }
+            }
+        }
+        Rectangle {   // selection / outline ring
+            width: 84; height: 56
+            radius: 8
+            color: "transparent"
+            border.width: tile.selected ? 3 : 1
+            border.color: tile.selected ? tile.t.accent : tile.t.sep
         }
         Text {
             y: 60
@@ -607,10 +647,10 @@ Scope {
     Window {
         id: prefsWindow
         title: "macshell Settings"
-        width: 720
-        height: 520
-        minimumWidth: 620
-        minimumHeight: 420
+        width: 800
+        height: 880
+        minimumWidth: 560
+        minimumHeight: 380
         visible: false
         color: "transparent"
         flags: Qt.Window | Qt.FramelessWindowHint
@@ -708,8 +748,10 @@ Scope {
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: prefsWindow.visible = false }
 
         // Settings always opens as a floating, centred window (no windowrule needed in hyprland.conf)
-        onVisibleChanged: if (visible) { floatTries = 0; floatTimer.restart(); }
+        onVisibleChanged: if (visible) { showNormal(); floatTries = 0; floatTimer.restart(); }
         property int floatTries: 0
+        readonly property int preferredWidth: 800
+        readonly property int preferredHeight: 880
         Timer {
             id: floatTimer
             interval: 140
@@ -718,8 +760,9 @@ Scope {
                 // the compositor maps the window a moment after it becomes visible: send the dispatches a few times
                 var sel = 'window = "title:^(' + prefsWindow.title + ')$"';
                 Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
-                if (prefsWindow.floatTries === 1) {
-                    Hyprland.dispatch('hl.dsp.window.resize({ x = ' + prefsWindow.width + ', y = ' + prefsWindow.height + ', "exact", ' + sel + ' })');
+                // Hyprland can remember an older floating size; reapply the compact size after mapping.
+                if (prefsWindow.floatTries >= 1) {
+                    Hyprland.dispatch('hl.dsp.window.resize({ x = ' + prefsWindow.preferredWidth + ', y = ' + prefsWindow.preferredHeight + ', "exact", ' + sel + ' })');
                     Hyprland.dispatch('hl.dsp.window.center({ ' + sel + ' })');
                 }
                 if (++prefsWindow.floatTries >= 4) stop();
@@ -2024,18 +2067,23 @@ Scope {
                     SRow {
                         t: pal
                         title: "Appearance"
-                        subtitle: "Applies to the Dock, the Menu Bar and this window"
+                        subtitle: "Light, Dark, or Auto (light by day, dark at night). Applies to the Dock, the Menu Bar, Spotlight, menus and this window"
                         Row {
                             spacing: 14
                             SThemeTile {
                                 t: pal; label: "Light"; dark: false
-                                selected: !root.darkMode
-                                onClicked: root.setLook("darkMode", false)
+                                selected: root.appearanceMode === "light"
+                                onClicked: root.setAppearance("light")
                             }
                             SThemeTile {
                                 t: pal; label: "Dark"; dark: true
-                                selected: root.darkMode
-                                onClicked: root.setLook("darkMode", true)
+                                selected: root.appearanceMode === "dark"
+                                onClicked: root.setAppearance("dark")
+                            }
+                            SThemeTile {
+                                t: pal; label: "Auto"; split: true
+                                selected: root.appearanceMode === "auto"
+                                onClicked: root.setAppearance("auto")
                             }
                         }
                     }
@@ -3164,12 +3212,16 @@ Scope {
             Column {
                 id: wpPane
                 spacing: 10
-                property int filter: 0          // 0 all, 1 pictures, 2 animated
+                property int filter: 0          // 0 all, 1 pictures, 2 animated, 3 favourites
+                property string searchText: ""
                 readonly property var files: root.bar ? root.bar.wpFiles : []
                 readonly property var shown: {
-                    var out = [], f = files;
-                    for (var i = 0; i < f.length; i++)
-                        if (filter === 0 || (filter === 1 && !f[i].video) || (filter === 2 && f[i].video)) out.push(f[i]);
+                    var out = [], f = files, q = searchText.trim().toLowerCase();
+                    for (var i = 0; i < f.length; i++) {
+                        var typeMatch = filter === 0 || (filter === 1 && !f[i].video) || (filter === 2 && f[i].video) || (filter === 3 && f[i].fav);
+                        var textMatch = q === "" || f[i].name.toLowerCase().indexOf(q) >= 0;
+                        if (typeMatch && textMatch) out.push(f[i]);
+                    }
                     return out;
                 }
                 readonly property string curVideo: root.bar ? root.bar.wallpaperVideo : ""
@@ -3279,30 +3331,105 @@ Scope {
                     SSegmented {
                         t: pal
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        model: ["All", "Pictures", "Animated"]
-                        segWidth: 80
+                        model: ["All", "Pictures", "Animated", "★ Favourites"]
+                        segWidth: 88
                         current: wpPane.filter
                         onPicked: i => wpPane.filter = i
                     }
                 }
 
-                Flow {
+                Rectangle {
+                    width: parent.width
+                    height: 36
+                    radius: 10
+                    color: pal.ctrl
+                    border.width: 1
+                    border.color: wpSearchInput.activeFocus ? pal.accent : pal.cardBorder
+                    Row {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 8
+                        spacing: 8
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "⌕"
+                            color: pal.text3
+                            font.pixelSize: 19
+                        }
+                        Item {
+                            width: parent.width - 52
+                            height: parent.height
+                            TextInput {
+                                id: wpSearchInput
+                                anchors.fill: parent
+                                verticalAlignment: TextInput.AlignVCenter
+                                color: pal.text
+                                selectionColor: pal.accent
+                                font.family: pal.fam
+                                font.pixelSize: 12
+                                clip: true
+                                selectByMouse: true
+                                onTextChanged: wpPane.searchText = text
+                            }
+                            Text {
+                                anchors.fill: parent
+                                verticalAlignment: Text.AlignVCenter
+                                text: "Search wallpapers"
+                                color: pal.text3
+                                font.family: pal.fam
+                                font.pixelSize: 12
+                                visible: wpSearchInput.text === "" && !wpSearchInput.activeFocus
+                                MouseArea { anchors.fill: parent; onClicked: wpSearchInput.forceActiveFocus() }
+                            }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: wpSearchInput.text !== ""
+                            text: "×"
+                            color: pal.text2
+                            font.pixelSize: 18
+                            MouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                onClicked: { wpSearchInput.clear(); wpSearchInput.forceActiveFocus(); }
+                            }
+                        }
+                    }
+                }
+
+                GridView {
                     id: wpFlow
                     width: parent.width
-                    spacing: 10
-                    readonly property real tileW: Math.floor((width - 2 * spacing) / 3)
-                    Repeater {
-                        model: wpPane.shown
-                        delegate: Item {
+                    cellWidth: Math.floor((width - 20) / 3)
+                    cellHeight: Math.round(cellWidth * 0.625) + 32
+                    height: Math.min(contentHeight, cellHeight * 3)
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: wpPane.shown
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        width: 6
+                        background: Rectangle {
+                            color: pal.cardBorder
+                            radius: 3
+                            opacity: 0.45
+                        }
+                        contentItem: Rectangle {
+                            color: pal.text3
+                            radius: 3
+                        }
+                    }
+                    delegate: Item {
                             id: wt
                             required property var modelData
-                            width: wpFlow.tileW
-                            height: Math.round(width * 0.625) + 22
+                            width: wpFlow.cellWidth
+                            height: wpFlow.cellHeight
                             readonly property bool cur: modelData.video ? wpPane.curVideo === modelData.path
                                                                         : (wpPane.curVideo === "" && wpPane.curStill === modelData.path)
                             Item {
                                 id: wtBox
-                                width: parent.width; height: parent.height - 22
+                                x: 5; y: 5
+                                width: parent.width - 10; height: parent.height - 32
                                 scale: wtMa.pressed ? 0.98 : 1
                                 Item {
                                     id: wtMask
@@ -3318,7 +3445,7 @@ Scope {
                                     Image {
                                         anchors.fill: parent
                                         source: "file://" + (wt.modelData.video ? wt.modelData.thumb : wt.modelData.path)
-                                        sourceSize.width: 360
+                                        sourceSize.width: 260
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true; smooth: true
                                         opacity: status === Image.Ready ? 1 : 0
@@ -3360,23 +3487,43 @@ Scope {
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: if (root.bar) root.bar.wpApply(wt.modelData.path)
                                 }
+                                    Rectangle {
+                                        anchors.right: parent.right; anchors.top: parent.top
+                                        anchors.margins: 7
+                                        width: 26; height: 26; radius: 13
+                                        visible: wt.modelData.fav || wtMa.containsMouse || wtFavMa.containsMouse
+                                        color: Qt.rgba(0, 0, 0, wtFavMa.containsMouse ? 0.72 : 0.52)
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: wt.modelData.fav ? "★" : "☆"
+                                            color: wt.modelData.fav ? "#ffd60a" : "white"
+                                            font.pixelSize: 16
+                                        }
+                                        MouseArea {
+                                            id: wtFavMa
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            onClicked: if (root.bar) root.bar.wpToggleFav(wt.modelData.path)
+                                        }
+                                    }
                             }
                             Text {
                                 anchors.bottom: parent.bottom
-                                width: parent.width
+                                x: 5
+                                width: parent.width - 10
                                 horizontalAlignment: Text.AlignHCenter
                                 elide: Text.ElideMiddle
                                 text: wt.modelData.name
                                 color: wt.cur ? pal.text : pal.text2
                                 font.family: pal.fam; font.pixelSize: 11
                             }
-                        }
                     }
                 }
                 SLabel {
                     t: pal
                     visible: wpPane.shown.length === 0
-                    text: wpPane.filter === 2 ? "No animated wallpapers yet. Drop .mp4 / .webm videos into " + (root.bar ? root.bar.wpDirEff : "~/Pictures/Wallpapers") + "."
+                    text: wpPane.searchText.trim() !== "" ? "No wallpapers match “" + wpPane.searchText + "”."
+                        : wpPane.filter === 2 ? "No animated wallpapers yet. Drop .mp4 / .webm videos into " + (root.bar ? root.bar.wpDirEff : "~/Pictures/Wallpapers") + "."
                                               : "Nothing here yet."
                 }
                 SLabel { t: pal; text: "Tip: Ctrl+Alt+W opens the quick wallpaper picker, which shows animated wallpapers too." }
@@ -3649,7 +3796,7 @@ Scope {
         Quickshell.execDetached(["sh", "-c", "rm -f \"$HOME/.config/maclock/settings.json\""]);
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
-        darkMode = true; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter Variable";
+        darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter Variable";
         iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
         showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true;
@@ -3657,7 +3804,7 @@ Scope {
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, settingsEnabled, iconSize, magnification, magnificationEnabled, spacing, margin,
-        cornerRadius, darkMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
+        cornerRadius, darkMode, appearanceMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
         showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, iconTint, iconTintColor, iconTintStrength].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
@@ -3669,7 +3816,7 @@ Scope {
         var o = {
             dockEnabled: dockEnabled, settingsEnabled: settingsEnabled, iconSize: iconSize, magnification: magnification, magnificationEnabled: magnificationEnabled,
             spacing: spacing, margin: margin, cornerRadius: cornerRadius,
-            darkMode: darkMode, glassOpacity: glassOpacity, dockStyle: dockStyle, wallpaperPath: wallpaperPath, glassDebug: glassDebug,
+            darkMode: darkMode, appearanceMode: appearanceMode, glassOpacity: glassOpacity, dockStyle: dockStyle, wallpaperPath: wallpaperPath, glassDebug: glassDebug,
             glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid, glassBlur: glassBlur,
             accent: String(accent), fontFamily: fontFamily,
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
@@ -3683,7 +3830,7 @@ Scope {
     function applySettings(o) {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "settingsEnabled", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
-                    "darkMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
+                    "darkMode", "appearanceMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
                     "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture", "iconTint", "iconTintColor", "iconTintStrength"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
