@@ -30,6 +30,7 @@ Scope {
     property string tempUnit: "C"          // "C" | "F"
     property string locMode: "auto"        // "auto" (IP) | "city"
     property string cityName: ""
+    property real widgetScale: 1.0         // the "Widget size" slider: scales every widget and the grid (0.6 - 1.5)
 
     readonly property string fontFamily: dock ? dock.fontFamily : "Inter"
     readonly property string configDir: Quickshell.env("HOME") + "/.config/macwidgets"
@@ -50,15 +51,18 @@ Scope {
     property int rev: 0                    // bumped on every change to the list, so Settings bindings can re-evaluate count()
 
     readonly property var styleNames: ({ liquid: "Liquid Glass", normal: "Normal", light: "Light", dark: "Dark" })
-    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player" })
+    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image", gif: "GIF", battery: "Battery", sysmon: "System Monitor", stocks: "Stocks" })
     readonly property var sizeNames: ({ small: "Small", medium: "Medium", large: "Large" })
-    function dims(size) { return size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]); }
+    function dims(size) {
+        var b = size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]);
+        return [Math.round(b[0] * widgetScale), Math.round(b[1] * widgetScale)];
+    }
     // Size of the Player's contents (art, text, buttons) relative to the original design. The card itself fills the
     // normal widget footprint, like every other widget. 1.0 = original size.
     property real playerScale: 0.8
-    readonly property int gridCell: 179
-    readonly property int gridGapX: 28
-    readonly property int gridGapY: 23
+    readonly property int gridCell: Math.round(179 * widgetScale)
+    readonly property int gridGapX: Math.round(28 * widgetScale)
+    readonly property int gridGapY: Math.round(23 * widgetScale)
     readonly property int gridLeft: 21
     readonly property int gridTop: 56
     readonly property int gridRight: 21
@@ -156,12 +160,12 @@ Scope {
                 if (wmodel.get(k).wid === item.id) { wmodel.setProperty(k, "wx", p[0]); wmodel.setProperty(k, "wy", p[1]); break; }
         }
     }
-    function addWidget(type, style, size) {
+    function addWidget(type, style, size, src) {
         var sz = size || "small";
         var p = firstFreeSlot(sz, "");
         if (!p) return false;
         wmodel.append({ wid: "w" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
-                        wtype: type, wstyle: style, wsize: sz, wmode: "auto", wx: p[0], wy: p[1] });
+                        wtype: type, wstyle: style, wsize: sz, wmode: "auto", wsrc: src || "", wx: p[0], wy: p[1] });
         recount(); scheduleSave();
         if (type === "weather") refreshSoon();
         return true;
@@ -183,6 +187,11 @@ Scope {
         for (var i = 0; i < wmodel.count; i++)
             if (wmodel.get(i).wid === id) { wmodel.setProperty(i, "wstyle", style); break; }
         recount(); scheduleSave();
+    }
+    function setSource(id, src) {
+        for (var i = 0; i < wmodel.count; i++)
+            if (wmodel.get(i).wid === id) { wmodel.setProperty(i, "wsrc", src); break; }
+        scheduleSave();
     }
     function setMode(id, mode) {
         var m = (mode === "light" || mode === "dark") ? mode : "auto";
@@ -215,36 +224,116 @@ Scope {
         recount(); scheduleSave();
     }
 
+    // ───────────── image widgets ─────────────
+    // pickImage("", size) adds a new Image widget with the chosen picture; pickImage(id) changes the picture of widget id.
+    // The chosen file is copied into ~/.config/macwidgets/images so the widget keeps working if the original moves.
+    property string pickTargetId: ""
+    property string pickTargetSize: "small"
+    property string pickError: ""
+    function pickImage(id, size) {
+        if (imgPick.running) return;
+        pickTargetId = id || "";
+        pickTargetSize = size || "small";
+        pickError = "";
+        imgPick.running = true;
+    }
+    Process {
+        id: imgPick
+        command: ["sh", "-c",
+            "f=''; "
+            + "if command -v zenity >/dev/null 2>&1; then f=$(zenity --file-selection --title='Choose a picture' --file-filter='Images | *.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg' 2>/dev/null); "
+            + "elif command -v kdialog >/dev/null 2>&1; then f=$(kdialog --getopenfilename \"$HOME/Pictures\" 'image/png image/jpeg image/webp image/gif image/bmp image/svg+xml' 2>/dev/null); "
+            + "elif command -v yad >/dev/null 2>&1; then f=$(yad --file --title='Choose a picture' 2>/dev/null); "
+            + "else echo 'ERR:no file chooser (install zenity, kdialog or yad)'; exit 0; fi; "
+            + "[ -n \"$f\" ] && [ -f \"$f\" ] || exit 0; "
+            + "d=\"$1/images\"; mkdir -p \"$d\" || { echo 'ERR:cannot create the images folder'; exit 0; }; "
+            + "n=\"$(date +%s)-$(printf '%s' \"$(basename \"$f\")\" | tr -c 'A-Za-z0-9._-' '_')\"; "
+            + "cp -f \"$f\" \"$d/$n\" && echo \"OK:$d/$n\" || echo 'ERR:could not copy the picture'",
+            "sh", root.configDir]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var t = text.trim();
+                if (t.indexOf("OK:") === 0) {
+                    var p = t.substring(3);
+                    if (root.pickTargetId === "") { if (!root.addWidget("image", "normal", root.pickTargetSize, p)) root.pickError = "No free space on the desktop for another widget."; }
+                    else root.setSource(root.pickTargetId, p);
+                } else if (t.indexOf("ERR:") === 0) {
+                    root.pickError = t.substring(4);
+                    console.log("[macwidgets] image:", root.pickError);
+                }
+            }
+        }
+    }
+    function pickGif(id, size) {
+        if (gifPick.running) return;
+        pickTargetId = id || "";
+        pickTargetSize = size || "small";
+        pickError = "";
+        gifPick.running = true;
+    }
+    Process {
+        id: gifPick
+        command: ["sh", "-c",
+            "f=''; "
+            + "if command -v zenity >/dev/null 2>&1; then f=$(zenity --file-selection --title='Choose a GIF animation' --file-filter='GIF / WebP Animation | *.gif *.webp' 2>/dev/null); "
+            + "elif command -v kdialog >/dev/null 2>&1; then f=$(kdialog --getopenfilename \"$HOME/Pictures\" 'image/gif image/webp' 2>/dev/null); "
+            + "elif command -v yad >/dev/null 2>&1; then f=$(yad --file --title='Choose a GIF' 2>/dev/null); "
+            + "else echo 'ERR:no file chooser (install zenity, kdialog or yad)'; exit 0; fi; "
+            + "[ -n \"$f\" ] && [ -f \"$f\" ] || exit 0; "
+            + "d=\"$1/images\"; mkdir -p \"$d\" || { echo 'ERR:cannot create the images folder'; exit 0; }; "
+            + "n=\"$(date +%s)-$(printf '%s' \"$(basename \"$f\")\" | tr -c 'A-Za-z0-9._-' '_')\"; "
+            + "cp -f \"$f\" \"$d/$n\" && echo \"OK:$d/$n\" || echo 'ERR:could not copy the GIF'",
+            "sh", root.configDir]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var t = text.trim();
+                if (t.indexOf("OK:") === 0) {
+                    var p = t.substring(3);
+                    if (root.pickTargetId === "") { if (!root.addWidget("gif", "normal", root.pickTargetSize, p)) root.pickError = "No free space on the desktop for another widget."; }
+                    else root.setSource(root.pickTargetId, p);
+                } else if (t.indexOf("ERR:") === 0) {
+                    root.pickError = t.substring(4);
+                    console.log("[macwidgets] gif:", root.pickError);
+                }
+            }
+        }
+    }
+
     // ───────────── persistence ─────────────
     function scheduleSave() { if (ready) saveTimer.restart(); }
     onTempUnitChanged: { scheduleSave(); refreshSoon(); }
     onLocModeChanged: { scheduleSave(); refreshSoon(); }
     onCityNameChanged: { scheduleSave(); refreshSoon(); }
+    onWidgetScaleChanged: { scheduleSave(); if (ready) rescaleTimer.restart(); }
+    // after the slider settles, snap every widget onto the new grid
+    Timer { id: rescaleTimer; interval: 300; onTriggered: { root.normalizePositions(); root.recount(); root.scheduleSave(); } }
 
     function saveSettings() {
         var list = [];
         for (var i = 0; i < wmodel.count; i++) {
             var m = wmodel.get(i);
-            list.push({ id: m.wid, type: m.wtype, style: m.wstyle, size: m.wsize, mode: m.wmode || "auto", x: m.wx, y: m.wy });
+            list.push({ id: m.wid, type: m.wtype, style: m.wstyle, size: m.wsize, mode: m.wmode || "auto", src: m.wsrc || "", x: m.wx, y: m.wy });
         }
-        store.setText(JSON.stringify({ tempUnit: tempUnit, locMode: locMode, cityName: cityName, widgets: list }, null, 2));
+        store.setText(JSON.stringify({ tempUnit: tempUnit, locMode: locMode, cityName: cityName, widgetScale: widgetScale, widgets: list }, null, 2));
     }
     function applySettings(o) {
         if (!o || typeof o !== "object") return;
         if (o.tempUnit === "C" || o.tempUnit === "F") tempUnit = o.tempUnit;
         if (o.locMode === "auto" || o.locMode === "city") locMode = o.locMode;
         if (typeof o.cityName === "string") cityName = o.cityName;
+        if (typeof o.widgetScale === "number" && isFinite(o.widgetScale)) widgetScale = Math.max(0.6, Math.min(1.5, o.widgetScale));
         if (Array.isArray(o.widgets)) {
             wmodel.clear();
             for (var i = 0; i < o.widgets.length; i++) {
                 var w = o.widgets[i];
-                if (!w || (w.type !== "weather" && w.type !== "calendar" && w.type !== "clock" && w.type !== "player")) continue;
+                if (!w || !w.type || !(w.type in root.typeNames)) continue;
                 wmodel.append({ wid: String(w.id || ("w" + i)), wtype: w.type,
-                                wstyle: (w.type === "clock" || w.type === "player")
+                                wstyle: (w.type === "image" || w.type === "gif") ? "normal" : (w.type === "clock" || w.type === "player")
                                     ? ((w.style === "light" || w.style === "dark") ? w.style : "liquid")
                                     : (w.style === "normal" ? "normal" : "liquid"),
                                 wsize: (w.size === "medium" || w.size === "large") ? w.size : "small",
                                 wmode: (w.mode === "light" || w.mode === "dark") ? w.mode : "auto",
+                                wsrc: typeof w.src === "string" ? w.src : "",
                                 wx: Number(w.x) || 0, wy: Number(w.y) || 0 });
             }
         }
@@ -306,6 +395,7 @@ Scope {
     property string lrcArtist: ""
     property string lrcAlbum: ""
     property string lrcDur: ""
+    readonly property string lyricsScript: decodeURIComponent(Qt.resolvedUrl("lyrics_fetcher.py").toString().replace(/^file:\/\//, ""))
     readonly property string trackKey: player ? (player.trackTitle + "|" + player.trackArtist + "|" + player.trackAlbum + "|"
                                                   + Math.round(player.lengthSupported ? player.length : 0)) : ""
     onTrackKeyChanged: {
@@ -330,7 +420,7 @@ Scope {
             var line = lines[i], re = /\[(\d+):(\d+(?:\.\d+)?)\]/g, times = [], m;
             while ((m = re.exec(line)) !== null) times.push(parseInt(m[1]) * 60 + parseFloat(m[2]));
             if (times.length === 0) continue;
-            var text = line.replace(/\[[^\]]*\]/g, "").trim();
+            var text = line.replace(/\[[^\]]*\]/g, "").replace(/<[^>]*>/g, "").trim();
             for (var j = 0; j < times.length; j++) out.push({ t: times[j], text: text });
         }
         out.sort(function (a, b) { return a.t - b.t; });
@@ -338,7 +428,12 @@ Scope {
     }
     function applyLyrics(raw) {
         var o = null;
-        try { o = JSON.parse(raw); } catch (err) { }
+        try {
+            var s = String(raw).trim();
+            var b1 = s.indexOf("{"), b2 = s.lastIndexOf("}");
+            if (b1 >= 0 && b2 > b1) o = JSON.parse(s.substring(b1, b2 + 1));
+            else o = JSON.parse(s);
+        } catch (err) { }
         if (Array.isArray(o)) {                           // search fallback: prefer a result with synced lyrics
             var pick = null;
             for (var i = 0; i < o.length; i++) {
@@ -347,7 +442,11 @@ Scope {
             }
             o = pick;
         }
-        if (!o || o.instrumental) { lyricsLines = []; lyricsSynced = false; lyricsState = "none"; return; }
+        if (!o && String(raw).indexOf("[") >= 0) {
+            var directL = parseLrc(raw);
+            if (directL.length > 0) { lyricsLines = directL; lyricsSynced = true; lyricsState = "ok"; return; }
+        }
+        if (!o || o.instrumental || o.error) { lyricsLines = []; lyricsSynced = false; lyricsState = "none"; return; }
         if (o.syncedLyrics) {
             var l = parseLrc(o.syncedLyrics);
             if (l.length > 0) { lyricsLines = l; lyricsSynced = true; lyricsState = "ok"; return; }
@@ -361,12 +460,7 @@ Scope {
     }
     Process {
         id: lrcProc
-        command: ["sh", "-c",
-            "UA='macshell-widgets (quickshell)'; "
-            + "curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/get --data-urlencode \"track_name=$1\" --data-urlencode \"artist_name=$2\" "
-            + "--data-urlencode \"album_name=$3\" -d \"duration=$4\" 2>/dev/null "
-            + "|| curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/search --data-urlencode \"q=$2 $1\"",
-            "sh", root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur]
+        command: ["python3", root.lyricsScript, root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur]
         stdout: StdioCollector {
             onStreamFinished: {
                 if (root.lyricsReqKey !== root.trackKey) {            // the song changed while we were asking
@@ -627,6 +721,7 @@ Scope {
                         required property string wstyle
                         required property string wsize
                         required property string wmode
+                        required property string wsrc
                         required property real wx
                         required property real wy
 
@@ -635,149 +730,17 @@ Scope {
                         x: wx + dragDX
                         y: wy + dragDY
                         readonly property var baseDims: root.dims(wsize)
-                        readonly property real radiusPx: 28 * (wsize === "small" ? 168 / 158 : (wsize === "medium" ? 358 / 338 : 1))
+                        readonly property real radiusPx: 28 * root.widgetScale * (wsize === "small" ? 168 / 158 : (wsize === "medium" ? 358 / 338 : 1))
                         width: baseDims[0]
                         height: baseDims[1]
 
-                        Component {
-                            id: weatherVisual
-                            WeatherWidget {
-                                style: ww.wstyle
-                                size: ww.wsize
-                                fam: root.fontFamily
-                                screenX: ww.x; screenY: ww.y
-                                city: root.wxCity
-                                located: root.wxLocated
-                                hasData: root.wxReady
-                                temp: root.wxTemp
-                                hi: root.wxHi
-                                lo: root.wxLo
-                                cond: root.wxReady ? root.wxInfo.t : (root.wxError !== "" ? "Unavailable" : "Loading…")
-                                kind: root.wxReady ? root.wxInfo.k : "cloud"
-                                isDay: root.wxDay
-                                hourly: root.wxHourly
-                                daily: root.wxDaily
-                                glassReady: root.glassState === "ready"
-                                shaderUrl: "file://" + root.glassShaderOut
-                                wallUrl: root.fileUrl(root.wallpaperFor(win.modelData.name))
-                                screenW: win.modelData.width
-                                screenH: win.modelData.height
-                                glassOpacity: root.glassOpacity
-                                glassBlur: root.glassBlur
-                                glassLiquid: root.glassLiquid
-                                glassRim: root.glassRim
-                                glassGrain: root.glassGrain
-                                darkGlass: root.darkGlass
-                                editing: root.editing
-                                onGlassFailed: root.glassState = "failed"
-                            }
-                        }
-                        Component {
-                            id: calendarVisual
-                            CalendarWidget {
-                                style: ww.wstyle
-                                size: ww.wsize
-                                mode: ww.wmode
-                                fam: root.fontFamily
-                                screenX: ww.x; screenY: ww.y
-                                weekStart: 0
-                                glassReady: root.glassState === "ready"
-                                shaderUrl: "file://" + root.glassShaderOut
-                                wallUrl: root.fileUrl(root.wallpaperFor(win.modelData.name))
-                                screenW: win.modelData.width
-                                screenH: win.modelData.height
-                                glassOpacity: root.glassOpacity
-                                glassBlur: root.glassBlur
-                                glassLiquid: root.glassLiquid
-                                glassRim: root.glassRim
-                                glassGrain: root.glassGrain
-                                darkGlass: root.darkGlass
-                                editing: root.editing
-                                onGlassFailed: root.glassState = "failed"
-                            }
-                        }
-                        Component {
-                            id: clockVisual
-                            ClockWidget {
-                                style: ww.wstyle
-                                size: ww.wsize
-                                fam: root.fontFamily
-                                screenX: ww.x; screenY: ww.y
-                                glassReady: root.glassState === "ready"
-                                shaderUrl: "file://" + root.glassShaderOut
-                                wallUrl: root.fileUrl(root.wallpaperFor(win.modelData.name))
-                                screenW: win.modelData.width
-                                screenH: win.modelData.height
-                                glassOpacity: root.glassOpacity
-                                glassBlur: root.glassBlur
-                                glassLiquid: root.glassLiquid
-                                glassRim: root.glassRim
-                                glassGrain: root.glassGrain
-                                darkGlass: root.darkGlass
-                                preview: false
-                                editing: root.editing
-                                onGlassFailed: root.glassState = "failed"
-                            }
-                        }
-                        Component {
-                            id: playerVisual
-                            PlayerWidget {
-                                style: ww.wstyle
-                                size: ww.wsize
-                                contentScale: root.playerScale
-                                fam: root.fontFamily
-                                screenX: ww.x; screenY: ww.y
-                                hasPlayer: root.player !== null
-                                title: root.player ? root.player.trackTitle : ""
-                                artist: root.player ? root.player.trackArtist : ""
-                                album: root.player ? root.player.trackAlbum : ""
-                                artUrl: root.player ? root.player.trackArtUrl : ""
-                                playing: root.player ? root.player.isPlaying : false
-                                shuffle: (root.player && root.player.shuffleSupported) ? root.player.shuffle : false
-                                canShuffle: root.player !== null && root.player.shuffleSupported
-                                loop: (root.player && root.player.loopSupported)
-                                      ? (root.player.loopState === MprisLoopState.Track ? 1 : (root.player.loopState === MprisLoopState.Playlist ? 2 : 0)) : 0
-                                canLoop: root.player !== null && root.player.loopSupported
-                                position: (root.player && root.player.positionSupported) ? root.player.position : 0
-                                length: (root.player && root.player.lengthSupported) ? root.player.length : 0
-                                canSeek: root.player !== null && root.player.canSeek && root.player.positionSupported && root.player.lengthSupported
-                                lyrics: root.lyricsLines
-                                lyricsState: root.lyricsState
-                                lyricsSynced: root.lyricsSynced
-                                onLyricsToggled: on => root.lyricsWanted = on
-                                glassReady: root.glassState === "ready"
-                                shaderUrl: "file://" + root.glassShaderOut
-                                wallUrl: root.fileUrl(root.wallpaperFor(win.modelData.name))
-                                screenW: win.modelData.width
-                                screenH: win.modelData.height
-                                glassOpacity: root.glassOpacity
-                                glassBlur: root.glassBlur
-                                glassLiquid: root.glassLiquid
-                                glassRim: root.glassRim
-                                glassGrain: root.glassGrain
-                                darkGlass: root.darkGlass
-                                editing: root.editing
-                                onSeek: seconds => { if (root.player && root.player.canSeek) root.player.position = seconds; }
-                                onTogglePlaying: { if (root.player && root.player.canTogglePlaying) root.player.togglePlaying(); }
-                                onNextTrack: { if (root.player && root.player.canGoNext) root.player.next(); }
-                                onPreviousTrack: { if (root.player && root.player.canGoPrevious) root.player.previous(); }
-                                onToggleShuffle: { if (root.player && root.player.shuffleSupported) root.player.shuffle = !root.player.shuffle; }
-                                onCycleLoop: {
-                                    if (!root.player || !root.player.loopSupported) return;
-                                    // off -> repeat all -> repeat song -> off
-                                    var ls = root.player.loopState;
-                                    root.player.loopState = ls === MprisLoopState.None ? MprisLoopState.Playlist
-                                                          : (ls === MprisLoopState.Playlist ? MprisLoopState.Track : MprisLoopState.None);
-                                }
-                                onGlassFailed: root.glassState = "failed"
-                            }
-                        }
-                        Loader {
+                        WidgetVisual {
                             id: visual
                             anchors.fill: parent
-                            sourceComponent: ww.wtype === "calendar" ? calendarVisual
-                                           : (ww.wtype === "clock" ? clockVisual
-                                           : (ww.wtype === "player" ? playerVisual : weatherVisual))
+                            host: root
+                            wtype: ww.wtype; wstyle: ww.wstyle; wsize: ww.wsize; wmode: ww.wmode; wsrc: ww.wsrc
+                            sx: ww.x; sy: ww.y
+                            sname: win.modelData.name; sw: win.modelData.width; sh: win.modelData.height
                         }
 
                         scale: dragArea.pressed ? 1.03 : 1.0
@@ -814,6 +777,17 @@ Scope {
                                 ww.dragDX = 0; ww.dragDY = 0;
                             }
                         }
+                        Rectangle {   // image or gif widget: choose another picture
+                            visible: root.editing && (ww.wtype === "image" || ww.wtype === "gif")
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.bottom: parent.bottom; anchors.bottomMargin: 10
+                            width: chooseText.width + 22; height: 26; radius: 13
+                            color: chooseMa.pressed ? "#D8D8DC" : "#F2F2F5"
+                            border.width: 1
+                            border.color: Qt.rgba(0, 0, 0, 0.18)
+                            Text { id: chooseText; anchors.centerIn: parent; text: ww.wtype === "gif" ? "Choose GIF\u2026" : "Choose Image\u2026"; color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
+                            MouseArea { id: chooseMa; anchors.fill: parent; onClicked: ww.wtype === "gif" ? root.pickGif(ww.wid, "small") : root.pickImage(ww.wid, "small") }
+                        }
                         Rectangle {   // "−" remove badge
                             visible: root.editing
                             x: -8; y: -8
@@ -832,7 +806,7 @@ Scope {
 
     IpcHandler {
         target: "widgets"
-        function refresh(): void { root.refresh(); }
-        function edit(on: bool): void { root.editing = on; }
+        function refresh() { root.refresh(); }
+        function edit(on: bool) { root.editing = on; }
     }
 }

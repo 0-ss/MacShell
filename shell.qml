@@ -4,8 +4,6 @@
 //   ~/.config/quickshell/macbar/shell.qml       (this file)
 //   ~/.config/quickshell/macbar/MacBar.qml      (the menu bar)
 //   ~/.config/quickshell/macbar/MacDock.qml     (the Dock)
-//   ~/.config/quickshell/macbar/MacWidgets.qml  (desktop widgets)
-//   ~/.config/quickshell/macbar/WeatherWidget.qml, CalendarWidget.qml, ClockWidget.qml, PlayerWidget.qml, WeatherIcon.qml
 //   ~/.config/quickshell/macbar/liquidglass.frag
 // Run:  qs -c macbar        (remove your separate `qs -c macdock` autostart)
 //
@@ -34,7 +32,8 @@ ShellRoot {
         // the single settings window lives in MacDock.qml; everything else reaches it through here
         property var bar: macBar
         property var dock: macDock
-        property var widgets: macWidgets      // desktop widgets (Settings → Widgets reaches them through here)
+        property var widgets: macWidgets
+        property var clock: clockApp
         function openSettings(pane) { macDock.openPrefs(pane); }
 
         // set by MacBar / MacDock (Binding elements) when their glass needs live data
@@ -42,7 +41,7 @@ ShellRoot {
         property bool dockWantsGeo: false
         property bool barWantsWallpaper: false
         property bool dockWantsWallpaper: false
-        property bool widgetsWantWallpaper: false      // set by MacWidgets while a Liquid Glass widget is placed
+        property bool widgetsWantWallpaper: false
 
         // ── screen recording / screen sharing: the window captures sit out ──
         // A recorder (wf-recorder, a screen share) and the glass's live ScreencopyViews all pull frames from Hyprland at the same
@@ -67,13 +66,19 @@ ShellRoot {
         // windowCapture = false (Dock Preferences, or  qs -c <config> ipc call glass captures false) switches the window previews off.
         readonly property bool windowCapture: macDock.windowCapture      // Dock Preferences -> "Live window capture" (saved in macdock/settings.json)
         property bool churn: false
-        readonly property bool captureHold: churn || !windowCapture
+        readonly property bool captureHold: churn || !windowCapture || macBar.gaming
         // Liquid Glass: only stage 1, and only while windows open / close. Live capture pauses (the glass keeps its last frame, the capture
         // source stays attached, so nothing goes blank), then resumes. Not tied to the previews switch, never cut.
-        readonly property bool glassHold: churn
+        readonly property bool glassHold: churn || macBar.gaming
         property bool captureCut: false
+        // Dock previews no longer pause as a whole while windows open / close (that froze every preview for ~1.5 s):
+        // only the CLOSING window's own preview stops its live capture, the moment Hyprland announces the close
+        // (before the toplevel is destroyed, so no frame is ever aborted in flight). Everything else keeps running.
+        readonly property bool previewHold: !windowCapture || macBar.gaming
+        property var closingWins: ({})
         onCaptureHoldChanged: { if (captureHold) cutDelay.restart(); else { cutDelay.stop(); captureCut = false; } }
         Timer { id: cutDelay; interval: 500; onTriggered: sharedHub.captureCut = true }
+        Timer { id: closingForget; interval: 3000; onTriggered: sharedHub.closingWins = ({}) }
         Timer { id: churnRelease; interval: 1200; onTriggered: sharedHub.churn = false }
         // forget admission records of windows that no longer exist (the table grew by one entry per window ever opened)
         function tlPrune() {
@@ -100,12 +105,27 @@ ShellRoot {
         // Fast (90 ms, exactly as before) while windows are opening / moving / being dragged, relaxed (250 ms) once
         // nothing has changed for 1.5 s. Every poll spawns three processes, so an idle desktop now costs ~1/4 of before.
         property bool geoHot: true
+        property string lastActive: ""
         property string geoLast: ""
         Timer { id: geoCool; interval: 1500; onTriggered: sharedHub.geoHot = false }
         Connections {
             target: Hyprland
             function onRawEvent(event) {
                 if (event.name === "openwindow" || event.name === "closewindow") { sharedHub.churn = true; churnRelease.restart(); }
+                if (event.name === "closewindow") {
+                    var cw = {}, a = String(event.data).replace(/^0x/, "");
+                    for (var k in sharedHub.closingWins) cw[k] = true;
+                    cw[a] = true;
+                    sharedHub.closingWins = cw;
+                    closingForget.restart();
+                }
+                // titles changing (terminals, browsers, players do it all the time) move nothing on screen
+                var en = event.name;
+                if (en === "windowtitle" || en === "windowtitlev2" || en === "activewindow") return;
+                // our own window previews / screen captures announce themselves as "screencast": not a change
+                if (en === "screencast" || en === "screencastv2") return;
+                // focus only matters when it moves to ANOTHER window (titles changing re-send the same one)
+                if (en === "activewindowv2") { if (event.data === sharedHub.lastActive) return; sharedHub.lastActive = event.data; }
                 sharedHub.geoHot = true; geoCool.restart(); tlDebounce.restart();
             }
         }
@@ -169,7 +189,16 @@ ShellRoot {
             } catch (err) { ipcBroken = true; ipcOk = false; return; }
             if (mo.length === 0 || (ts.length > 0 && cl.length === 0)) { ipcOk = false; return; }
             ipcOk = true;
-            var key = JSON.stringify([mo, cl]);
+            // fingerprint the GEOMETRY only: a window retitling itself (a terminal, a browser tab, a player) is no
+            // reason to wake the 60 Hz path — that kept it hot (and the main thread busy) the whole time
+            var gk = [], j, c;
+            for (j = 0; j < cl.length; j++) {
+                c = cl[j];
+                gk.push([c.address, c.at, c.size, c.workspace ? c.workspace.id : 0, c.monitor, c.floating, c.fullscreen, c.mapped, c.hidden]);
+            }
+            var mk = [];
+            for (j = 0; j < mo.length; j++) mk.push([mo[j].name, mo[j].x, mo[j].y, mo[j].width, mo[j].height, mo[j].scale, mo[j].activeWorkspace ? mo[j].activeWorkspace.id : 0, mo[j].specialWorkspace ? mo[j].specialWorkspace.id : 0]);
+            var key = JSON.stringify([mk, gk]);
             if (key === geoLast) return;
             geoLast = key;
             geoHot = true; geoCool.restart();
@@ -177,7 +206,8 @@ ShellRoot {
             glassClients = cl;
         }
         Timer {
-            interval: sharedHub.geoHot ? 16 : 100
+            // fast (60 Hz) for 1.5 s after any window event, otherwise a relaxed 2.5 Hz check (idle CPU)
+            interval: sharedHub.geoHot ? 16 : 400
             repeat: true
             running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo) && !sharedHub.ipcBroken
             triggeredOnStart: true
@@ -228,7 +258,7 @@ ShellRoot {
         }
 
         Timer {
-            interval: 4000
+            interval: 15000
             repeat: true
             running: sharedHub.barWantsWallpaper || sharedHub.dockWantsWallpaper || sharedHub.widgetsWantWallpaper
             onTriggered: sharedHub.refreshWallpaper()
@@ -238,16 +268,42 @@ ShellRoot {
     MacBar { id: macBar; hub: sharedHub }
     MacDock { id: macDock; hub: sharedHub }
     MacWidgets { id: macWidgets; hub: sharedHub }
+    ClockApp { id: clockApp; hub: sharedHub }
 
     // reopen settings even when both the Dock and the Menu Bar are disabled:
     //   qs -c macbar ipc call settings open
     IpcHandler {
         target: "settings"
-        function open(): void { macDock.openPrefs("general"); }
+        function open() { macDock.openPrefs("general"); }
+        // qs -c MacShell ipc call settings pane wallpaper   (general, dock, menubar, appearance, wallpaper, behavior, apps, about)
+        function pane(id: string) { macDock.openPrefs(id); }
+    }
+    // qs -c MacShell ipc call clock open | tab alarms | stop | snooze
+    IpcHandler {
+        target: "clock"
+        function open() { clockApp.open(); }
+        function tab(name: string) { clockApp.open(name); }
+        function stop() { clockApp.stopRing(); }
+        function snooze() { clockApp.snooze(); }
+    }
+    IpcHandler {
+        target: "notifications"
+        function open() { macBar.notifPopRequest(true); }
+        function close() { macBar.notifPopRequest(false); }
+        function clear() { macBar.notifClearAnimated(); }
+        // the lock screen: a notification swiped away
+        function dismiss(id: int) { macBar.notifDelete(id); macBar.notifUnread = Math.max(0, macBar.notifUnread - 1); }
+    }
+    // qs -c MacShell ipc call gaming toggle | on | off
+    IpcHandler {
+        target: "gaming"
+        function toggle() { macBar.gamingMode = !macBar.gaming; }
+        function on() { macBar.gamingMode = true; }
+        function off() { macBar.gamingMode = false; macBar.gamingAutoActive = false; }
     }
     // qs -c <config> ipc call glass captures false   (true to switch window previews back on)
     IpcHandler {
         target: "glass"
-        function captures(on: bool): void { macDock.windowCapture = on; }
+        function captures(on: bool) { macDock.windowCapture = on; }
     }
 }

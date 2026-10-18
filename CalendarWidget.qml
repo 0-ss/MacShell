@@ -128,6 +128,29 @@ Item {
             readonly property real ds: w.glassBlur >= 8 ? 0.5 : 1.0
             readonly property real bn: Math.min(1.0, w.glassBlur * 1.4 * ds / 64.0)
 
+            property bool updating: true
+            Timer {
+                id: settleTimer
+                interval: 350
+                onTriggered: gl.updating = false
+            }
+            function triggerUpdate() {
+                gl.updating = true;
+                settleTimer.restart();
+            }
+            Connections {
+                target: w
+                function onScreenXChanged() { gl.triggerUpdate(); }
+                function onScreenYChanged() { gl.triggerUpdate(); }
+                function onWallUrlChanged() { gl.triggerUpdate(); }
+                function onGlassBlurChanged() { gl.triggerUpdate(); }
+                function onGlassLiquidChanged() { gl.triggerUpdate(); }
+                function onWidthChanged() { gl.triggerUpdate(); }
+                function onHeightChanged() { gl.triggerUpdate(); }
+                function onEditingChanged() { if (!w.editing) gl.triggerUpdate(); }
+            }
+            Component.onCompleted: gl.triggerUpdate()
+
             // the part of the wallpaper behind the widget, laid out exactly like the screen
             Item {
                 id: backdrop
@@ -143,6 +166,7 @@ Item {
                     }
                 }
                 Image {
+                    id: bgImg
                     x: -(w.screenX - gl.padPx - gl.margin)
                     y: -(w.screenY - gl.padPx - gl.margin)
                     width: w.screenW
@@ -152,13 +176,14 @@ Item {
                     asynchronous: true
                     sourceSize.width: w.screenW
                     smooth: true
+                    onStatusChanged: if (status === Image.Ready) gl.triggerUpdate()
                 }
             }
             ShaderEffectSource {
                 id: bsrc
                 sourceItem: backdrop
                 hideSource: true
-                live: true
+                live: w.editing || gl.updating
                 visible: false
                 textureSize: Qt.size(Math.max(1, Math.round(backdrop.width * gl.ds)),
                                      Math.max(1, Math.round(backdrop.height * gl.ds)))
@@ -177,7 +202,7 @@ Item {
             ShaderEffectSource {
                 id: blurred
                 sourceItem: blurFx
-                live: true
+                live: w.editing || gl.updating
                 visible: false
             }
             ShaderEffect {

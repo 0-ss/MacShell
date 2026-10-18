@@ -27,6 +27,8 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Services.Pipewire
+import Quickshell.Services.UPower
 
 Scope {
     id: root
@@ -34,9 +36,90 @@ Scope {
     // shared helpers from shell.qml (window geometry poller, wallpaper lookup)
     property var hub: null
     property bool dockEnabled: true      // false = no Dock at all (settings window stays available)
+    property bool settingsEnabled: true  // false = keep the System Settings window closed
     readonly property var bar: hub ? hub.bar : null
+    property string userName: Quickshell.env("USER") || ""
+
+    // ═════ Displays: main display + resolution / refresh, with a macOS-style "keep or revert" safety net ═════
+    property var displays: ({ primary: "", modes: {} })      // saved in ~/.config/macshell/displays.json
+    property var monList: []                                  // hyprctl monitors (live)
+    property string pendingOut: ""                            // a mode change waiting for "Keep"
+    property string pendingPrev: ""
+    property int revertLeft: 0
+    FileView {
+        id: dispFile
+        path: Quickshell.env("HOME") + "/.config/macshell/displays.json"
+        printErrors: false
+        onLoaded: { try { root.displays = JSON.parse(text()); } catch (e) {} root.applySavedModes(); }
+    }
+    function saveDisplays() { dispFile.setText(JSON.stringify(root.displays, null, 2)); }
+    function refreshMons() { if (!monListProc.running) monListProc.running = true; }
+    Process {
+        id: monListProc
+        command: ["hyprctl", "-j", "monitors"]
+        stdout: StdioCollector { onStreamFinished: { try { root.monList = JSON.parse(text); } catch (e) {} } }
+    }
+    function modeOf(m) { return m.width + "x" + m.height + "@" + Number(m.refreshRate).toFixed(2); }
+    function applyMode(out, mode) {
+        var m = null;
+        for (var i = 0; i < monList.length; i++) if (monList[i].name === out) m = monList[i];
+        var pos = m ? (m.x + "x" + m.y) : "auto", sc = m ? m.scale : 1;
+        Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = \"" + out + "\", mode = \"" + mode + "\", position = \"" + pos + "\", scale = " + sc + " })"]);
+        monRefreshSoon.restart();
+    }
+    Timer { id: monRefreshSoon; interval: 700; onTriggered: root.refreshMons() }
+    // change a monitor's mode; it reverts by itself after 15 s unless kept
+    function tryMode(out, mode) {
+        var m = null;
+        for (var i = 0; i < monList.length; i++) if (monList[i].name === out) m = monList[i];
+        if (!m) return;
+        if (pendingOut === "") pendingPrev = modeOf(m);
+        pendingOut = out;
+        applyMode(out, mode);
+        pendingMode = mode;
+        revertLeft = 15;
+        revertTimer.restart();
+    }
+    property string pendingMode: ""
+    Timer {
+        id: revertTimer; interval: 1000; repeat: true
+        onTriggered: { root.revertLeft--; if (root.revertLeft <= 0) root.revertMode(); }
+    }
+    function keepMode() {
+        revertTimer.stop();
+        var d = displays, mm = {}; for (var k in d.modes) mm[k] = d.modes[k];
+        mm[pendingOut] = pendingMode;
+        displays = { primary: d.primary || "", modes: mm };
+        saveDisplays();
+        pendingOut = ""; pendingMode = "";
+    }
+    function revertMode() {
+        revertTimer.stop();
+        if (pendingOut !== "" && pendingPrev !== "") applyMode(pendingOut, pendingPrev);
+        pendingOut = ""; pendingMode = "";
+    }
+    function applySavedModes() {
+        var mm = displays.modes || {};
+        for (var k in mm) Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = \"" + k + "\", mode = \"" + mm[k] + "\", position = \"auto\", scale = 1 })"]);
+        if (displays.primary) root.monitorPrimary = displays.primary;
+        refreshMons();
+    }
+    property string monitorPrimary: ""
+    function setPrimary(name) {
+        var d = displays;
+        displays = { primary: name, modes: d.modes || {} };
+        saveDisplays();
+        monitorPrimary = name;
+        root.monitor = name;                                         // the Dock lives on the main display
+    }
+    Process {
+        running: true
+        command: ["sh", "-c", "n=$(getent passwd \"$USER\" | cut -d: -f5 | cut -d, -f1); printf '%s' \"${n:-$USER}\""]
+        stdout: StdioCollector { onStreamFinished: if (text.trim() !== "") root.userName = text.trim() }
+    }
     readonly property bool captureCut: hub ? hub.captureCut : false
     readonly property bool glassHold: hub ? hub.glassHold : false          // windows opening / closing: the glass's live captures pause, source stays attached
+    readonly property bool previewHold: hub ? hub.previewHold : false
     readonly property bool captureHold: hub ? hub.captureHold : false     // windows opening / closing: the dock PREVIEW capture stops (source released 0.5 s later); the glass is not affected
     // appearance values shared by Dock and Menu Bar
     function setLook(k, v) { root[k] = v; if (bar) bar[k] = v; }
@@ -66,7 +149,8 @@ Scope {
     // "always" = always auto-hide, "never" = always visible and reserves space
     property string hideMode: "smart"
     property bool showTrash: true
-    property string fontFamily: "Inter"  // falls back to the system font if missing
+    property string fontFamily: "Inter Variable"  // "Inter" (one variable font file; falls back to the system font if missing)
+    onFontFamilyChanged: if (fontFamily === "Inter" || fontFamily === "Inter Display") fontFamily = "Inter Variable"
     property bool magnificationEnabled: true
     property bool showLabels: true       // hover tooltips
     property bool showIndicators: true   // dots under running apps
@@ -409,6 +493,7 @@ Scope {
     component SGlyph: Rectangle {
         id: gl
         property string kind: ""
+        property string wg: ""          // a menu-bar glyph (WGlyph.qml) instead of the hand-drawn kinds below
         property color c1: "#4FA8FF"
         property color c2: "#0A6CFF"
         width: 24; height: 24; radius: 6
@@ -419,9 +504,11 @@ Scope {
         border.width: 1
         border.color: Qt.rgba(0, 0, 0, 0.14)
 
+        WGlyph { visible: gl.wg !== ""; anchors.centerIn: parent; width: 16; height: 16; kind: gl.wg; color: "white" }
         Item {
             anchors.centerIn: parent
             width: 16; height: 16
+            visible: gl.wg === ""
 
             // dock
             Item {
@@ -472,12 +559,21 @@ Scope {
                     color: "transparent"; border.width: 1; border.color: "white"
                 }
             }
-            // widgets (three tiles)
+            // wallpaper (picture with a sun and hills)
             Item {
-                visible: gl.kind === "widgets"; anchors.fill: parent
-                Rectangle { x: 1.5; y: 1.5; width: 6; height: 6; radius: 1.6; color: "white" }
-                Rectangle { x: 8.5; y: 1.5; width: 6; height: 6; radius: 1.6; color: "white" }
-                Rectangle { x: 1.5; y: 8.5; width: 13; height: 6; radius: 1.8; color: "white" }
+                visible: gl.kind === "wallpaper"; anchors.fill: parent
+                Rectangle {
+                    x: 1; y: 2.5; width: 14; height: 11; radius: 2
+                    color: "transparent"; border.width: 1.5; border.color: "white"
+                }
+                Rectangle { x: 9.5; y: 4.6; width: 2.8; height: 2.8; radius: 1.4; color: "white" }
+                Canvas {
+                    anchors.fill: parent
+                    onPaint: {
+                        var c = getContext("2d"); c.reset(); c.fillStyle = "white";
+                        c.beginPath(); c.moveTo(2.5, 12.5); c.lineTo(6.2, 7.6); c.lineTo(9.2, 11); c.lineTo(10.8, 9.4); c.lineTo(13.5, 12.5); c.closePath(); c.fill();
+                    }
+                }
             }
             // about
             Item {
@@ -501,13 +597,38 @@ Scope {
     Window {
         id: prefsWindow
         title: "macshell Settings"
-        width: 820
-        height: 600
-        minimumWidth: 700
-        minimumHeight: 500
+        width: 720
+        height: 520
+        minimumWidth: 620
+        minimumHeight: 420
         visible: false
         color: "transparent"
         flags: Qt.Window | Qt.FramelessWindowHint
+
+        // where this window sits on its monitor, for the glass sidebar's backdrop
+        QtObject {
+            id: prefsGlassGeo
+            readonly property var g: {
+                var cs = root.glassClients || [], ms = root.hub ? (root.hub.monData || []) : [];
+                for (var i = 0; i < cs.length; i++) {
+                    var c = cs[i];
+                    if (c.title !== prefsWindow.title || !c.mapped) continue;
+                    for (var j = 0; j < ms.length; j++) {
+                        var mm = ms[j];
+                        if (mm.id !== c.monitor) continue;
+                        var sc = mm.scale || 1;
+                        return { x: c.at[0] - mm.x, y: c.at[1] - mm.y, mw: mm.width / sc, mh: mm.height / sc, mon: mm.name };
+                    }
+                }
+                return null;
+            }
+            readonly property bool ok: g !== null
+            readonly property real x: ok ? g.x : 0
+            readonly property real y: ok ? g.y : 0
+            readonly property real mw: ok ? g.mw : 1
+            readonly property real mh: ok ? g.mh : 1
+            readonly property string mon: ok ? g.mon : ""
+        }
 
         // ── navigation state ──
         property int cur: 0
@@ -515,23 +636,29 @@ Scope {
         property var fwdStack: []
         property string query: ""
 
+        // grouped like macOS System Settings (sec = sidebar section; a gap is drawn between sections)
         readonly property var panes: [
-            { id: "general",    name: "General",      glyph: "behavior",   c1: "#8E8E93", c2: "#636366",
-              keys: "enable disable dock menu bar panel show hide off on" },
-            { id: "dock",       name: "Dock",         glyph: "dock",       c1: "#4FA8FF", c2: "#0A6CFF",
-              keys: "size icon magnification zoom spacing margin distance edge" },
-            { id: "menubar",    name: "Menu Bar",     glyph: "menubar",    c1: "#7D7AFF", c2: "#4B48D6",
-              keys: "panel bar height clock date seconds 24 hour battery tray search spotlight week monday style liquid bluetooth widget" },
-            { id: "appearance", name: "Appearance",   glyph: "appearance", c1: "#636366", c2: "#1C1C1E",
-              keys: "theme dark light mode accent color glass liquid apple style translucency blur corner radius font" },
-            { id: "behavior",   name: "Dock Behavior", glyph: "behavior",  c1: "#4CD964", c2: "#26A844",
-              keys: "hide auto labels tooltip indicators bounce animate trash display monitor delay window preview thumbnail" },
-            { id: "apps",       name: "Applications", glyph: "apps",       c1: "#FFB340", c2: "#FF9500",
-              keys: "pinned apps keep remove reset" },
-            { id: "widgets",    name: "Widgets",      glyph: "widgets",    c1: "#FF6482", c2: "#FF375F",
-              keys: "desktop widget weather clock calendar player music artwork album glass edit add remove" },
-            { id: "about",      name: "About",        glyph: "about",      c1: "#A7A7AD", c2: "#7C7C82",
-              keys: "version reset config folder macdock macbar macshell" }
+            { id: "wifi",       sec: 1, name: "Wi-Fi",           wg: "wifi",       c1: "#3D9BFF", c2: "#0A6CFF", keys: "wireless network internet ssid join" },
+            { id: "bluetooth",  sec: 1, name: "Bluetooth",       wg: "bluetooth",  c1: "#3D9BFF", c2: "#0A6CFF", keys: "devices pair headphones mouse keyboard" },
+            { id: "network",    sec: 1, name: "Network",         wg: "ethernet",   c1: "#3D9BFF", c2: "#0A6CFF", keys: "ethernet ip address vpn tailscale connection" },
+            { id: "battery",    sec: 1, name: "Battery",         wg: "bolt",       c1: "#4CD964", c2: "#28A745", keys: "power energy charge profile performance game mode" },
+            { id: "general",    sec: 2, name: "General",         glyph: "behavior", c1: "#8E8E93", c2: "#636366", keys: "enable disable dock menu bar panel show hide off on widgets sound game" },
+            { id: "appearance", sec: 2, name: "Appearance",      glyph: "appearance", c1: "#3A3A3C", c2: "#1C1C1E", keys: "theme dark light mode accent color glass liquid apple style translucency blur corner radius font" },
+            { id: "controlcenter", sec: 2, name: "Control Center", wg: "cc",       c1: "#8E8E93", c2: "#636366", keys: "modules tiles controls" },
+            { id: "dock",       sec: 2, name: "Desktop & Dock",  glyph: "dock",     c1: "#2C2C2E", c2: "#1C1C1E", keys: "size icon magnification zoom spacing margin distance edge hide auto labels indicators bounce trash monitor preview" },
+            { id: "displays",   sec: 2, name: "Displays",        wg: "sun",        c1: "#3D9BFF", c2: "#0A6CFF", keys: "brightness night shift monitor resolution refresh scale" },
+            { id: "menubar",    sec: 2, name: "Menu Bar",        glyph: "menubar",  c1: "#3D9BFF", c2: "#0A6CFF", keys: "panel bar height clock date seconds 24 hour battery tray search spotlight week monday style liquid bluetooth widget" },
+            { id: "wallpaper",  sec: 2, name: "Wallpaper",       glyph: "wallpaper", c1: "#5AC8FA", c2: "#007AFF", keys: "wallpaper background picture image video animated live motion desktop dynamic" },
+            { id: "notifications", sec: 3, name: "Notifications", wg: "bell",      c1: "#FF5E57", c2: "#E8342A", keys: "alerts banners popups do not disturb" },
+            { id: "sound",      sec: 3, name: "Sound",           wg: "speaker",    c1: "#FF5E7E", c2: "#E8344F", keys: "volume output input microphone speakers headphones effects" },
+            { id: "focus",      sec: 3, name: "Focus",           wg: "moon",       c1: "#7D7AFF", c2: "#5856D6", keys: "do not disturb keep awake sleep" },
+            { id: "lockscreen", sec: 4, name: "Lock Screen",     wg: "lock",       c1: "#3A3A3C", c2: "#1C1C1E", keys: "lock password album lyrics media clock" },
+            { id: "users",      sec: 4, name: "Users & Groups",  wg: "smile",      c1: "#3D9BFF", c2: "#0A6CFF", keys: "account user name picture avatar" },
+            { id: "keyboard",   sec: 5, name: "Keyboard",        wg: "keyboard",   c1: "#A7A7AD", c2: "#7C7C82", keys: "repeat rate delay layout typing" },
+            { id: "mouse",      sec: 5, name: "Mouse",           wg: "mouse",      c1: "#A7A7AD", c2: "#7C7C82", keys: "tracking speed scroll natural" },
+            { id: "trackpad",   sec: 5, name: "Trackpad",        wg: "trackpad",   c1: "#A7A7AD", c2: "#7C7C82", keys: "tap click natural scroll touchpad gestures" },
+            { id: "apps",       sec: 6, name: "Applications",    glyph: "apps",     c1: "#FFB340", c2: "#FF9500", keys: "pinned apps keep remove reset dock" },
+            { id: "about",      sec: 6, name: "About",           glyph: "about",    c1: "#A7A7AD", c2: "#7C7C82", keys: "version reset config folder macdock macbar macshell" }
         ]
 
         readonly property var filtered: {
@@ -567,9 +694,27 @@ Scope {
             cur = p;
         }
         onCurChanged: flick.contentY = 0
-        onVisibleChanged: { if (!visible && root.hub && root.hub.widgets) root.hub.widgets.editing = false; }   // closing Settings ends widget editing
 
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: prefsWindow.visible = false }
+
+        // Settings always opens as a floating, centred window (no windowrule needed in hyprland.conf)
+        onVisibleChanged: if (visible) { floatTries = 0; floatTimer.restart(); }
+        property int floatTries: 0
+        Timer {
+            id: floatTimer
+            interval: 140
+            repeat: true
+            onTriggered: {
+                // the compositor maps the window a moment after it becomes visible: send the dispatches a few times
+                var sel = 'window = "title:^(' + prefsWindow.title + ')$"';
+                Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
+                if (prefsWindow.floatTries === 1) {
+                    Hyprland.dispatch('hl.dsp.window.resize({ x = ' + prefsWindow.width + ', y = ' + prefsWindow.height + ', "exact", ' + sel + ' })');
+                    Hyprland.dispatch('hl.dsp.window.center({ ' + sel + ' })');
+                }
+                if (++prefsWindow.floatTries >= 4) stop();
+            }
+        }
 
         // ── palette ──
         QtObject {
@@ -577,9 +722,12 @@ Scope {
             readonly property bool dark: root.darkMode
             readonly property string fam: root.fontFamily
             readonly property color accent: root.accent
-            readonly property color content: dark ? "#1E1E1E" : "#F5F5F7"
+            readonly property bool glass: root.liquidActive
+            readonly property color content: glass ? (dark ? Qt.rgba(0.09, 0.09, 0.10, 0.58) : Qt.rgba(0.97, 0.97, 0.98, 0.62))
+                                                   : (dark ? "#1E1E1E" : "#F5F5F7")
             readonly property color sidebar: dark ? "#292929" : "#E9E9EC"
-            readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
+            readonly property color card: glass ? (dark ? Qt.rgba(1, 1, 1, 0.065) : Qt.rgba(1, 1, 1, 0.55))
+                                                : (dark ? "#2B2B2D" : "#FFFFFF")
             readonly property color cardBorder: dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.07)
             readonly property color windowBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.22)
             readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.09)
@@ -634,13 +782,93 @@ Scope {
             // ───────── sidebar ─────────
             Rectangle {
                 id: sidebar
-                x: 1; y: 1
-                width: 232
-                height: parent.height - 2
-                radius: 11
-                color: pal.sidebar
-                Rectangle { anchors.right: parent.right; width: 12; height: parent.height; color: parent.color }
-                Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: pal.sep }
+                // Liquid Glass: a floating, inset glass sidebar like macOS Tahoe; otherwise the classic flat one
+                x: pal.glass ? 8 : 1; y: pal.glass ? 8 : 1
+                width: pal.glass ? 224 : 232
+                height: parent.height - (pal.glass ? 16 : 2)
+                radius: pal.glass ? 18 : 11
+                // frosted: a translucent pane over Hyprland's blur of what's behind the window (no Liquid Glass shader)
+                color: pal.glass ? (pal.dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(1, 1, 1, 0.35)) : pal.sidebar
+                border.width: pal.glass ? 1 : 0
+                border.color: pal.dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.08)
+                Rectangle { visible: !pal.glass; anchors.right: parent.right; width: 12; height: parent.height; color: parent.color }
+                Rectangle { visible: !pal.glass; anchors.right: parent.right; width: 1; height: parent.height; color: pal.sep }
+
+                // the glass slab: refracts the wallpaper exactly where the window sits (Hyprland's blur is xray, so
+                // that is also what the rest of the window shows, blurred)
+                Loader {
+                    anchors.fill: parent
+                    z: -1
+                    active: false       // Liquid Glass sidebar removed: Settings is plain transparent + frosted blur
+                    sourceComponent: Item {
+                        id: sbg
+                        readonly property real m: 64       // backdrop margin around the window (refraction reach)
+                        readonly property real pad: 12     // shader padding (drop shadow)
+                        Item {
+                            id: prefsBackdrop
+                            parent: frame
+                            x: -sbg.m; y: -sbg.m
+                            z: -100
+                            width: frame.width + 2 * sbg.m
+                            height: frame.height + 2 * sbg.m
+                            Rectangle { anchors.fill: parent; color: "#141418" }
+                            Image {
+                                x: sbg.m - prefsGlassGeo.x
+                                y: sbg.m - prefsGlassGeo.y
+                                width: prefsGlassGeo.mw; height: prefsGlassGeo.mh
+                                source: root.fileUrl(root.wallpaperFor(prefsGlassGeo.mon))
+                                sourceSize.width: prefsGlassGeo.mw
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true; smooth: true
+                            }
+                        }
+                        ShaderEffectSource {
+                            id: sbSrc
+                            sourceItem: prefsBackdrop
+                            hideSource: true
+                            live: true
+                            visible: false
+                            textureSize: Qt.size(Math.round(prefsBackdrop.width / 2), Math.round(prefsBackdrop.height / 2))
+                        }
+                        MultiEffect {
+                            id: sbBlurFx
+                            source: sbSrc
+                            width: sbSrc.textureSize.width; height: sbSrc.textureSize.height
+                            blurEnabled: true; blurMax: 48
+                            blur: Math.min(1, root.glassBlur * 1.4 * 0.5 / 48 + 0.25)
+                            autoPaddingEnabled: false
+                            visible: false
+                        }
+                        ShaderEffectSource { id: sbBlur; sourceItem: sbBlurFx; live: true; mipmap: true; visible: false }
+                        ShaderEffect {
+                            x: -sbg.pad; y: -sbg.pad
+                            width: sidebar.width + 2 * sbg.pad
+                            height: sidebar.height + 2 * sbg.pad
+                            fragmentShader: root.glassShaderUrl
+                            property variant src: sbBlur
+                            property vector2d itemSize: Qt.vector2d(width, height)
+                            property vector2d glassSize: Qt.vector2d(sidebar.width, sidebar.height)
+                            property vector2d srcSize: Qt.vector2d(prefsBackdrop.width, prefsBackdrop.height)
+                            property vector2d srcOffset: Qt.vector2d(sidebar.x - sbg.pad + sbg.m, sidebar.y - sbg.pad + sbg.m)
+                            property real pad: sbg.pad
+                            property real radius: sidebar.radius
+                            property real bezel: 24
+                            property real thickness: 30 * root.glassLiquid * 1.6
+                            property real dispersion: 0.06 * root.glassLiquid * 1.3
+                            property real magnify: 0.03 * root.glassLiquid
+                            property real rim: Math.max(0.5, root.glassRim)
+                            property real grain: root.glassGrain * 0.2
+                            property real blurPx: 1.5
+                            property real tintMix: root.glassOpacity * 0.5
+                            property real saturation: 1.25
+                            property real dark: root.darkMode ? 1 : 0
+                            property real debug: 0
+                            property real shadowAmt: 0.6
+                            property real rimTint: 0
+                            property real ringW: 0
+                        }
+                    }
+                }
 
                 // traffic lights
                 Item {
@@ -765,19 +993,60 @@ Scope {
                     }
                 }
 
-                // pane list
-                Column {
-                    x: 10; y: 92
+                // account card (macOS: your name + picture at the top of the sidebar) → Users & Groups
+                Rectangle {
+                    id: acct
+                    x: 10; y: 90; width: parent.width - 20; height: 52; radius: 10
+                    visible: prefsWindow.query === ""
+                    readonly property int idx: { for (var i = 0; i < prefsWindow.panes.length; i++) if (prefsWindow.panes[i].id === "users") return i; return 0; }
+                    color: prefsWindow.cur === idx ? (prefsWindow.active ? pal.accent : pal.selInactive) : (acctMa.containsMouse ? pal.hover : "transparent")
+                    Item {
+                        id: acctPic
+                        x: 6; anchors.verticalCenter: parent.verticalCenter; width: 38; height: 38
+                        Item { id: acctMask; anchors.fill: parent; visible: false; layer.enabled: true; Rectangle { anchors.fill: parent; radius: width / 2; color: "black" } }
+                        Rectangle { anchors.fill: parent; radius: width / 2; color: pal.ctrl }
+                        Image {
+                            anchors.fill: parent; source: "file://" + Quickshell.env("HOME") + "/.face"; sourceSize: Qt.size(96, 96)
+                            fillMode: Image.PreserveAspectCrop; cache: false
+                            layer.enabled: true; layer.effect: MultiEffect { maskEnabled: true; maskSource: acctMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+                        }
+                    }
+                    Column {
+                        x: 52; anchors.verticalCenter: parent.verticalCenter
+                        Text { text: root.userName; color: prefsWindow.cur === acct.idx && prefsWindow.active ? "white" : pal.text; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                        Text { text: "Local Account"; color: prefsWindow.cur === acct.idx && prefsWindow.active ? Qt.rgba(1, 1, 1, 0.8) : pal.text2; font.family: pal.fam; font.pixelSize: 11 }
+                    }
+                    MouseArea { id: acctMa; anchors.fill: parent; hoverEnabled: true; onClicked: prefsWindow.go(acct.idx) }
+                }
+
+                // pane list (scrolls; sections separated by a gap, like System Settings)
+                Flickable {
+                    x: 10; y: acct.visible ? 150 : 92
                     width: parent.width - 20
+                    height: parent.height - y - 8
+                    contentHeight: navCol.height
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                Column {
+                    id: navCol
+                    width: parent.width
                     spacing: 2
 
                     Repeater {
                         model: prefsWindow.filtered
-                        delegate: Rectangle {
-                            id: navRow
+                        delegate: Item {
+                            id: navItem
                             required property int modelData
+                            required property int index
+                            readonly property bool gap: index > 0 && prefsWindow.panes[prefsWindow.filtered[index - 1]].sec !== prefsWindow.panes[modelData].sec
+                            width: parent.width
+                            height: 34 + (gap ? 12 : 0)
+                        Rectangle {
+                            id: navRow
+                            readonly property int modelData: navItem.modelData
                             readonly property var p: prefsWindow.panes[modelData]
                             readonly property bool sel: prefsWindow.cur === modelData
+                            y: navItem.gap ? 12 : 0
                             width: parent.width
                             height: 34
                             radius: 8
@@ -787,7 +1056,8 @@ Scope {
                             SGlyph {
                                 x: 8
                                 anchors.verticalCenter: parent.verticalCenter
-                                kind: navRow.p.glyph
+                                kind: navRow.p.glyph || ""
+                                wg: navRow.p.wg || ""
                                 c1: navRow.p.c1
                                 c2: navRow.p.c2
                             }
@@ -806,6 +1076,7 @@ Scope {
                                 onClicked: prefsWindow.go(navRow.modelData)
                             }
                         }
+                        }
                     }
 
                     Text {
@@ -819,13 +1090,14 @@ Scope {
                         font.pixelSize: 12
                     }
                 }
+                }
             }
 
             // ───────── toolbar ─────────
             Item {
                 id: header
-                x: sidebar.width + 1
-                width: parent.width - sidebar.width - 2
+                x: sidebar.x + sidebar.width + 1
+                width: parent.width - sidebar.x - sidebar.width - 2
                 height: 52
 
                 Row {
@@ -881,9 +1153,9 @@ Scope {
             // ───────── scrolling content ─────────
             Flickable {
                 id: flick
-                x: sidebar.width + 1
+                x: sidebar.x + sidebar.width + 1
                 y: 52
-                width: parent.width - sidebar.width - 2
+                width: parent.width - sidebar.x - sidebar.width - 2
                 height: parent.height - 52 - 1
                 contentWidth: width
                 contentHeight: paneLoader.height + 36
@@ -893,10 +1165,19 @@ Scope {
 
                 Loader {
                     id: paneLoader
+                    // nothing of Settings stays built while the window is closed
+                    active: prefsWindow.visible
                     x: 22
                     y: 6
                     width: flick.width - 44
-                    sourceComponent: [paneGeneral, paneDock, paneMenuBar, paneAppearance, paneBehavior, paneApps, paneWidgets, paneAbout][prefsWindow.cur]
+                    sourceComponent: ({
+                        wifi: paneWifi, bluetooth: paneBt, network: paneNetwork, battery: paneBattery,
+                        general: paneGeneral, appearance: paneAppearance, controlcenter: paneCC, dock: paneDesktopDock,
+                        displays: paneDisplays, menubar: paneMenuBar, wallpaper: paneWallpaper,
+                        notifications: paneNotif, sound: paneSound, focus: paneFocus,
+                        lockscreen: paneLock, users: paneUsers, keyboard: paneKeyboard, mouse: paneMouse, trackpad: paneTrackpad,
+                        apps: paneApps, about: paneAbout
+                    })[prefsWindow.panes[prefsWindow.cur].id]
                     onLoaded: fadeIn.restart()
                 }
             }
@@ -945,6 +1226,187 @@ Scope {
                     t: pal
                     text: "If you turn both off, reopen this window with:  qs -c macbar ipc call settings open"
                 }
+
+                SLabel { t: pal; header: true; text: "Desktop Widgets" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Arrange widgets"
+                        subtitle: (root.hub && root.hub.widgets && root.hub.widgets.editing)
+                                  ? "Editing is on: drag a widget to move it, use the \u2212 badge to remove it, then click Stop Editing."
+                                  : "Drag a widget to move it (it snaps to the grid). Use the \u2212 badge on a widget to remove it."
+                        SButton {
+                            t: pal
+                            text: (root.hub && root.hub.widgets && root.hub.widgets.editing) ? "Stop Editing" : "Edit on Desktop"
+                            onClicked: { if (root.hub && root.hub.widgets) root.hub.widgets.editing = !root.hub.widgets.editing; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Widget size"
+                        subtitle: "Makes every desktop widget smaller or larger (" + Math.round((root.hub && root.hub.widgets ? root.hub.widgets.widgetScale : 1) * 100) + "%)"
+                        SSlider {
+                            t: pal
+                            from: 0.6; to: 1.5; stepSize: 0.05
+                            value: root.hub && root.hub.widgets ? root.hub.widgets.widgetScale : 1
+                            leftLabel: "Small"; rightLabel: "Large"
+                            onMoved: v => { if (root.hub && root.hub.widgets) root.hub.widgets.widgetScale = Math.round(v * 100) / 100; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Temperature unit"
+                        subtitle: "Used by the Weather widget"
+                        SSegmented {
+                            t: pal
+                            model: ["\u00B0C", "\u00B0F"]
+                            segWidth: 56
+                            current: root.hub && root.hub.widgets && root.hub.widgets.tempUnit === "F" ? 1 : 0
+                            onPicked: i => { if (root.hub && root.hub.widgets) root.hub.widgets.tempUnit = (i === 1 ? "F" : "C"); }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Weather location"
+                        subtitle: "Automatic uses your IP address; or type a city name"
+                        SSegmented {
+                            t: pal
+                            model: ["Automatic", "City"]
+                            segWidth: 80
+                            current: root.hub && root.hub.widgets && root.hub.widgets.locMode === "city" ? 1 : 0
+                            onPicked: i => { if (root.hub && root.hub.widgets) root.hub.widgets.locMode = (i === 1 ? "city" : "auto"); }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: root.hub && root.hub.widgets && root.hub.widgets.locMode === "city"
+                        title: "City"
+                        subtitle: "For example: Riyadh, Dubai, London"
+                        Rectangle {
+                            width: 210; height: 26; radius: 6
+                            color: pal.ctrl
+                            border.width: 1
+                            border.color: pal.cardBorder
+                            TextInput {
+                                id: wxCityInput
+                                anchors.fill: parent
+                                anchors.leftMargin: 8; anchors.rightMargin: 8
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                selectByMouse: true
+                                color: pal.text
+                                selectionColor: pal.accent
+                                font.family: pal.fam
+                                font.pixelSize: 12
+                                text: root.hub && root.hub.widgets ? root.hub.widgets.cityName : ""
+                                onEditingFinished: { if (root.hub && root.hub.widgets) root.hub.widgets.cityName = text; }
+                            }
+                        }
+                    }
+                }
+
+                SLabel { t: pal; header: true; text: "Add a Widget" }
+                SCard {
+                    t: pal
+                    Repeater {
+                        model: [
+                            { type: "weather",  name: "Weather",  hint: "Current conditions, hourly and daily forecast", styles: [["liquid", "Liquid Glass"], ["normal", "Normal"]] },
+                            { type: "calendar", name: "Calendar", hint: "Today's date and the month", styles: [["liquid", "Liquid Glass"], ["normal", "Normal"]] },
+                            { type: "clock",    name: "Clock",    hint: "Analog clock face", styles: [["liquid", "Liquid Glass"], ["light", "Light"], ["dark", "Dark"]] },
+                            { type: "player",   name: "Player",   hint: "Now Playing with controls and lyrics", styles: [["liquid", "Liquid Glass"], ["light", "Light"], ["dark", "Dark"]] },
+                            { type: "battery",  name: "Battery",  hint: "Battery levels of laptop and connected gear", styles: [["liquid", "Liquid Glass"], ["normal", "Normal"]] },
+                            { type: "sysmon",   name: "System Monitor", hint: "Live CPU, RAM, Disk, Thermal and Network", styles: [["liquid", "Liquid Glass"], ["normal", "Normal"]] },
+                            { type: "stocks",   name: "Stocks & Crypto", hint: "Live crypto and stock prices with sparkline charts", styles: [["liquid", "Liquid Glass"], ["normal", "Normal"]] },
+                            { type: "image",    name: "Image",    hint: "Your own picture (you choose the file)", styles: [["normal", "Photo"]] },
+                            { type: "gif",      name: "GIF Animation", hint: "Animated GIF or WebP loop on your desktop", styles: [["normal", "Animation"]] }
+                        ]
+                        delegate: SRow {
+                            id: addRow
+                            required property var modelData
+                            property int styleIdx: 0
+                            readonly property var wdg: root.hub ? root.hub.widgets : null
+                            t: pal
+                            title: modelData.name
+                            subtitle: modelData.hint + (wdg ? "  \u00B7  " + (wdg.rev >= 0 ? wdg.count(modelData.type) : 0) + " on desktop" : "")
+                            Row {
+                                spacing: 8
+                                SSegmented {
+                                    t: pal
+                                    visible: addRow.modelData.styles.length > 1
+                                    model: addRow.modelData.styles.map(function (s) { return s[1]; })
+                                    segWidth: 84
+                                    current: addRow.styleIdx
+                                    onPicked: i => addRow.styleIdx = i
+                                }
+                                Repeater {
+                                    model: ["small", "medium", "large"]
+                                    delegate: SButton {
+                                        required property string modelData
+                                        t: pal
+                                        text: "+ " + ({ small: "S", medium: "M", large: "L" })[modelData]
+                                        onClicked: {
+                                            if (!addRow.wdg) return;
+                                            if (addRow.modelData.type === "image") addRow.wdg.pickImage("", modelData);
+                                            else if (addRow.modelData.type === "gif") addRow.wdg.pickGif("", modelData);
+                                            else addRow.wdg.addWidget(addRow.modelData.type, addRow.modelData.styles[addRow.styleIdx][0], modelData);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SLabel {
+                    t: pal
+                    visible: root.hub && root.hub.widgets && root.hub.widgets.pickError !== ""
+                    text: root.hub && root.hub.widgets ? root.hub.widgets.pickError : ""
+                    color: pal.danger
+                }
+                SLabel {
+                    t: pal
+                    text: "Image widgets: pick a picture with + S / M / L (needs zenity, kdialog or yad). To change it later, use Edit on Desktop and press Choose Image on the widget."
+                }
+
+                SLabel { t: pal; header: true; text: "Sound" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Play user interface sound effects"
+                        subtitle: "Volume pop, notifications, screenshots, charger, emptying the Trash and the lock screen"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.uiSounds : true; onToggled: v => { if (root.bar) root.bar.uiSounds = v; } }
+                    }
+                }
+
+                SLabel { t: pal; header: true; text: "Lock Screen" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Album background when the cover is enlarged"
+                        subtitle: "Tap the album cover on the lock screen: the background turns into a blurred version of the artwork"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.lockArtBackground : true; onToggled: v => { if (root.bar) root.bar.lockArtBackground = v; } }
+                    }
+                }
+
+                SLabel { t: pal; header: true; text: "Game Mode" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Game Mode"
+                        subtitle: "Turns off blur, shadows, animations and Liquid Glass, pauses an animated wallpaper and uses the performance power profile. Everything comes back when it turns off."
+                        SSwitch { t: pal; checked: root.bar ? root.bar.gamingMode : false; onToggled: v => { if (root.bar) root.bar.gamingMode = v; } }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Turn on automatically for fullscreen games"
+                        subtitle: root.bar && root.bar.gamingAutoActive ? "On now: a game is fullscreen" : "Steam, Sober (Roblox), Minecraft, Lutris, Heroic and Windows games"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.gamingAuto : true; onToggled: v => { if (root.bar) root.bar.gamingAuto = v; } }
+                    }
+                }
             }
         }
 
@@ -968,6 +1430,16 @@ Scope {
                             segWidth: 128
                             current: (root.bar && root.bar.barStyle === "liquid") ? 1 : 0
                             onPicked: i => { if (root.bar) root.bar.barStyle = (i === 1 ? "liquid" : "blur"); }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Liquid Glass bar"
+                        subtitle: "The menu bar strip itself is Liquid Glass, refracting the wallpaper and windows under it (needs Apple Liquid Glass style)"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.barGlass : true
+                            onToggled: v => { if (root.bar) root.bar.barGlass = v; }
                         }
                     }
                 }
@@ -1118,6 +1590,16 @@ Scope {
                             t: pal
                             checked: root.bar ? root.bar.showBatteryPercent : false
                             onToggled: v => { if (root.bar) root.bar.showBatteryPercent = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "CPU & RAM usage"
+                        subtitle: "Display live processor and memory usage on the menu bar"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.showCpuRam : true
+                            onToggled: v => { if (root.bar) root.bar.showCpuRam = v; }
                         }
                     }
                     SRow {
@@ -1565,9 +2047,9 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        visible: root.dockStyle === "liquid" || (!!root.hub && !!root.hub.widgets && root.hub.widgets.anyLiquid)
+                        visible: root.dockStyle === "liquid"
                         title: "Blur"
-                        subtitle: "How strongly the glass blurs what's behind it (Dock, Menu Bar and Liquid Glass widgets)"
+                        subtitle: "How strongly the glass blurs what's behind it"
                         SSlider {
                             t: pal
                             from: 0; to: 80; stepSize: 1
@@ -1578,9 +2060,9 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        visible: root.dockStyle === "liquid" || (!!root.hub && !!root.hub.widgets && root.hub.widgets.anyLiquid)
+                        visible: root.dockStyle === "liquid"
                         title: "Liquid strength"
-                        subtitle: "Refraction, magnification and colour fringing of the glass (also used by Liquid Glass widgets)"
+                        subtitle: "Refraction, magnification and colour fringing of the glass"
                         SSlider {
                             t: pal
                             from: 0.5; to: 2.5; stepSize: 0.05
@@ -1612,8 +2094,8 @@ Scope {
                             t: pal
                             model: ["Inter", "Noto Sans", "System"]
                             segWidth: 76
-                            current: root.fontFamily === "Inter" ? 0 : (root.fontFamily === "Noto Sans" ? 1 : 2)
-                            onPicked: i => root.setLook("fontFamily", ["Inter", "Noto Sans", "sans-serif"][i])
+                            current: root.fontFamily.indexOf("Inter") === 0 ? 0 : (root.fontFamily === "Noto Sans" ? 1 : 2)
+                            onPicked: i => root.setLook("fontFamily", ["Inter Variable", "Noto Sans", "sans-serif"][i])
                         }
                     }
                 }
@@ -1767,557 +2249,1069 @@ Scope {
             }
         }
 
-        // ── Widgets ──
+        // ── About ──
+
+        // ═════════ macOS-style panes linked to the shell ═════════
+
+        // ── Wi-Fi ──
         Component {
-            id: paneWidgets
+            id: paneWifi
             Column {
-                id: wp
+                id: wifiPane
                 spacing: 10
-                readonly property var wd: root.hub ? root.hub.widgets : null
-                readonly property bool editing: wd ? wd.editing : false
-
+                property string ethInfo: ""
+                Component.onCompleted: { if (root.bar) root.bar.scanWifi(); ethProc.running = true; }
+                Timer { interval: 4000; repeat: true; running: prefsWindow.visible; onTriggered: if (!ethProc.running) ethProc.running = true }
+                Process {
+                    id: ethProc
+                    command: ["sh", "-c", "nmcli -t -f DEVICE,TYPE,STATE,CONNECTION dev 2>/dev/null | awk -F: '$2==\"ethernet\"' | head -1 | while IFS=: read -r d t st c; do ip=$(ip -4 -o addr show \"$d\" 2>/dev/null | awk '{print $4}' | head -1); sp=$(cat /sys/class/net/$d/speed 2>/dev/null); printf '%s\t%s\t%s\t%s\t%s' \"$d\" \"$st\" \"$c\" \"$ip\" \"$sp\"; done"]
+                    stdout: StdioCollector { onStreamFinished: wifiPane.ethInfo = text.trim() }
+                }
+                readonly property var eth: { var f = ethInfo.split("\t"); return f.length >= 2 ? { dev: f[0], up: f[1].indexOf("connected") === 0, con: f[2] || "", ip: f[3] || "", speed: f[4] || "" } : null; }
+                // Ethernet first: it's what you're actually online through when it's plugged in
+                SCard {
+                    t: pal
+                    visible: wifiPane.eth !== null
+                    SRow {
+                        t: pal; title: "Ethernet"
+                        subtitle: !wifiPane.eth ? "" : (wifiPane.eth.up
+                                  ? "Connected" + (wifiPane.eth.ip !== "" ? " · " + wifiPane.eth.ip : "") + (parseInt(wifiPane.eth.speed) > 0 ? " · " + wifiPane.eth.speed + " Mb/s" : "")
+                                  : "Cable unplugged")
+                        Row {
+                            spacing: 8
+                            WGlyph { width: 18; height: 18; kind: "ethernet"; color: pal.text; anchors.verticalCenter: parent.verticalCenter }
+                            Rectangle { width: 10; height: 10; radius: 5; anchors.verticalCenter: parent.verticalCenter; color: wifiPane.eth && wifiPane.eth.up ? "#30D158" : pal.text3 }
+                        }
+                    }
+                }
                 SCard {
                     t: pal
                     SRow {
-                        t: pal
-                        title: "Desktop Widgets"
-                        subtitle: wp.editing ? "Add with +, then drag to an outlined slot. Widgets snap to the grid and won't overlap."
-                                             : "Put Weather, Calendar, Clock and Player widgets on your desktop."
-                        SButton {
-                            t: pal
-                            text: wp.editing ? "Stop Editing" : "Edit Desktop Widgets"
-                            onClicked: if (wp.wd) wp.wd.editing = !wp.wd.editing
-                        }
+                        t: pal; title: "Wi-Fi"
+                        subtitle: !root.bar ? "" : (!root.bar.wifiOn ? "Off" : (root.bar.wifiSsid !== "" ? "Connected to " + root.bar.wifiSsid : "Not connected"))
+                        SSwitch { t: pal; checked: root.bar ? root.bar.wifiOn : false; onToggled: v => { if (root.bar && root.bar.wifiOn !== v) root.bar.toggleWifi(); } }
                     }
                 }
-
-                // ── widget gallery (only while editing): every style x size, with − / + ──
-                Repeater {
-                    model: ["liquid", "normal"]
-                    delegate: Column {
-                        id: gstyle
-                        required property string modelData
-                        width: parent.width
-                        spacing: 10
-                        visible: wp.editing
-                        SLabel { t: pal; header: true; text: "Weather \u2014 " + (gstyle.modelData === "liquid" ? "Liquid Glass" : "Normal") }
-                        SCard {
-                            t: pal
-                            Item {
-                                width: parent.width
-                                height: gflow.height + 28
-                                Flow {
-                                    id: gflow
-                                    x: 18; y: 14
-                                    width: parent.width - 36
-                                    spacing: 22
-                                    Repeater {
-                                        model: ["small", "medium", "large"]
-                                        delegate: Item {
-                                            id: tile
-                                            required property string modelData
-                                            readonly property real sc: 0.5
-                                            readonly property real pw: (modelData === "small" ? 168 : 358) * sc
-                                            readonly property real ph: (modelData === "large" ? 354 : 168) * sc
-                                            width: Math.max(pw, 84)
-                                            height: ph + 62
-                                            readonly property int n: { var r = wp.wd ? wp.wd.rev : 0; return wp.wd ? wp.wd.count("weather", gstyle.modelData, modelData) : 0; }
-
-                                            WeatherWidget {
-                                                x: (tile.width - tile.pw) / 2
-                                                scaleF: tile.sc
-                                                preview: true
-                                                style: gstyle.modelData
-                                                size: tile.modelData
-                                                fam: pal.fam
-                                                hasData: true
-                                                city: "Tualatin"; temp: 58; hi: 79; lo: 56
-                                                cond: "Mostly Sunny"; kind: "sun"
-                                                hourly: [{ h: "Now", t: 58, k: "sun" }, { h: "3PM", t: 61, k: "sun" }, { h: "4PM", t: 64, k: "sun" },
-                                                         { h: "5PM", t: 62, k: "sun" }, { h: "6PM", t: 59, k: "moon" }, { h: "7PM", t: 57, k: "moon" }]
-                                                daily: [{ d: "Today", lo: 56, hi: 79, k: "sun" }, { d: "Fri", lo: 54, hi: 77, k: "sun" },
-                                                        { d: "Sat", lo: 52, hi: 72, k: "sun" }, { d: "Sun", lo: 50, hi: 70, k: "sun" },
-                                                        { d: "Mon", lo: 51, hi: 74, k: "sun" }]
-                                            }
-                                            Text {
-                                                y: tile.ph + 8
-                                                width: parent.width
-                                                horizontalAlignment: Text.AlignHCenter
-                                                text: tile.modelData === "small" ? "Small" : (tile.modelData === "medium" ? "Medium" : "Large")
-                                                color: pal.text
-                                                font.family: pal.fam
-                                                font.pixelSize: 12
-                                            }
-                                            Row {
-                                                y: tile.ph + 30
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                spacing: 8
-                                                Rectangle {   // −
-                                                    width: 22; height: 22; radius: 11
-                                                    opacity: tile.n > 0 ? 1 : 0.4
-                                                    color: minusMa.pressed ? pal.buttonPressed : pal.button
-                                                    border.width: 1; border.color: pal.buttonBorder
-                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: pal.text }
-                                                    MouseArea { id: minusMa; anchors.fill: parent; enabled: tile.n > 0
-                                                        onClicked: if (wp.wd) wp.wd.removeLast("weather", gstyle.modelData, tile.modelData) }
-                                                }
-                                                Text {
-                                                    width: 18
-                                                    anchors.verticalCenter: parent.verticalCenter
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                    text: tile.n
-                                                    color: pal.text2
-                                                    font.family: pal.fam
-                                                    font.pixelSize: 12
-                                                }
-                                                Rectangle {   // +
-                                                    width: 22; height: 22; radius: 11
-                                                    color: plusMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
-                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: "white" }
-                                                    Rectangle { anchors.centerIn: parent; width: 1.6; height: 9; radius: 0.8; color: "white" }
-                                                    MouseArea { id: plusMa; anchors.fill: parent
-                                                        onClicked: if (wp.wd) wp.wd.addWidget("weather", gstyle.modelData, tile.modelData) }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Repeater {
-                    model: ["liquid", "normal"]
-                    delegate: Column {
-                        id: cstyle
-                        required property string modelData
-                        width: parent.width
-                        spacing: 10
-                        visible: wp.editing
-                        SLabel { t: pal; header: true; text: "Calendar \u2014 " + (cstyle.modelData === "liquid" ? "Liquid Glass" : "Normal") }
-                        SCard {
-                            t: pal
-                            Item {
-                                width: parent.width
-                                height: cflow.height + 28
-                                Flow {
-                                    id: cflow
-                                    x: 18; y: 14
-                                    width: parent.width - 36
-                                    spacing: 22
-                                    Repeater {
-                                        model: ["small", "medium", "large"]
-                                        delegate: Item {
-                                            id: ctile
-                                            required property string modelData
-                                            readonly property real sc: 0.5
-                                            readonly property real pw: (modelData === "small" ? 168 : 358) * sc
-                                            readonly property real ph: (modelData === "large" ? 354 : 168) * sc
-                                            width: Math.max(pw, 84)
-                                            height: ph + 62
-                                            readonly property int n: { var r = wp.wd ? wp.wd.rev : 0; return wp.wd ? wp.wd.count("calendar", cstyle.modelData, modelData) : 0; }
-
-                                            CalendarWidget {
-                                                x: (ctile.width - ctile.pw) / 2
-                                                scaleF: ctile.sc
-                                                preview: true
-                                                style: cstyle.modelData
-                                                size: ctile.modelData
-                                                mode: "light"
-                                                darkGlass: pal.dark
-                                                fam: pal.fam
-                                            }
-                                            Text {
-                                                y: ctile.ph + 8
-                                                width: parent.width
-                                                horizontalAlignment: Text.AlignHCenter
-                                                text: ctile.modelData === "small" ? "Small" : (ctile.modelData === "medium" ? "Medium" : "Large")
-                                                color: pal.text
-                                                font.family: pal.fam
-                                                font.pixelSize: 12
-                                            }
-                                            Row {
-                                                y: ctile.ph + 30
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                spacing: 8
-                                                Rectangle {
-                                                    width: 22; height: 22; radius: 11
-                                                    opacity: ctile.n > 0 ? 1 : 0.4
-                                                    color: cminusMa.pressed ? pal.buttonPressed : pal.button
-                                                    border.width: 1; border.color: pal.buttonBorder
-                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: pal.text }
-                                                    MouseArea { id: cminusMa; anchors.fill: parent; enabled: ctile.n > 0
-                                                        onClicked: if (wp.wd) wp.wd.removeLast("calendar", cstyle.modelData, ctile.modelData) }
-                                                }
-                                                Text {
-                                                    width: 18
-                                                    anchors.verticalCenter: parent.verticalCenter
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                    text: ctile.n
-                                                    color: pal.text2
-                                                    font.family: pal.fam
-                                                    font.pixelSize: 12
-                                                }
-                                                Rectangle {
-                                                    width: 22; height: 22; radius: 11
-                                                    color: cplusMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
-                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: "white" }
-                                                    Rectangle { anchors.centerIn: parent; width: 1.6; height: 9; radius: 0.8; color: "white" }
-                                                    MouseArea { id: cplusMa; anchors.fill: parent
-                                                        onClicked: if (wp.wd) wp.wd.addWidget("calendar", cstyle.modelData, ctile.modelData) }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Clock gallery: screenshot-style face in Light, Dark, or Liquid Glass ──
-                Repeater {
-                    model: ["light", "dark", "liquid"]
-                    delegate: Column {
-                        id: clockStyle
-                        required property string modelData
-                        width: parent.width
-                        spacing: 10
-                        visible: wp.editing
-                        SLabel {
-                            t: pal
-                            header: true
-                            text: "Clock — " + (clockStyle.modelData === "light" ? "Light" : (clockStyle.modelData === "dark" ? "Dark" : "Liquid Glass"))
-                        }
-                        SCard {
-                            t: pal
-                            Item {
-                                width: parent.width
-                                height: clockFlow.height + 28
-                                Flow {
-                                    id: clockFlow
-                                    x: 18; y: 14
-                                    width: parent.width - 36
-                                    spacing: 22
-                                    Repeater {
-                                        model: ["small", "medium", "large"]
-                                        delegate: Item {
-                                            id: clockTile
-                                            required property string modelData
-                                            readonly property real sc: 0.5
-                                            readonly property real pw: (modelData === "small" ? 168 : 358) * sc
-                                            readonly property real ph: (modelData === "large" ? 354 : 168) * sc
-                                            width: Math.max(pw, 84)
-                                            height: ph + 62
-                                            readonly property int n: { var r = wp.wd ? wp.wd.rev : 0; return wp.wd ? wp.wd.count("clock", clockStyle.modelData, modelData) : 0; }
-
-                                            ClockWidget {
-                                                x: (clockTile.width - clockTile.pw) / 2
-                                                scaleF: clockTile.sc
-                                                preview: true
-                                                previewTime: "9:41"
-                                                style: clockStyle.modelData
-                                                size: clockTile.modelData
-                                                darkGlass: pal.dark
-                                                fam: pal.fam
-                                            }
-                                            Text {
-                                                y: clockTile.ph + 8
-                                                width: parent.width
-                                                horizontalAlignment: Text.AlignHCenter
-                                                text: clockTile.modelData === "small" ? "Small" : (clockTile.modelData === "medium" ? "Medium" : "Large")
-                                                color: pal.text
-                                                font.family: pal.fam
-                                                font.pixelSize: 12
-                                            }
-                                            Row {
-                                                y: clockTile.ph + 30
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                spacing: 8
-                                                Rectangle {
-                                                    width: 22; height: 22; radius: 11
-                                                    opacity: clockTile.n > 0 ? 1 : 0.4
-                                                    color: clockMinusMa.pressed ? pal.buttonPressed : pal.button
-                                                    border.width: 1; border.color: pal.buttonBorder
-                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: pal.text }
-                                                    MouseArea { id: clockMinusMa; anchors.fill: parent; enabled: clockTile.n > 0
-                                                        onClicked: if (wp.wd) wp.wd.removeLast("clock", clockStyle.modelData, clockTile.modelData) }
-                                                }
-                                                Text {
-                                                    width: 18
-                                                    anchors.verticalCenter: parent.verticalCenter
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                    text: clockTile.n
-                                                    color: pal.text2
-                                                    font.family: pal.fam
-                                                    font.pixelSize: 12
-                                                }
-                                                Rectangle {
-                                                    width: 22; height: 22; radius: 11
-                                                    color: clockPlusMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
-                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: "white" }
-                                                    Rectangle { anchors.centerIn: parent; width: 1.6; height: 9; radius: 0.8; color: "white" }
-                                                    MouseArea { id: clockPlusMa; anchors.fill: parent
-                                                        onClicked: if (wp.wd) wp.wd.addWidget("clock", clockStyle.modelData, clockTile.modelData) }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Player gallery: artwork-coloured Music player in Light, Dark, or Liquid Glass ──
-                Repeater {
-                    model: ["light", "dark", "liquid"]
-                    delegate: Column {
-                        id: playerStyle
-                        required property string modelData
-                        width: parent.width
-                        spacing: 10
-                        visible: wp.editing
-                        SLabel {
-                            t: pal
-                            header: true
-                            text: "Player — " + (playerStyle.modelData === "light" ? "Light" : (playerStyle.modelData === "dark" ? "Dark" : "Liquid Glass"))
-                        }
-                        SCard {
-                            t: pal
-                            Item {
-                                width: parent.width
-                                height: playerFlow.height + 28
-                                Flow {
-                                    id: playerFlow
-                                    x: 18; y: 14
-                                    width: parent.width - 36
-                                    spacing: 22
-                                    Repeater {
-                                        model: ["small", "medium", "large"]
-                                        delegate: Item {
-                                            id: playerTile
-                                            required property string modelData
-                                            readonly property real sc: 0.5
-                                            readonly property real pw: (modelData === "small" ? 168 : 358) * sc
-                                            readonly property real ph: (modelData === "large" ? 354 : 168) * sc
-                                            width: Math.max(pw, 84)
-                                            height: ph + 62
-                                            readonly property int n: { var r = wp.wd ? wp.wd.rev : 0; return wp.wd ? wp.wd.count("player", playerStyle.modelData, modelData) : 0; }
-
-                                            PlayerWidget {
-                                                x: (playerTile.width - playerTile.pw) / 2
-                                                scaleF: playerTile.sc
-                                                preview: true
-                                                hasPlayer: true
-                                                title: "Midnight City"
-                                                artist: "M83"
-                                                album: "Hurry Up, We're Dreaming"
-                                                shuffle: true
-                                                playing: true
-                                                position: 83
-                                                length: 244
-                                                tintOverride: "#D9552B"
-                                                style: playerStyle.modelData
-                                                size: playerTile.modelData
-                                                darkGlass: pal.dark
-                                                fam: pal.fam
-                                            }
-                                            Text {
-                                                y: playerTile.ph + 8
-                                                width: parent.width
-                                                horizontalAlignment: Text.AlignHCenter
-                                                text: playerTile.modelData === "small" ? "Small" : (playerTile.modelData === "medium" ? "Medium" : "Large")
-                                                color: pal.text
-                                                font.family: pal.fam
-                                                font.pixelSize: 12
-                                            }
-                                            Row {
-                                                y: playerTile.ph + 30
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                spacing: 8
-                                                Rectangle {
-                                                    width: 22; height: 22; radius: 11
-                                                    opacity: playerTile.n > 0 ? 1 : 0.4
-                                                    color: playerMinusMa.pressed ? pal.buttonPressed : pal.button
-                                                    border.width: 1; border.color: pal.buttonBorder
-                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: pal.text }
-                                                    MouseArea { id: playerMinusMa; anchors.fill: parent; enabled: playerTile.n > 0
-                                                        onClicked: if (wp.wd) wp.wd.removeLast("player", playerStyle.modelData, playerTile.modelData) }
-                                                }
-                                                Text {
-                                                    width: 18
-                                                    anchors.verticalCenter: parent.verticalCenter
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                    text: playerTile.n
-                                                    color: pal.text2
-                                                    font.family: pal.fam
-                                                    font.pixelSize: 12
-                                                }
-                                                Rectangle {
-                                                    width: 22; height: 22; radius: 11
-                                                    color: playerPlusMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
-                                                    Rectangle { anchors.centerIn: parent; width: 9; height: 1.6; radius: 0.8; color: "white" }
-                                                    Rectangle { anchors.centerIn: parent; width: 1.6; height: 9; radius: 0.8; color: "white" }
-                                                    MouseArea { id: playerPlusMa; anchors.fill: parent
-                                                        onClicked: if (wp.wd) wp.wd.addWidget("player", playerStyle.modelData, playerTile.modelData) }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── placed widgets ──
-                SLabel { visible: !!wp.wd && wp.wd.widgetCount > 0; t: pal; header: true; text: "On your desktop" }
+                SLabel { t: pal; header: true; text: "Known Networks & Other Networks"; visible: root.bar && root.bar.wifiOn }
                 SCard {
-                    visible: !!wp.wd && wp.wd.widgetCount > 0
                     t: pal
+                    visible: root.bar && root.bar.wifiOn
                     Repeater {
-                        model: wp.wd ? wp.wd.model : null
-                        delegate: Column {
-                            id: prow
-                            required property int index
-                            required property string wid
-                            required property string wtype
-                            required property string wstyle
-                            required property string wsize
-                            required property string wmode
-                            width: parent.width
-                            Rectangle { visible: prow.index > 0; width: parent.width; height: 1; color: pal.sep }
-                            SRow {
-                                t: pal
-                                title: wp.wd ? wp.wd.typeNames[prow.wtype] : prow.wtype
-                                SButton { t: pal; text: "Remove"; destructive: true; onClicked: if (wp.wd) wp.wd.removeWidget(prow.wid) }
-                            }
-                            SRow {
-                                visible: prow.wtype !== "clock" && prow.wtype !== "player"
-                                t: pal
-                                title: "Style"
-                                SSegmented {
-                                    t: pal
-                                    model: ["Liquid Glass", "Normal"]
-                                    segWidth: 96
-                                    current: prow.wstyle === "liquid" ? 0 : 1
-                                    onPicked: i => { if (wp.wd) wp.wd.setStyle(prow.wid, i === 0 ? "liquid" : "normal"); }
-                                }
-                            }
-                            SRow {
-                                visible: prow.wtype === "clock" || prow.wtype === "player"
-                                t: pal
-                                title: "Style"
-                                SSegmented {
-                                    t: pal
-                                    model: ["Light", "Dark", "Liquid Glass"]
-                                    segWidth: 86
-                                    current: prow.wstyle === "dark" ? 1 : (prow.wstyle === "liquid" ? 2 : 0)
-                                    onPicked: i => { if (wp.wd) wp.wd.setStyle(prow.wid, i === 1 ? "dark" : (i === 2 ? "liquid" : "light")); }
-                                }
-                            }
-                            SRow {
-                                t: pal
-                                title: "Size"
-                                SSegmented {
-                                    t: pal
-                                    model: ["Small", "Medium", "Large"]
-                                    segWidth: 74
-                                    current: prow.wsize === "large" ? 2 : (prow.wsize === "medium" ? 1 : 0)
-                                    onPicked: i => { if (wp.wd) wp.wd.setSize(prow.wid, i === 2 ? "large" : (i === 1 ? "medium" : "small")); }
-                                }
-                            }
-                            SRow {
-                                visible: prow.wtype === "calendar"
-                                t: pal
-                                title: "Appearance"
-                                SSegmented {
-                                    t: pal
-                                    model: ["Automatic", "Light", "Dark"]
-                                    segWidth: 80
-                                    current: prow.wmode === "light" ? 1 : (prow.wmode === "dark" ? 2 : 0)
-                                    onPicked: i => { if (wp.wd) wp.wd.setMode(prow.wid, i === 1 ? "light" : (i === 2 ? "dark" : "auto")); }
-                                }
-                            }
-                        }
-                    }
-                }
-                SLabel {
-                    visible: !!wp.wd && wp.wd.anyLiquid && wp.wd.glassState === "failed"
-                    t: pal
-                    text: "Liquid Glass couldn't start (install qt6-shadertools); the widgets use a frosted look instead."
-                }
-
-                // ── weather settings ──
-                SLabel { t: pal; header: true; text: "Weather settings" }
-                SCard {
-                    t: pal
-                    SRow {
-                        t: pal
-                        title: "Temperature"
-                        SSegmented {
+                        model: root.bar ? root.bar.wifiNets : []
+                        delegate: SRow {
+                            required property var modelData
                             t: pal
-                            model: ["Celsius", "Fahrenheit"]
-                            segWidth: 92
-                            current: (wp.wd && wp.wd.tempUnit === "F") ? 1 : 0
-                            onPicked: i => { if (wp.wd) wp.wd.tempUnit = (i === 1 ? "F" : "C"); }
-                        }
-                    }
-                    SRow {
-                        t: pal
-                        title: "Location"
-                        subtitle: "Automatic finds you from your IP address"
-                        SSegmented {
-                            t: pal
-                            model: ["Automatic", "City"]
-                            segWidth: 92
-                            current: (wp.wd && wp.wd.locMode === "city") ? 1 : 0
-                            onPicked: i => { if (wp.wd) wp.wd.locMode = (i === 1 ? "city" : "auto"); }
-                        }
-                    }
-                    SRow {
-                        visible: !!wp.wd && wp.wd.locMode === "city"
-                        t: pal
-                        title: "City"
-                        Rectangle {
-                            width: 190; height: 24; radius: 6
-                            color: pal.field
-                            TextInput {
-                                id: cityInput
-                                anchors.fill: parent
-                                anchors.leftMargin: 8; anchors.rightMargin: 8
-                                verticalAlignment: TextInput.AlignVCenter
-                                clip: true
-                                selectByMouse: true
-                                color: pal.text
-                                selectionColor: pal.accent
-                                font.family: pal.fam
-                                font.pixelSize: 13
-                                text: wp.wd ? wp.wd.cityName : ""
-                                onEditingFinished: if (wp.wd) wp.wd.cityName = text.trim()
-                            }
-                            Text {
-                                anchors.fill: cityInput
-                                verticalAlignment: Text.AlignVCenter
-                                visible: cityInput.text === "" && !cityInput.activeFocus
-                                text: "e.g. Tualatin"
-                                color: pal.text3
-                                font.family: pal.fam
-                                font.pixelSize: 13
+                            title: modelData.ssid + (modelData.inUse ? "  ✓" : "")
+                            subtitle: (modelData.secure ? "Secured" : "Open") + (modelData.saved ? " · Saved" : "") + " · " + modelData.signal + "%"
+                            SButton {
+                                t: pal
+                                text: modelData.inUse ? "Connected" : (modelData.saved || !modelData.secure ? "Connect" : "Join…")
+                                onClicked: {
+                                    if (modelData.inUse) return;
+                                    if (modelData.saved || !modelData.secure) root.bar.connectWifi(modelData.ssid, "");
+                                    else { prefsWindow.visible = false; root.bar.wifiJoin ? root.bar.wifiJoin(modelData.ssid) : null; }
+                                }
                             }
                         }
                     }
                 }
-                SLabel {
-                    t: pal
-                    text: "Liquid Glass widgets follow the Translucency, Blur and Liquid strength sliders in Appearance. Weather data comes from Open-Meteo. Widgets sit on the desktop, behind your windows."
+                Row {
+                    spacing: 8
+                    SButton { t: pal; text: "Scan Again"; onClicked: if (root.bar) root.bar.scanWifi() }
                 }
             }
         }
 
-        // ── About ──
+        // ── Bluetooth ── (uses the Menu Bar's Bluetooth backend, so pairing, scanning and errors behave like the Control Center)
+        Component {
+            id: paneBt
+            Column {
+                id: btPane
+                spacing: 10
+                readonly property var bar: root.bar
+                readonly property var allDevs: bar ? bar.btDevices : []
+                readonly property var myDevs: allDevs.filter(function (d) { return d.paired || d.connected; })
+                readonly property var nearby: allDevs.filter(function (d) { return !d.paired && !d.connected; })
+                Component.onCompleted: { if (bar) { bar.refreshBt(); bar.scanBt(); } }
+                Timer { interval: 4000; repeat: true; running: prefsWindow.visible; onTriggered: if (btPane.bar) btPane.bar.refreshBt() }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Bluetooth"
+                        subtitle: root.bar && root.bar.btOn ? "This computer is discoverable as \"" + root.userName + "\"" : "Off"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.btOn : false; onToggled: v => { if (root.bar && root.bar.btOn !== v) root.bar.toggleBt(); } }
+                    }
+                }
+                SLabel { t: pal; header: true; text: "My Devices"; visible: btPane.myDevs.length > 0 }
+                SCard {
+                    t: pal
+                    visible: btPane.myDevs.length > 0
+                    Repeater {
+                        model: btPane.myDevs
+                        delegate: SRow {
+                            required property var modelData
+                            t: pal
+                            title: modelData.name
+                            subtitle: (root.bar && root.bar.btBusy === modelData.mac ? (modelData.connected ? "Disconnecting\u2026" : "Connecting\u2026")
+                                       : (modelData.connected ? "Connected" : "Not Connected")) + (modelData.bat !== "" ? " \u00B7 " + modelData.bat + "%" : "")
+                            SButton {
+                                t: pal; text: modelData.connected ? "Disconnect" : "Connect"
+                                enabled: !(root.bar && root.bar.btBusy !== "")
+                                onClicked: { if (root.bar) root.bar.connectBt(modelData.mac, modelData.connected); }
+                            }
+                        }
+                    }
+                }
+                SLabel { t: pal; header: true; text: (root.bar && root.bar.btScanning) ? "Nearby Devices \u2014 searching\u2026" : "Nearby Devices"; visible: root.bar && root.bar.btOn }
+                SCard {
+                    t: pal
+                    visible: root.bar && root.bar.btOn
+                    Repeater {
+                        model: btPane.nearby
+                        delegate: SRow {
+                            required property var modelData
+                            t: pal
+                            title: modelData.name
+                            subtitle: root.bar && root.bar.btBusy === modelData.mac ? "Pairing\u2026" : "Not paired"
+                            SButton {
+                                t: pal; text: "Connect"
+                                enabled: !(root.bar && root.bar.btBusy !== "")
+                                onClicked: { if (root.bar) root.bar.connectBt(modelData.mac, false); }
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: btPane.nearby.length === 0
+                        title: root.bar && root.bar.btScanning ? "Searching for devices\u2026" : "No new devices found"
+                        subtitle: "Put the device in pairing mode, then scan again"
+                        SButton { t: pal; text: "Scan Again"; enabled: !(root.bar && root.bar.btScanning); onClicked: { if (root.bar) root.bar.scanBt(); } }
+                    }
+                }
+                SLabel { t: pal; text: root.bar ? root.bar.btError : ""; visible: root.bar && root.bar.btError !== "" }
+            }
+        }
+
+        // ── Network ──
+        Component {
+            id: paneNetwork
+            Column {
+                id: netPane
+                spacing: 10
+                property var devs: []
+                Component.onCompleted: netProc.running = true
+                Timer { interval: 4000; repeat: true; running: prefsWindow.visible; onTriggered: if (!netProc.running) netProc.running = true }
+                Process {
+                    id: netProc
+                    command: ["sh", "-c", "nmcli -t -f DEVICE,TYPE,STATE,CONNECTION dev 2>/dev/null | grep -vE ':(loopback|wifi-p2p|bridge):' | while IFS=: read -r d t s c; do ip=$(ip -4 -o addr show \"$d\" 2>/dev/null | awk '{print $4}' | head -1); printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \"$d\" \"$t\" \"$s\" \"$c\" \"$ip\"; done"]
+                    stdout: StdioCollector {
+                        onStreamFinished: {
+                            var out = [], l = text.split("\n");
+                            for (var i = 0; i < l.length; i++) { var f = l[i].split("\t"); if (f.length >= 3 && f[0] !== "") out.push({ dev: f[0], type: f[1], state: f[2], con: f[3] || "", ip: f[4] || "" }); }
+                            netPane.devs = out;
+                        }
+                    }
+                }
+                SCard {
+                    t: pal
+                    Repeater {
+                        model: netPane.devs
+                        delegate: SRow {
+                            required property var modelData
+                            t: pal
+                            readonly property bool up: modelData.state.indexOf("connected") === 0
+                            title: ({ ethernet: "Ethernet", wifi: "Wi-Fi", tun: modelData.dev === "tailscale0" ? "Tailscale" : "VPN" })[modelData.type] || modelData.dev
+                            subtitle: (up ? "Connected" : "Not Connected") + (modelData.con !== "" ? " · " + modelData.con : "") + (modelData.ip !== "" ? " · " + modelData.ip : "")
+                            Rectangle { width: 10; height: 10; radius: 5; color: parent.up ? "#30D158" : pal.text3 }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Battery ──
+        Component {
+            id: paneBattery
+            Column {
+                id: batPane
+                spacing: 10
+                readonly property var dev: UPower.displayDevice
+                readonly property real pct: dev ? Math.round(dev.percentage <= 1 ? dev.percentage * 100 : dev.percentage) : 0
+                readonly property bool charging: dev && (dev.state === UPowerDeviceState.Charging || dev.state === UPowerDeviceState.FullyCharged)
+                property string profile: ""
+                Component.onCompleted: ppGet.running = true
+                Process { id: ppGet; command: ["powerprofilesctl", "get"]; stdout: StdioCollector { onStreamFinished: batPane.profile = text.trim() } }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Battery Level"
+                        subtitle: batPane.charging ? "Charging" : (batPane.dev && batPane.dev.timeToEmpty > 0 ? Math.floor(batPane.dev.timeToEmpty / 3600) + " h " + Math.round(batPane.dev.timeToEmpty % 3600 / 60) + " min remaining" : "On battery")
+                        Row {
+                            spacing: 8
+                            Rectangle {
+                                width: 120; height: 10; radius: 5; color: pal.track; anchors.verticalCenter: parent.verticalCenter
+                                Rectangle { width: parent.width * batPane.pct / 100; height: parent.height; radius: 5; color: batPane.pct <= 20 && !batPane.charging ? "#FF453A" : "#30D158" }
+                            }
+                            Text { text: batPane.pct + "%"; color: pal.text; font.family: pal.fam; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Energy Mode"
+                        subtitle: "Power profile used by the system"
+                        SSegmented {
+                            t: pal; model: ["Low Power", "Automatic", "High Power"]; segWidth: 84
+                            current: ["power-saver", "balanced", "performance"].indexOf(batPane.profile)
+                            onPicked: i => { var p = ["power-saver", "balanced", "performance"][i]; Quickshell.execDetached(["powerprofilesctl", "set", p]); batPane.profile = p; }
+                        }
+                    }
+                }
+                SLabel { t: pal; header: true; text: "Game Mode" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Game Mode"
+                        subtitle: "Turns off blur, shadows, animations and Liquid Glass, pauses an animated wallpaper and uses High Power"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.gamingMode : false; onToggled: v => { if (root.bar) root.bar.gamingMode = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Turn on automatically for fullscreen games"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.gamingAuto : true; onToggled: v => { if (root.bar) root.bar.gamingAuto = v; } }
+                    }
+                }
+            }
+        }
+
+        // ── Control Center ──
+        Component {
+            id: paneCC
+            Column {
+                spacing: 10
+                SLabel { t: pal; text: "Choose which controls appear in Control Center. You can also drag them around in Control Center → Edit Controls." }
+                SCard {
+                    t: pal
+                    Repeater {
+                        model: root.bar ? root.bar.ccCatalog : []
+                        delegate: SRow {
+                            required property var modelData
+                            t: pal
+                            title: modelData.label
+                            SSwitch {
+                                t: pal
+                                checked: root.bar ? root.bar.ccControls.indexOf(modelData.id) >= 0 : false
+                                onToggled: v => {
+                                    if (!root.bar) return;
+                                    var cl = root.bar.ccControls.filter(function (x) { return x !== modelData.id; });
+                                    if (v) cl.push(modelData.id);
+                                    root.bar.ccControls = cl;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Desktop & Dock = Dock + Dock Behavior ──
+        Component {
+            id: paneDesktopDock
+            Column {
+                spacing: 18
+                Loader { width: parent.width; sourceComponent: paneDock }
+                SLabel { t: pal; header: true; text: "App Switcher (Alt + Tab)" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Style"
+                        subtitle: "Liquid Glass refracts what's behind it, Frosted blurs it, Opaque is a solid panel"
+                        SSegmented {
+                            t: pal
+                            model: ["Liquid Glass", "Frosted", "Opaque"]
+                            segWidth: 92
+                            current: Math.max(0, ["glass", "frosted", "opaque"].indexOf(root.bar ? root.bar.switcherStyle : "glass"))
+                            onPicked: i => { if (root.bar) root.bar.switcherStyle = ["glass", "frosted", "opaque"][i]; }
+                        }
+                    }
+                }
+                SLabel { t: pal; header: true; text: "Behavior" }
+                Loader { width: parent.width; sourceComponent: paneBehavior }
+            }
+        }
+
+        // ── Displays ──
+        Component {
+            id: paneDisplays
+            Column {
+                id: dispPane
+                spacing: 10
+                property var mons: []
+                Component.onCompleted: { monList.running = true; root.refreshMons(); }
+                Process {
+                    id: monList
+                    command: ["hyprctl", "-j", "monitors"]
+                    stdout: StdioCollector { onStreamFinished: { try { dispPane.mons = JSON.parse(text); } catch (e) {} } }
+                }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Brightness"
+                        SSlider { t: pal; value: root.bar ? root.bar.brightness : 0.5; onMoved: v => { if (root.bar) root.bar.setBrightness(v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Night Shift"
+                        subtitle: "Warmer colours to reduce blue light"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.nightOn : false; onToggled: v => { if (root.bar) root.bar.nightOn = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Colour Temperature"; visible: root.bar && root.bar.nightOn
+                        SSlider {
+                            t: pal; leftLabel: "Less Warm"; rightLabel: "More Warm"
+                            value: root.bar ? 1 - (root.bar.nightTemp - 2500) / 3500 : 0.5
+                            onMoved: v => { if (root.bar) root.bar.nightTemp = Math.round(2500 + (1 - v) * 3500); }
+                        }
+                    }
+                }
+                SLabel { t: pal; header: true; text: "Displays" }
+                // keep / revert sheet (macOS: "Keep these display settings?")
+                Rectangle {
+                    visible: root.pendingOut !== ""
+                    width: parent.width; height: 64; radius: 10
+                    color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.22)
+                    border.width: 1; border.color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.6)
+                    Text {
+                        x: 14; anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - 220; wrapMode: Text.WordWrap
+                        text: "Keep these display settings? Reverting in " + root.revertLeft + " s."
+                        color: pal.text; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold
+                    }
+                    Row {
+                        anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
+                        spacing: 8
+                        SButton { t: pal; text: "Revert"; onClicked: root.revertMode() }
+                        SButton { t: pal; text: "Keep Changes"; onClicked: root.keepMode() }
+                    }
+                }
+                SCard {
+                    t: pal
+                    visible: root.monList.length > 1
+                    SRow {
+                        t: pal; title: "Main display"
+                        subtitle: "The Dock, the lock screen controls and new widgets go here"
+                        SSegmented {
+                            t: pal
+                            model: root.monList.map(function (m) { return m.name; })
+                            segWidth: 96
+                            current: { var p = root.monitorPrimary || root.monitor; for (var i = 0; i < root.monList.length; i++) if (root.monList[i].name === p) return i; return -1; }
+                            onPicked: i => root.setPrimary(root.monList[i].name)
+                        }
+                    }
+                }
+                Repeater {
+                    model: root.monList
+                    delegate: SCard {
+                        id: monCard
+                        required property var modelData
+                        t: pal
+                        // available modes → resolutions (largest first) and the refresh rates of the chosen one
+                        readonly property var modes: {
+                            var seen = {}, out = [];
+                            var am = modelData.availableModes || [];
+                            for (var i = 0; i < am.length; i++) {
+                                var m = /^(\d+)x(\d+)@([\d.]+)Hz$/.exec(am[i]); if (!m) continue;
+                                var k = m[1] + "x" + m[2] + "@" + parseFloat(m[3]).toFixed(2);
+                                if (seen[k]) continue; seen[k] = true;
+                                out.push({ w: parseInt(m[1]), h: parseInt(m[2]), hz: parseFloat(m[3]) });
+                            }
+                            return out;
+                        }
+                        readonly property var resolutions: {
+                            var seen = {}, out = [];
+                            for (var i = 0; i < modes.length; i++) { var r = modes[i].w + "x" + modes[i].h; if (!seen[r]) { seen[r] = true; out.push(modes[i]); } }
+                            out.sort(function (a, b) { return b.w * b.h - a.w * a.h; });
+                            var cur = modelData.width + "x" + modelData.height;
+                            if (!seen[cur]) out.unshift({ w: modelData.width, h: modelData.height, hz: modelData.refreshRate, custom: true });
+                            return out;
+                        }
+                        property string selRes: modelData.width + "x" + modelData.height
+                        readonly property var rates: {
+                            var out = [];
+                            for (var i = 0; i < modes.length; i++) if (modes[i].w + "x" + modes[i].h === selRes && out.indexOf(Math.round(modes[i].hz)) < 0) out.push(Math.round(modes[i].hz));
+                            out.sort(function (a, b) { return b - a; });
+                            if (out.length === 0) out.push(Math.round(modelData.refreshRate));
+                            return out;
+                        }
+                        function bestHz(res, hz) {
+                            var best = null;
+                            for (var i = 0; i < modes.length; i++) if (modes[i].w + "x" + modes[i].h === res && (best === null || Math.abs(modes[i].hz - hz) < Math.abs(best - hz))) best = modes[i].hz;
+                            return best === null ? hz : best;
+                        }
+                        SRow {
+                            t: pal
+                            title: (modelData.description || modelData.name).replace(/\s*\(.*\)$/, "")
+                            subtitle: modelData.name + " · " + modelData.width + " × " + modelData.height + " @ " + Math.round(modelData.refreshRate) + " Hz · Scale " + modelData.scale
+                        }
+                        SRow {
+                            t: pal; title: "Resolution"
+                            SPopUp {
+                                t: pal
+                                model: monCard.resolutions.map(function (r) { return r.w + " × " + r.h + (r.custom ? "  (current)" : ""); })
+                                current: { for (var i = 0; i < monCard.resolutions.length; i++) if (monCard.resolutions[i].w + "x" + monCard.resolutions[i].h === monCard.selRes) return i; return 0; }
+                                onPicked: i => {
+                                    var r = monCard.resolutions[i];
+                                    if (r.custom) return;
+                                    monCard.selRes = r.w + "x" + r.h;
+                                    var hz = monCard.bestHz(monCard.selRes, monCard.modelData.refreshRate);
+                                    root.tryMode(monCard.modelData.name, monCard.selRes + "@" + hz.toFixed(2));
+                                }
+                            }
+                        }
+                        SRow {
+                            t: pal; title: "Refresh rate"
+                            SPopUp {
+                                t: pal
+                                model: monCard.rates.map(function (h) { return h + " Hz"; })
+                                current: { var c = Math.round(monCard.modelData.refreshRate), i = monCard.rates.indexOf(c); return i < 0 ? 0 : i; }
+                                onPicked: i => {
+                                    var hz = monCard.bestHz(monCard.selRes, monCard.rates[i]);
+                                    root.tryMode(monCard.modelData.name, monCard.selRes + "@" + hz.toFixed(2));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Notifications ──
+        Component {
+            id: paneNotif
+            Column {
+                spacing: 10
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Show notification banners"
+                        subtitle: "Off = Do Not Disturb: notifications still go to Notification Center, without banners"
+                        SSwitch { t: pal; checked: root.bar ? !root.bar.notifDnd : true; onToggled: v => { if (root.bar) root.bar.notifDnd = !v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Play sound for notifications"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.uiSounds : true; onToggled: v => { if (root.bar) root.bar.uiSounds = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Screenshot notifications"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.screenshotNotify : true; onToggled: v => { if (root.bar) root.bar.screenshotNotify = v; } }
+                    }
+                }
+                Row {
+                    spacing: 8
+                    SButton { t: pal; text: "Send Test Notification"; onClicked: Quickshell.execDetached(["notify-send", "-a", "Settings", "Test notification", "Notifications are working"]) }
+                    SButton { t: pal; text: "Clear Notification Center"; onClicked: if (root.bar) root.bar.notifClearAnimated() }
+                }
+            }
+        }
+
+        // ── Sound ──
+        Component {
+            id: paneSound
+            Column {
+                id: sndPane
+                spacing: 10
+                readonly property var outs: Pipewire.nodes.values.filter(function (n) { return n.isSink && !n.isStream && n.audio; })
+                readonly property var ins: Pipewire.nodes.values.filter(function (n) { return !n.isSink && !n.isStream && n.audio && (n.name || "").indexOf("monitor") < 0; })
+                readonly property var src: Pipewire.defaultAudioSource
+                PwObjectTracker { objects: [Pipewire.defaultAudioSink, Pipewire.defaultAudioSource] }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Play user interface sound effects"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.uiSounds : true; onToggled: v => { if (root.bar) root.bar.uiSounds = v; } }
+                    }
+                }
+                SLabel { t: pal; header: true; text: "Output" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Output volume"
+                        SSlider { t: pal; value: root.bar ? (root.bar.muted ? 0 : root.bar.volume) : 0; onMoved: v => { if (root.bar) root.bar.setVolume(v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Mute"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.muted : false; onToggled: v => { if (root.bar && root.bar.muted !== v) root.bar.toggleMute(); } }
+                    }
+                    Repeater {
+                        model: sndPane.outs
+                        delegate: SRow {
+                            required property var modelData
+                            t: pal
+                            title: modelData.description || modelData.nickname || modelData.name
+                            id: devRowSink
+                            readonly property bool cur: Pipewire.defaultAudioSink === modelData
+                            subtitle: cur ? "Selected" : ""
+                            SButton { t: pal; text: devRowSink.cur ? "In Use" : "Use"; onClicked: Pipewire.preferredDefaultAudioSink = devRowSink.modelData }
+                        }
+                    }
+                }
+                SLabel { t: pal; header: true; text: "Input" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Input volume"
+                        SSlider { t: pal; value: sndPane.src && sndPane.src.audio ? sndPane.src.audio.volume : 0; onMoved: v => { if (sndPane.src && sndPane.src.audio) sndPane.src.audio.volume = v; } }
+                    }
+                    Repeater {
+                        model: sndPane.ins
+                        delegate: SRow {
+                            required property var modelData
+                            t: pal
+                            title: modelData.description || modelData.nickname || modelData.name
+                            id: devRowSource
+                            readonly property bool cur: Pipewire.defaultAudioSource === modelData
+                            subtitle: cur ? "Selected" : ""
+                            SButton { t: pal; text: devRowSource.cur ? "In Use" : "Use"; onClicked: Pipewire.preferredDefaultAudioSource = devRowSource.modelData }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Focus ──
+        Component {
+            id: paneFocus
+            Column {
+                spacing: 10
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Do Not Disturb"
+                        subtitle: "Silences notification banners"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.notifDnd : false; onToggled: v => { if (root.bar) root.bar.notifDnd = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Keep Awake"
+                        subtitle: "Stop the computer from going to sleep or locking"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.keepAwake : false; onToggled: v => { if (root.bar) root.bar.keepAwake = v; } }
+                    }
+                }
+            }
+        }
+
+        // ── Lock Screen ──
+        Component {
+            id: paneLock
+            Column {
+                id: lockPane
+                spacing: 10
+                property string slot: "top"
+                Component.onCompleted: slotGet.running = true
+                Process { id: slotGet; command: ["sh", "-c", "jq -r '.mediaSlot // \"top\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo top"]
+                          stdout: StdioCollector { onStreamFinished: lockPane.slot = text.trim() === "bottom" ? "bottom" : "top" } }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Now Playing position"
+                        subtitle: "You can also drag it on the lock screen"
+                        SSegmented {
+                            t: pal; model: ["Under Clock", "Above Password"]; segWidth: 110
+                            current: lockPane.slot === "bottom" ? 1 : 0
+                            onPicked: i => {
+                                lockPane.slot = i === 1 ? "bottom" : "top";
+                                Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/maclock\" && printf '{\\n  \"mediaSlot\": \"%s\"\\n}\\n' \"$1\" > \"$HOME/.config/maclock/settings.json\"", "sh", lockPane.slot]);
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Album background when the cover is enlarged"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.lockArtBackground : true; onToggled: v => { if (root.bar) root.bar.lockArtBackground = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "24-hour clock"
+                        subtitle: "Shared with the menu bar clock"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.use24h : true; onToggled: v => { if (root.bar) root.bar.use24h = v; } }
+                    }
+                }
+                // ── Clock ──
+                // the clock fonts, loaded straight from their files so the previews never fall back to another face
+                FontLoader { id: fNunito; source: "file://" + Quickshell.env("HOME") + "/.local/share/fonts/Nunito/Nunito.ttf" }
+                FontLoader { id: fSerif; source: "file://" + Quickshell.env("HOME") + "/.local/share/fonts/NotoSerifDisplay/NotoSerifDisplay.ttf" }
+                SLabel { t: pal; text: "Clock"; font.weight: Font.DemiBold; topPadding: 6 }
+                SCard {
+                    t: pal
+                    // preset tiles
+                    Item {
+                        width: parent.width; height: 132
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 10
+                            Repeater {
+                                model: [
+                                    { id: "glass",   name: "Glass",   fam: "Roboto Flex",        w: 680, tall: true,  liquid: false },
+                                    { id: "classic", name: "Classic", fam: fNunito.status === FontLoader.Ready ? fNunito.name : "Nunito",             w: 640, tall: false, liquid: false },
+                                    { id: "serif",   name: "Serif",   fam: fSerif.status === FontLoader.Ready ? fSerif.name : "Noto Serif Display", w: 560, tall: false, liquid: false },
+                                    { id: "liquid",  name: "Liquid",  fam: "Roboto Flex",        w: 560, tall: true,  liquid: true },
+                                    { id: "thin",    name: "Thin",    fam: fNunito.status === FontLoader.Ready ? fNunito.name : "Nunito",             w: 220, tall: false, liquid: true }
+                                ]
+                                delegate: Column {
+                                    id: tile
+                                    required property var modelData
+                                    readonly property bool sel: root.bar && root.bar.lockClockStyle === modelData.id
+                                    spacing: 6
+                                    Rectangle {
+                                        width: 92; height: 92; radius: 14
+                                        gradient: Gradient {
+                                            GradientStop { position: 0; color: "#8C7A6B" }
+                                            GradientStop { position: 1; color: "#3E3530" }
+                                        }
+                                        border.width: tile.sel ? 3 : 0; border.color: pal.accent
+                                        Behavior on border.width { NumberAnimation { duration: 160 } }
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "9:41"
+                                            font.family: tile.modelData.fam; font.pixelSize: tile.modelData.tall ? 40 : 30
+                                            font.weight: Math.max(100, Math.min(900, tile.modelData.w))
+                                            font.variableAxes: tile.modelData.fam === "Roboto Flex"
+                                                ? ({ "wght": tile.modelData.w, "wdth": tile.modelData.tall ? 40 : 100, "YTFI": tile.modelData.tall ? 788 : 712, "opsz": 144 })
+                                                : ({ "wght": tile.modelData.w })
+                                            color: tile.modelData.liquid ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.78)
+                                            style: tile.modelData.liquid ? Text.Outline : Text.Normal
+                                            styleColor: Qt.rgba(1, 1, 1, 0.85)
+                                        }
+                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (root.bar) root.bar.applyLockClockPreset(tile.modelData.id) }
+                                    }
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: tile.modelData.name; color: tile.sel ? pal.accent : pal.text; font.family: pal.fam; font.pixelSize: 12; font.weight: tile.sel ? Font.DemiBold : Font.Normal }
+                                }
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Font"
+                        SPopUp {
+                            t: pal
+                            model: ["Condensed", "Rounded", "Serif", "Default"]
+                            readonly property var ids: ["condensed", "rounded", "serif", "inter"]
+                            current: Math.max(0, ids.indexOf(root.bar ? root.bar.lockClockFont : "condensed"))
+                            onPicked: i => { if (root.bar) { root.bar.lockClockFont = ids[i]; root.bar.lockClockStyle = "custom"; } }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Weight"
+                        SSlider {
+                            t: pal; width: 220; from: 100; to: 1000; stepSize: 10
+                            leftLabel: "Thin"; rightLabel: "Heavy"
+                            value: root.bar ? root.bar.lockClockWeight : 680
+                            onMoved: v => { if (root.bar) { root.bar.lockClockWeight = Math.round(v); root.bar.lockClockStyle = "custom"; } }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Style"
+                        subtitle: "Solid glows with a hint of the wallpaper; Glass is Liquid Glass that catches the light"
+                        SSegmented {
+                            t: pal; model: ["Solid", "Glass"]; segWidth: 80
+                            current: root.bar && root.bar.lockClockMaterial === "solid" ? 0 : 1
+                            onPicked: i => { if (root.bar) { root.bar.lockClockMaterial = i === 0 ? "solid" : "glass"; root.bar.lockClockStyle = "custom"; } }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: root.bar && root.bar.lockClockMaterial === "solid" ? "Brightness" : "Glass"
+                        SSlider {
+                            t: pal; width: 220; from: 0; to: 1
+                            leftLabel: root.bar && root.bar.lockClockMaterial === "solid" ? "Subtle" : "Clear"
+                            rightLabel: root.bar && root.bar.lockClockMaterial === "solid" ? "Bright" : "Frosted"
+                            value: root.bar ? root.bar.lockClockIntensity : 0.6
+                            onMoved: v => { if (root.bar) { root.bar.lockClockIntensity = v; root.bar.lockClockStyle = "custom"; } }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Color"
+                        Row {
+                            spacing: 8
+                            Repeater {
+                                model: ["#FFFFFF", "#FFE7C2", "#FFC2D6", "#D9C8FF", "#BFE3FF", "#C6F2D6", "#FFF3A8"]
+                                delegate: Rectangle {
+                                    required property string modelData
+                                    readonly property bool sel: root.bar && root.bar.lockClockTint.toUpperCase() === modelData
+                                    width: 22; height: 22; radius: 11
+                                    color: modelData
+                                    border.width: sel ? 2.5 : 1
+                                    border.color: sel ? pal.accent : Qt.rgba(0, 0, 0, 0.2)
+                                    scale: swMa.pressed ? 0.88 : 1
+                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutQuint } }
+                                    MouseArea { id: swMa; anchors.fill: parent; anchors.margins: -3; cursorShape: Qt.PointingHandCursor; onClicked: if (root.bar) root.bar.lockClockTint = parent.modelData }
+                                }
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Tall digits"
+                        subtitle: "Stretches the Condensed font to fill the space, like iOS 26"
+                        SSwitch {
+                            t: pal
+                            enabled: root.bar && root.bar.lockClockFont === "condensed"
+                            checked: root.bar ? root.bar.lockClockTall : true
+                            onToggled: v => { if (root.bar) { root.bar.lockClockTall = v; root.bar.lockClockStyle = "custom"; } }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Date"
+                        SSegmented {
+                            t: pal; model: ["Friday, October 16", "Fri Oct 16"]; segWidth: 130
+                            current: root.bar && root.bar.lockClockDate === "short" ? 1 : 0
+                            onPicked: i => { if (root.bar) { root.bar.lockClockDate = i === 1 ? "short" : "long"; root.bar.lockClockStyle = "custom"; } }
+                        }
+                    }
+                }
+                Row {
+                    spacing: 8
+                    // a 6-second look at the lock screen (no real lock) with the settings above
+                    SButton {
+                        t: pal; text: "Preview"
+                        onClicked: {
+                            var b = root.bar;
+                            var cfg = JSON.stringify({ f: b.lockClockFont, w: b.lockClockWeight, m: b.lockClockMaterial, i: b.lockClockIntensity, c: b.lockClockTint, t: b.lockClockTall, d: b.lockClockDate });
+                            Quickshell.execDetached(["sh", "-c", "MACLOCK_PREVIEW=1 MACLOCK_CLOCK=\"$1\" timeout 6 qs -c MacLock >/dev/null 2>&1", "sh", cfg]);
+                        }
+                    }
+                    SButton { t: pal; text: "Lock Screen Now"; onClicked: { prefsWindow.visible = false; Quickshell.execDetached(["loginctl", "lock-session"]); } }
+                }
+            }
+        }
+
+        // ── Users & Groups ──
+        Component {
+            id: paneUsers
+            Column {
+                spacing: 14
+                Item {
+                    width: parent.width; height: 120
+                    Item {
+                        id: upic
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: 84; height: 84
+                        property int ver: 0
+                        Item { id: upMask; anchors.fill: parent; visible: false; layer.enabled: true; Rectangle { anchors.fill: parent; radius: width / 2; color: "black" } }
+                        Rectangle { anchors.fill: parent; radius: width / 2; color: pal.ctrl }
+                        Image {
+                            anchors.fill: parent; cache: false; fillMode: Image.PreserveAspectCrop; sourceSize: Qt.size(200, 200)
+                            source: "file://" + Quickshell.env("HOME") + "/.face?" + upic.ver
+                            layer.enabled: true; layer.effect: MultiEffect { maskEnabled: true; maskSource: upMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+                        }
+                    }
+                    Text { anchors.top: upic.bottom; anchors.topMargin: 8; anchors.horizontalCenter: parent.horizontalCenter; text: root.userName; color: pal.text; font.family: pal.fam; font.pixelSize: 17; font.weight: Font.DemiBold }
+                }
+                SCard {
+                    t: pal
+                    SRow { t: pal; title: "Full name"; Text { text: root.userName; color: pal.text2; font.family: pal.fam; font.pixelSize: 13 } }
+                    SRow { t: pal; title: "Account name"; Text { text: Quickshell.env("USER"); color: pal.text2; font.family: pal.fam; font.pixelSize: 13 } }
+                    SRow { t: pal; title: "Home folder"; Text { text: Quickshell.env("HOME"); color: pal.text2; font.family: pal.fam; font.pixelSize: 13 } }
+                    SRow {
+                        t: pal; title: "Picture"
+                        subtitle: "Used on the lock screen and here"
+                        SButton {
+                            t: pal; text: "Change…"
+                            onClicked: picProc.running = true
+                        }
+                    }
+                }
+                Process {
+                    id: picProc
+                    command: ["sh", "-c", "f=$(zenity --file-selection --title='Choose a picture' --file-filter='Images | *.png *.jpg *.jpeg *.webp' 2>/dev/null || kdialog --getopenfilename \"$HOME/Pictures\" 'image/png image/jpeg image/webp' 2>/dev/null); [ -n \"$f\" ] && magick \"$f\" -resize 512x512^ -gravity center -extent 512x512 \"$HOME/.face\" && echo ok"]
+                    stdout: StdioCollector { onStreamFinished: if (text.indexOf("ok") >= 0) upic.ver++ }
+                }
+            }
+        }
+
+        // ── Keyboard ──
+        Component {
+            id: paneKeyboard
+            Column {
+                spacing: 10
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Key repeat rate"
+                        SSlider { t: pal; leftLabel: "Slow"; rightLabel: "Fast"; from: 10; to: 80; value: root.bar ? root.bar.kbRepeatRate : 35; onMoved: v => { if (root.bar) root.bar.kbRepeatRate = Math.round(v); } }
+                    }
+                    SRow {
+                        t: pal; title: "Delay until repeat"
+                        SSlider { t: pal; leftLabel: "Long"; rightLabel: "Short"; from: 0; to: 1; value: root.bar ? 1 - (root.bar.kbRepeatDelay - 150) / 650 : 0.6; onMoved: v => { if (root.bar) root.bar.kbRepeatDelay = Math.round(150 + (1 - v) * 650); } }
+                    }
+                }
+                SLabel { t: pal; text: "Layout: " + "us" + ". Changes apply right away." }
+            }
+        }
+
+        // ── Mouse ──
+        Component {
+            id: paneMouse
+            Column {
+                spacing: 10
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Tracking speed"
+                        SSlider { t: pal; leftLabel: "Slow"; rightLabel: "Fast"; from: -1; to: 1; value: root.bar ? root.bar.mouseSens : 0; onMoved: v => { if (root.bar) root.bar.mouseSens = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Natural scrolling"
+                        subtitle: "Content tracks finger movement"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.mouseNatural : false; onToggled: v => { if (root.bar) root.bar.mouseNatural = v; } }
+                    }
+                }
+            }
+        }
+
+        // ── Trackpad ──
+        Component {
+            id: paneTrackpad
+            Column {
+                spacing: 10
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal; title: "Tap to click"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.tpTap : true; onToggled: v => { if (root.bar) root.bar.tpTap = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Natural scrolling"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.tpNatural : true; onToggled: v => { if (root.bar) root.bar.tpNatural = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Ignore trackpad while typing"
+                        SSwitch { t: pal; checked: root.bar ? root.bar.tpDwt : true; onToggled: v => { if (root.bar) root.bar.tpDwt = v; } }
+                    }
+                    SRow {
+                        t: pal; title: "Scrolling speed"
+                        SSlider { t: pal; leftLabel: "Slow"; rightLabel: "Fast"; from: 0.2; to: 2; value: root.bar ? root.bar.tpScroll : 0.7; onMoved: v => { if (root.bar) root.bar.tpScroll = v; } }
+                    }
+                }
+            }
+        }
+
+        // ── Wallpaper ──
+        Component {
+            id: paneWallpaper
+            Column {
+                id: wpPane
+                spacing: 10
+                property int filter: 0          // 0 all, 1 pictures, 2 animated
+                readonly property var files: root.bar ? root.bar.wpFiles : []
+                readonly property var shown: {
+                    var out = [], f = files;
+                    for (var i = 0; i < f.length; i++)
+                        if (filter === 0 || (filter === 1 && !f[i].video) || (filter === 2 && f[i].video)) out.push(f[i]);
+                    return out;
+                }
+                readonly property string curVideo: root.bar ? root.bar.wallpaperVideo : ""
+                readonly property string curStill: root.bar ? root.bar.wallpaperPath : root.wallpaperPath
+                readonly property string curPath: curVideo !== "" ? curVideo : curStill
+                readonly property string curPreview: (root.bar && curVideo !== "") ? (root.bar.wpPreviews[curVideo] || "") : ""
+                function nameOf(p) { var n = p.substring(p.lastIndexOf("/") + 1); var k = n.lastIndexOf("."); return k > 0 ? n.substring(0, k) : n; }
+                Component.onCompleted: if (root.bar) root.bar.wpRefresh()
+
+                // current wallpaper, big, playing if it's animated
+                SCard {
+                    t: pal
+                    Item {
+                        width: parent.width
+                        height: 190
+                        Item {
+                            id: curBox
+                            x: 14; y: 14
+                            width: 256; height: 160
+                            Item {
+                                id: curMask
+                                anchors.fill: parent; visible: false
+                                layer.enabled: true; layer.smooth: true
+                                Rectangle { anchors.fill: parent; radius: 10; color: "black" }
+                            }
+                            Item {
+                                anchors.fill: parent
+                                layer.enabled: true; layer.smooth: true
+                                layer.effect: MultiEffect { maskEnabled: true; maskSource: curMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+                                Rectangle { anchors.fill: parent; color: pal.ctrl }
+                                Image {
+                                    anchors.fill: parent
+                                    source: wpPane.curStill !== "" ? "file://" + wpPane.curStill : ""
+                                    sourceSize.width: 520
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true; smooth: true
+                                }
+                                Loader {
+                                    anchors.fill: parent
+                                    active: wpPane.curVideo !== "" && prefsWindow.visible && wpPane.curPreview !== ""
+                                    sourceComponent: AnimatedImage {
+                                        source: "file://" + wpPane.curPreview
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true; cache: false; playing: true
+                                    }
+                                }
+                            }
+                            Rectangle { anchors.fill: parent; radius: 10; color: "transparent"; border.width: 1; border.color: pal.cardBorder }
+                        }
+                        Column {
+                            x: curBox.x + curBox.width + 18
+                            anchors.verticalCenter: curBox.verticalCenter
+                            width: parent.width - x - 14
+                            spacing: 6
+                            Text {
+                                width: parent.width; elide: Text.ElideRight
+                                text: wpPane.curPath !== "" ? wpPane.nameOf(wpPane.curPath) : "No wallpaper"
+                                color: pal.text; font.family: pal.fam; font.pixelSize: 15; font.weight: Font.DemiBold
+                            }
+                            Text {
+                                width: parent.width
+                                text: wpPane.curVideo !== "" ? "Animated wallpaper" : "Picture"
+                                color: pal.text2; font.family: pal.fam; font.pixelSize: 12
+                            }
+                            Text {
+                                width: parent.width; wrapMode: Text.WordWrap
+                                visible: wpPane.curVideo !== ""
+                                text: "Plays on every display and pauses behind fullscreen windows. The Liquid Glass and the lock screen use it too."
+                                color: pal.text3; font.family: pal.fam; font.pixelSize: 11
+                            }
+                            Row {
+                                spacing: 8
+                                topPadding: 4
+                                SButton { t: pal; text: "Open Folder"; onClicked: Quickshell.execDetached(["xdg-open", root.bar ? root.bar.wpDirEff : ""]) }
+                                SButton { t: pal; text: "Refresh"; onClicked: if (root.bar) root.bar.wpRefresh() }
+                            }
+                        }
+                    }
+                }
+
+                // macOS: a wallpaper that comes in light and dark versions gets an appearance picker
+                SCard {
+                    t: pal
+                    visible: root.bar && root.bar.wpHasPair
+                    SRow {
+                        t: pal
+                        title: "Appearance"
+                        subtitle: {
+                            var a = root.bar ? root.bar.wallpaperAppearance : "auto";
+                            return a === "auto" ? "Follows Light / Dark Mode"
+                                 : a === "dynamic" ? "Changes through the day: light by day, dark at night, blending at sunrise and sunset"
+                                 : a === "light" ? "Always the light version" : "Always the dark version";
+                        }
+                        SSegmented {
+                            t: pal
+                            model: ["Automatic", "Light", "Dark", "Dynamic"]
+                            segWidth: 78
+                            current: ["auto", "light", "dark", "dynamic"].indexOf(root.bar ? root.bar.wallpaperAppearance : "auto")
+                            onPicked: i => { if (root.bar) root.bar.wallpaperAppearance = ["auto", "light", "dark", "dynamic"][i]; }
+                        }
+                    }
+                }
+
+                Item {
+                    width: parent.width; height: 30
+                    SLabel { t: pal; header: true; width: 200; anchors.verticalCenter: parent.verticalCenter; text: "Wallpapers"; topPadding: 0 }
+                    SSegmented {
+                        t: pal
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        model: ["All", "Pictures", "Animated"]
+                        segWidth: 80
+                        current: wpPane.filter
+                        onPicked: i => wpPane.filter = i
+                    }
+                }
+
+                Flow {
+                    id: wpFlow
+                    width: parent.width
+                    spacing: 10
+                    readonly property real tileW: Math.floor((width - 2 * spacing) / 3)
+                    Repeater {
+                        model: wpPane.shown
+                        delegate: Item {
+                            id: wt
+                            required property var modelData
+                            width: wpFlow.tileW
+                            height: Math.round(width * 0.625) + 22
+                            readonly property bool cur: modelData.video ? wpPane.curVideo === modelData.path
+                                                                        : (wpPane.curVideo === "" && wpPane.curStill === modelData.path)
+                            Item {
+                                id: wtBox
+                                width: parent.width; height: parent.height - 22
+                                scale: wtMa.pressed ? 0.98 : 1
+                                Item {
+                                    id: wtMask
+                                    anchors.fill: parent; visible: false
+                                    layer.enabled: true; layer.smooth: true
+                                    Rectangle { anchors.fill: parent; radius: 9; color: "black" }
+                                }
+                                Item {
+                                    anchors.fill: parent
+                                    layer.enabled: true; layer.smooth: true
+                                    layer.effect: MultiEffect { maskEnabled: true; maskSource: wtMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+                                    Rectangle { anchors.fill: parent; color: pal.ctrl }
+                                    Image {
+                                        anchors.fill: parent
+                                        source: "file://" + (wt.modelData.video ? wt.modelData.thumb : wt.modelData.path)
+                                        sourceSize.width: 360
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true; smooth: true
+                                        opacity: status === Image.Ready ? 1 : 0
+                                        Behavior on opacity { NumberAnimation { duration: 250 } }
+                                    }
+                                    Loader {
+                                        anchors.fill: parent
+                                        active: wt.modelData.video && wt.modelData.preview !== "" && wtMa.containsMouse
+                                        sourceComponent: AnimatedImage {
+                                            source: "file://" + wt.modelData.preview
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true; cache: false; playing: true
+                                        }
+                                    }
+                                    Rectangle {
+                                        visible: wt.modelData.video
+                                        x: 6; y: 6
+                                        width: wtBadge.implicitWidth + 12; height: 18; radius: 9
+                                        color: Qt.rgba(0, 0, 0, 0.5)
+                                        Text {
+                                            id: wtBadge
+                                            anchors.centerIn: parent
+                                            text: "\u25B6  Animated"
+                                            color: "white"; font.family: pal.fam; font.pixelSize: 9; font.weight: Font.DemiBold
+                                        }
+                                    }
+                                }
+                                Rectangle {
+                                    anchors.fill: parent; anchors.margins: wt.cur ? -3 : 0
+                                    radius: wt.cur ? 12 : 9
+                                    color: "transparent"
+                                    border.width: wt.cur ? 2.5 : 1
+                                    border.color: wt.cur ? pal.accent : pal.cardBorder
+                                }
+                                MouseArea {
+                                    id: wtMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: if (root.bar) root.bar.wpApply(wt.modelData.path)
+                                }
+                            }
+                            Text {
+                                anchors.bottom: parent.bottom
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                elide: Text.ElideMiddle
+                                text: wt.modelData.name
+                                color: wt.cur ? pal.text : pal.text2
+                                font.family: pal.fam; font.pixelSize: 11
+                            }
+                        }
+                    }
+                }
+                SLabel {
+                    t: pal
+                    visible: wpPane.shown.length === 0
+                    text: wpPane.filter === 2 ? "No animated wallpapers yet. Drop .mp4 / .webm videos into " + (root.bar ? root.bar.wpDirEff : "~/Pictures/Wallpapers") + "."
+                                              : "Nothing here yet."
+                }
+                SLabel { t: pal; text: "Tip: Ctrl+Alt+W opens the quick wallpaper picker, which shows animated wallpapers too." }
+            }
+        }
+
         Component {
             id: paneAbout
             Column {
@@ -2351,7 +3345,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: "Version 2 \u2022 Hyprland \u2022 Quickshell"
+                            text: "Version 0.0.7 \u2022 Hyprland \u2022 Quickshell"
                             color: pal.text2
                             font.family: pal.fam
                             font.pixelSize: 12
@@ -2386,8 +3380,25 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Reset all settings"
-                        subtitle: "Restore the default look and behavior. Pinned apps are kept."
+                        title: "Install dependencies"
+                        subtitle: "Installs everything MacShell uses (Quickshell, awww, mpvpaper, ffmpeg, wf-recorder, fonts, icons…) with your package manager, in a terminal"
+                        SButton {
+                            t: pal
+                            text: "Install\u2026"
+                            onClicked: {
+                                var inst = Quickshell.env("HOME") + "/.local/share/macshell/install.sh";
+                                var term = root.bar ? root.bar.terminal : "kitty";
+                                Quickshell.execDetached(["sh", "-c", term + " -e sh -c '\"$0\" --deps-only; echo; echo Press Enter to close; read x'", inst]);
+                            }
+                        }
+                    }
+                }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Reset MacShell"
+                        subtitle: "Restore every setting to its default (appearance, Dock, Menu Bar, widgets, lock screen, input). Pinned apps and your widgets' layout are kept."
                         SButton {
                             t: pal
                             destructive: true
@@ -2400,36 +3411,100 @@ Scope {
                     }
                 }
 
+                // ── Credits ──
+                SLabel { t: pal; header: true; text: "Credits" }
+                SCard {
+                    t: pal
+                    Repeater {
+                        model: [
+                            { img: "assets/credits/0-ss.jpg", name: "Rickky", gh: "0-ss",
+                              role: "Owner — the menu bar, the Dock, the Liquid Glass and the widgets. The one who actually knew what he was doing" },
+                            { img: "assets/credits/vsoultann.png", name: "vSuol", gh: "vsoultann",
+                              role: "Collaborator — improved the Settings app and window, and every bug you will ever find" }
+                        ]
+                        delegate: Item {
+                            id: cr
+                            required property var modelData
+                            width: parent.width; height: 72
+                            Rectangle { visible: cr.y > 0.5; x: 14; width: parent.width - 14; height: 1; color: pal.sep }
+                            Item {
+                                id: crPic
+                                x: 14; anchors.verticalCenter: parent.verticalCenter
+                                width: 44; height: 44
+                                Item { id: crMask; anchors.fill: parent; visible: false; layer.enabled: true; Rectangle { anchors.fill: parent; radius: width / 2; color: "black" } }
+                                Image {
+                                    anchors.fill: parent
+                                    source: Qt.resolvedUrl(cr.modelData.img)
+                                    sourceSize: Qt.size(96, 96)
+                                    fillMode: Image.PreserveAspectCrop; smooth: true; mipmap: true
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect { maskEnabled: true; maskSource: crMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+                                }
+                                Rectangle { anchors.fill: parent; radius: width / 2; color: "transparent"; border.width: 1; border.color: pal.cardBorder }
+                            }
+                            Column {
+                                x: 70; anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 70 - 90
+                                spacing: 2
+                                Text { text: cr.modelData.name; color: pal.text; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { width: parent.width; text: cr.modelData.role; wrapMode: Text.WordWrap; color: pal.text2; font.family: pal.fam; font.pixelSize: 11 }
+                            }
+                            Text {
+                                anchors.right: parent.right; anchors.rightMargin: 14; anchors.verticalCenter: parent.verticalCenter
+                                text: "@" + cr.modelData.gh
+                                color: pal.accent; font.family: pal.fam; font.pixelSize: 12
+                                font.underline: crMa.containsMouse
+                                MouseArea { id: crMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Quickshell.execDetached(["xdg-open", "https://github.com/" + cr.modelData.gh]) }
+                            }
+                        }
+                    }
+                }
+                Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    topPadding: 4
+                    text: "Designed by Apple in California.\nRebuilt on Linux by two people who could not afford the Mac."
+                    color: pal.text3; font.family: pal.fam; font.pixelSize: 11
+                }
+
+                // (keep scrolling…)
+                Item { width: 1; height: 900 }
+
+                // ── AppleCare+ — nobody asked. The button does nothing. ──
                 SCard {
                     t: pal
                     Item {
-                        width: parent.width
-                        height: 64
-                        Text {
-                            x: 14
-                            y: 12
-                            text: "Made by Rickky"
-                            color: pal.text
-                            font.family: pal.fam
-                            font.pixelSize: 13
-                            font.weight: Font.Medium
+                        width: parent.width; height: 214
+                        Image {
+                            anchors.horizontalCenter: parent.horizontalCenter; y: 16
+                            width: 36; height: 36
+                            source: Qt.resolvedUrl(pal.dark ? "apple-logo-white.svg" : "apple-logo-black.svg")
+                            sourceSize: Qt.size(72, 72); fillMode: Image.PreserveAspectFit; smooth: true
                         }
                         Text {
-                            id: ghLink
-                            x: 14
-                            y: 33
-                            text: "https://github.com/0-ss"
-                            color: pal.accent
-                            font.family: pal.fam
-                            font.pixelSize: 12
-                            font.underline: ghMa.containsMouse
-                            MouseArea {
-                                id: ghMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: Quickshell.execDetached(["xdg-open", "https://github.com/0-ss"])
-                            }
+                            anchors.horizontalCenter: parent.horizontalCenter; y: 64
+                            text: "Protect your MacShell with AppleCare+"
+                            color: pal.text; font.family: pal.fam; font.pixelSize: 17; font.weight: Font.DemiBold
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter; y: 90
+                            width: parent.width - 60; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
+                            text: "Unlimited repairs for accidental damage, 24/7 priority access to Apple experts, and battery service coverage. Same price as for a MacBook Pro."
+                            color: pal.text2; font.family: pal.fam; font.pixelSize: 12
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter; y: 136
+                            text: "$279.00 for 3 years or $99.99/yr."
+                            color: pal.text; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.Medium
+                        }
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter; y: 166
+                            width: 150; height: 32; radius: 16
+                            color: careMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
+                            scale: careMa.pressed ? 0.96 : 1
+                            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutQuint } }
+                            Text { anchors.centerIn: parent; text: "Add AppleCare+"; color: "white"; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                            MouseArea { id: careMa; anchors.fill: parent; cursorShape: Qt.PointingHandCursor }
                         }
                     }
                 }
@@ -2451,10 +3526,29 @@ Scope {
     readonly property real totalW0: Math.max(0, appCount * (iconSize + spacing) + sepCount * (sepWidth + spacing) - spacing)
     property var launching: ({})
     property var knownKeys: ({})
+    // the Dock's cells live in a keyed ListModel updated in place: a cell is only created when its item appears and
+    // only destroyed after it has animated out — every other cell (and its live window preview) keeps running
+    property var itemMap: ({})
+    ListModel { id: dockModel }
+    function syncModel(list) {
+        var m = dockModel;
+        for (var i = 0; i < list.length; i++) {
+            var k = list[i].key;
+            if (i < m.count && m.get(i).key === k) continue;
+            var j = -1;
+            for (var x = i + 1; x < m.count; x++) if (m.get(x).key === k) { j = x; break; }
+            if (j >= 0) m.move(j, i, 1); else m.insert(i, { key: k });
+        }
+        while (m.count > list.length) m.remove(m.count - 1);
+    }
+    property var leaving: ({})          // key → time it started leaving
+    readonly property int leaveMs: 340
+    Timer { id: leaveTimer; interval: root.leaveMs + 30; onTriggered: root.rebuild() }
     property string lastSig: ""
 
     // ───────────── LOGIC ─────────────
     function openPrefs(pane) {
+        if (!settingsEnabled) return;
         if (pane !== undefined && pane !== "") {
             for (var i = 0; i < prefsWindow.panes.length; i++)
                 if (prefsWindow.panes[i].id === pane) { prefsWindow.go(i); break; }
@@ -2471,16 +3565,26 @@ Scope {
 
     function resetSettings() {
         dockEnabled = true;
-        if (bar) bar.resetSettings();
+        settingsEnabled = true;
+        if (bar) {
+            bar.resetSettings();
+            bar.uiSounds = true; bar.gamingMode = false; bar.gamingAuto = true; bar.lockArtBackground = true;
+            bar.applyLockClockPreset("glass");
+            bar.wallpaperAppearance = "auto"; bar.notifDnd = false; bar.nightOn = false; bar.keepAwake = false;
+            bar.kbRepeatRate = 35; bar.kbRepeatDelay = 250; bar.mouseSens = 0; bar.mouseNatural = false;
+            bar.tpNatural = true; bar.tpTap = true; bar.tpDwt = true; bar.tpScroll = 0.7;
+        }
+        if (hub && hub.widgets) { hub.widgets.tempUnit = "C"; hub.widgets.locMode = "auto"; hub.widgets.cityName = ""; hub.widgets.widgetScale = 1.0; }
+        Quickshell.execDetached(["sh", "-c", "rm -f \"$HOME/.config/maclock/settings.json\""]);
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
-        darkMode = true; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter";
+        darkMode = true; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter Variable";
         hideMode = "smart"; hideDelay = 450; monitor = "";
         showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true;
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
-    readonly property string settingsSig: [dockEnabled, iconSize, magnification, magnificationEnabled, spacing, margin,
+    readonly property string settingsSig: [dockEnabled, settingsEnabled, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
         showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture].join("|")
     property bool settingsReady: false
@@ -2491,7 +3595,7 @@ Scope {
 
     function saveSettings() {
         var o = {
-            dockEnabled: dockEnabled, iconSize: iconSize, magnification: magnification, magnificationEnabled: magnificationEnabled,
+            dockEnabled: dockEnabled, settingsEnabled: settingsEnabled, iconSize: iconSize, magnification: magnification, magnificationEnabled: magnificationEnabled,
             spacing: spacing, margin: margin, cornerRadius: cornerRadius,
             darkMode: darkMode, glassOpacity: glassOpacity, dockStyle: dockStyle, wallpaperPath: wallpaperPath, glassDebug: glassDebug,
             glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid, glassBlur: glassBlur,
@@ -2505,7 +3609,7 @@ Scope {
 
     function applySettings(o) {
         if (!o || typeof o !== "object") return;
-        var keys = ["dockEnabled", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
+        var keys = ["dockEnabled", "settingsEnabled", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
                     "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture"];
         for (var i = 0; i < keys.length; i++) {
@@ -2608,6 +3712,7 @@ Scope {
             + "find \"$d/files\" \"$d/info\" -mindepth 1 -delete 2>/dev/null; "
             + "rm -f \"$d/directorysizes\""]);
         trashAfterEmpty.restart();
+        if (bar) bar.playSound("trash", 0.8);
     }
     Timer { id: trashAfterEmpty; interval: 900; onTriggered: root.trashCheck() }
     Timer { id: trashDebounce; interval: 150; onTriggered: root.trashCheck() }
@@ -2624,11 +3729,13 @@ Scope {
         return w.length > 0 ? w[0] : null;
     }
 
+    // MacShell's own windows all have the app id "org.quickshell": the Clock window counts as the Clock app
+    function appOf(tl) { return (tl.appId === "org.quickshell" && tl.title === "Clock") ? "macshell-clock" : tl.appId; }
     function windowsFor(key) {
         var out = [];
         var tls = ToplevelManager.toplevels.values;
         for (var i = 0; i < tls.length; i++) {
-            if (tls[i].appId && keyOf(tls[i].appId) === key) out.push(tls[i]);
+            if (tls[i].appId && keyOf(appOf(tls[i])) === key) out.push(tls[i]);
         }
         return out;
     }
@@ -2650,12 +3757,24 @@ Scope {
             wins[(idx + 1) % wins.length].activate();
             return;
         }
-        if (item.entry) {
+        if (item.entry || item.key) {
             var L = {};
             for (var k in launching) L[k] = launching[k];
             L[item.key] = Date.now();
             launching = L;
-            item.entry.execute();
+            // resolve the desktop entry again at click time: the one stored in the dock model can be a stale object
+            // (after the app database reloads it turned into "TypeError ... execute is not a function", and Files never opened)
+            var ent = null;
+            var rid = item.appId || item.key;
+            try { ent = DesktopEntries.byId(rid); } catch (err) { ent = null; }
+            if (!ent) { try { ent = DesktopEntries.heuristicLookup ? DesktopEntries.heuristicLookup(item.key) : null; } catch (err2) { ent = null; } }
+            var ok = false;
+            if (ent && typeof ent.execute === "function") { try { ent.execute(); ok = true; } catch (err3) { ok = false; } }
+            if (!ok) {
+                var id = rid;
+                console.log("[macdock] launching", id, "via gtk-launch (desktop entry unavailable)");
+                Quickshell.execDetached(["sh", "-c", 'gtk-launch "$1" 2>/dev/null || gtk-launch "$1.desktop" 2>/dev/null || exec "$1"', "sh", id]);
+            }
             pruneTimer.restart();
         }
     }
@@ -2735,7 +3854,7 @@ Scope {
                 for (var j = 0; j < ws.length; j++) ws[j].close();
             } });
         }
-
+        
         m.push({ kind: "sep" });
         m.push({ kind: "item", label: "Settings\u2026", run: function() { root.openPrefs(); } });
 
@@ -2747,7 +3866,7 @@ Scope {
         var running = {};
         var runOrder = [];
         for (var i = 0; i < tls.length; i++) {
-            var id = tls[i].appId;
+            var id = appOf(tls[i]);
             if (!id) continue;
             var k = keyOf(id);
             if (!running[k]) { running[k] = true; runOrder.push({ key: k, appId: id }); }
@@ -2767,16 +3886,16 @@ Scope {
             var ek = e.id.toLowerCase();
             if (seen[ek]) continue;
             seen[ek] = true;
-            list.push({ kind: "app", key: ek, name: e.name, icon: e.icon, entry: e,
+            list.push({ kind: "app", key: ek, appId: e.id, name: e.name, icon: e.icon, entry: e,
                         running: !!running[ek], pinned: true });
         }
 
         var extras = [];
         for (var r = 0; r < runOrder.length; r++) if (!seen[runOrder[r].key]) extras.push(runOrder[r]);
-        if (extras.length > 0 && list.length > 0) list.push({ kind: "sep" });
+        if (extras.length > 0 && list.length > 0) list.push({ kind: "sep", key: "sep:run" });
         for (var x = 0; x < extras.length; x++) {
             var e2 = lookup(extras[x].appId);
-            list.push({ kind: "app", key: extras[x].key,
+            list.push({ kind: "app", key: extras[x].key, appId: e2 ? e2.id : extras[x].appId,
                         name: e2 ? e2.name : extras[x].appId,
                         icon: e2 ? e2.icon : extras[x].appId.toLowerCase(),
                         entry: e2, running: true, pinned: false });
@@ -2789,8 +3908,8 @@ Scope {
                 var tl = tls[w];
                 if (!tl.appId || tl.title === "macshell Settings") continue;
                 // live capture off: a preview cell is only an app icon, so a pinned app (its icon is already in the Dock) gets none; unpinned apps keep theirs
-                if (!windowCapture && seen[keyOf(tl.appId)]) continue;
-                var e3 = lookup(tl.appId);
+                if (!windowCapture && seen[keyOf(appOf(tl))]) continue;
+                var e3 = lookup(appOf(tl));
                 var wid = winIdFor(tl);
                 liveWins.push(tl);
                 if (winAge(tl) < 200) { if (!youngWin.running) youngWin.start(); continue; }     // no preview (= no capture) for brand-new windows
@@ -2805,39 +3924,77 @@ Scope {
         winIdList = keep;
 
         if (showTrash || winItems.length > 0) {
-            list.push({ kind: "sep" });
+            list.push({ kind: "sep", key: "sep:win" });
             for (var wj = 0; wj < winItems.length; wj++) list.push(winItems[wj]);
         }
-        if (showTrash && winItems.length > 0) list.push({ kind: "sep" });
+        if (showTrash && winItems.length > 0) list.push({ kind: "sep", key: "sep:trash" });
         if (showTrash) {
             list.push({ kind: "app", key: "__trash", name: "Trash", icon: "user-trash",
                         entry: null, running: false, pinned: true, special: "trash" });
         }
 
         var firstBuild = (lastSig === "");
+        // closed apps / windows don't vanish: they stay for a moment as "leaving" cells that shrink and fade out —
+        // the opening animation played backwards — then are dropped by leaveTimer's rebuild
+        var liveKeys = {};
+        for (var lq = 0; lq < list.length; lq++) if (list[lq].key) liveKeys[list[lq].key] = true;
+        var LV = {};
+        for (var lk2 in leaving) if (!liveKeys[lk2] && now - leaving[lk2] < leaveMs) LV[lk2] = leaving[lk2];
+        if (!firstBuild) {
+            var prev = items || [];
+            for (var pv = 0; pv < prev.length; pv++) {
+                var po = prev[pv];
+                if (!po.key || liveKeys[po.key]) continue;
+                if (LV[po.key] === undefined) { if (po.leaving) continue; LV[po.key] = now; }
+                // put it back after the item that preceded it last time
+                var at = 0;
+                for (var pb = pv - 1; pb >= 0; pb--) {
+                    var ix = -1;
+                    for (var q = 0; q < list.length; q++) if (list[q].key === prev[pb].key) { ix = q; break; }
+                    if (ix >= 0) { at = ix + 1; break; }
+                }
+                var cp = {};
+                for (var f in po) cp[f] = po[f];
+                cp.leaving = true; cp.leaveAt = LV[po.key]; cp.fresh = false;
+                cp.tl = null;          // the window is gone: never capture a destroyed toplevel (that crashed the shell)
+                list.splice(at, 0, cp);
+            }
+        }
+        leaving = LV;
+        var anyLeaving = false;
+        for (var lk3 in LV) { anyLeaving = true; break; }
+        if (anyLeaving) leaveTimer.restart();
+
         var nowKeys = {}, nA = 0, nS = 0, sig = [];
         for (var n = 0; n < list.length; n++) {
             var it = list[n];
             it.nA = nA; it.nS = nS;
             if (it.kind === "sep") nS++; else nA++;
-            if (it.kind !== "sep") {
+            if (it.key && !it.leaving) {
                 it.fresh = !firstBuild && !knownKeys[it.key];
                 nowKeys[it.key] = true;
             }
-            sig.push(it.kind + ":" + (it.key || "") + ":" + it.running + ":" + (it.icon || ""));
+            sig.push(it.kind + ":" + (it.key || "") + ":" + it.running + ":" + (it.icon || "") + (it.leaving ? ":L" : ""));
         }
         appCount = nA;
         sepCount = nS;
         knownKeys = nowKeys;
 
         var s = sig.join("|");
-        if (s !== lastSig) { lastSig = s; items = list; }
+        if (s !== lastSig) {
+            lastSig = s;
+            var map = {};
+            for (var mi = 0; mi < list.length; mi++) map[list[mi].key] = list[mi];
+            itemMap = map;
+            items = list;
+            syncModel(list);
+        }
     }
 
     // ═════════════ LIQUID GLASS BACKEND ═════════════
     // glassState: "idle" → "building" (qsb running) → "ready" | "failed". "failed" falls back to Normal Blur.
     property string glassState: "idle"
-    readonly property bool liquidActive: dockStyle === "liquid" && glassState === "ready"
+    readonly property bool liquidActive: dockStyle === "liquid" && glassState === "ready" && !(bar && bar.gaming)
     readonly property string glassShaderSrc: decodeURIComponent(Qt.resolvedUrl("liquidglass.frag").toString().replace("file://", ""))
     readonly property string glassShaderOut: configDir + "/liquidglass.frag.qsb"
     readonly property url glassShaderUrl: "file://" + glassShaderOut
@@ -2885,7 +4042,7 @@ Scope {
 
     // live window geometry for the backdrop compositor (polled only while Liquid Glass is on)
     readonly property var glassClients: hub ? hub.glassClients : []
-    Binding { target: root.hub; property: "dockWantsGeo"; value: root.liquidActive && root.dockEnabled }
+    Binding { target: root.hub; property: "dockWantsGeo"; value: root.liquidActive && (root.dockEnabled || prefsWindow.visible) }
     // window captures are admitted by the shared gate in shell.qml (hub.tlFor): 0.2 s after a window appears, one every 110 ms
 
     // ── smart hide: which monitors have a non-floating window on their active workspace ──
@@ -2992,6 +4149,111 @@ Scope {
 
             mask: Region { item: maskItem }
 
+            // the lifted item lives in its own full-screen, click-through overlay so it can go anywhere on the screen
+            // (the Dock's own surface only covers the bottom of the screen — it used to be cut off half way up)
+            PanelWindow {
+                id: tearWin
+                screen: win.modelData
+                visible: ui.tearing || tearLaunch.running || tearHome.running || ghostFade.running || oldOut.running
+                anchors { left: true; right: true; top: true; bottom: true }
+                exclusionMode: ExclusionMode.Ignore
+                color: "transparent"
+                mask: Region {}
+                WlrLayershell.namespace: "macdock-drag"
+                WlrLayershell.layer: WlrLayer.Overlay
+                WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+                // the window where it WAS: a still copy that takes its place the instant the real window jumps to the
+                // pointer, then fades and sinks away — so the old spot never just blinks empty
+                Item {
+                    id: oldSnap
+                    property bool shown: false
+                    visible: shown && opacity > 0.01
+                    opacity: 0
+                    transformOrigin: Item.Center
+                    RectangularShadow { anchors.fill: parent; radius: 10; blur: 30; offset.y: 8; color: Qt.rgba(0, 0, 0, 0.30) }
+                    Rectangle { anchors.fill: parent; radius: 10; color: Qt.rgba(0.09, 0.08, 0.09, 0.88) }
+                    ScreencopyView {
+                        id: oldSv
+                        anchors.fill: parent
+                        live: false
+                        layer.enabled: true
+                        layer.effect: MultiEffect { maskEnabled: true; maskSource: oldMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+                    }
+                    Item { id: oldMask; anchors.fill: parent; visible: false; layer.enabled: true; Rectangle { anchors.fill: parent; radius: 10; color: "black" } }
+                    ParallelAnimation {
+                        id: oldOut
+                        NumberAnimation { target: oldSnap; property: "opacity"; from: 1; to: 0; duration: 340; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: oldSnap; property: "scale"; from: 1; to: 0.94; duration: 420; easing.type: Easing.OutQuint }
+                        onFinished: { oldSnap.shown = false; oldSv.captureSource = null; }
+                    }
+                }
+                Item {
+                    id: tearGhost
+                    property real zoom: 1
+                    property real wob: 0
+                    readonly property bool isWin: ui.tearItem !== null && ui.tearItem.kind === "win"
+                    // a window preview is picked up like the window itself: the higher it's pulled out of the Dock the
+                    // closer it gets to the window's real size, held near its title bar (no wiggle — it's a window)
+                    readonly property real liftRaw: isWin ? Math.max(0, Math.min(1, (ui.activeTop - ui.tearY) / 240)) : 0
+                    property real lift: 1 - Math.pow(1 - liftRaw, 3)
+                    Behavior on lift { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    readonly property real thumbW: 170
+                    readonly property real liftW: thumbW + (ui.tearW - thumbW) * lift
+                    readonly property real grabFy: 0.5 + (0.035 - 0.5) * lift
+                    readonly property real offY: tearWin.height - win.height   // Dock surface → screen coordinates
+                    visible: opacity > 0.01
+                    width: isWin ? liftW : root.iconSize * 1.12
+                    height: isWin ? liftW * ui.tearH / ui.tearW : width
+                    x: ui.tearX - width / 2
+                    y: offY + ui.tearY - height * (isWin ? grabFy : 0.5)
+                    scale: zoom
+                    rotation: isWin ? 0 : wob
+                    Image {
+                        visible: !tearGhost.isWin
+                        anchors.fill: parent
+                        source: ui.tearSrc
+                        sourceSize: Qt.size(256, 256)
+                        smooth: true; mipmap: true
+                    }
+                    RectangularShadow {
+                        visible: tearGhost.isWin
+                        anchors.fill: parent; radius: 10
+                        offset.y: 6 + 14 * tearGhost.lift; blur: 18 + 32 * tearGhost.lift; spread: 0
+                        color: Qt.rgba(0, 0, 0, 0.30 + 0.15 * tearGhost.lift)
+                    }
+                    // translucent windows (terminals) get Hyprland's blur behind them; the lifted copy can't, so it gets a
+                    // dark backing instead — otherwise it reads as a faint see-through ghost, not the window
+                    Rectangle {
+                        visible: tearGhost.isWin
+                        anchors.fill: parent; radius: 10
+                        color: Qt.rgba(0.09, 0.08, 0.09, 0.88)
+                    }
+                    ScreencopyView {
+                        id: gsv
+                        visible: tearGhost.isWin
+                        anchors.fill: parent
+                        captureSource: tearGhost.isWin && tearWin.visible ? ui.tearItem.tl : null
+                        live: tearGhost.isWin && tearWin.visible && tearGhost.visible
+                        layer.enabled: true
+                        layer.effect: MultiEffect { maskEnabled: true; maskSource: gsvMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+                    }
+                    Item { id: gsvMask; anchors.fill: parent; visible: false; layer.enabled: true; Rectangle { anchors.fill: parent; radius: 10; color: "black" } }
+                    Rectangle {
+                        visible: tearGhost.isWin
+                        anchors.fill: parent; radius: 10; color: "transparent"
+                        border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.25)
+                    }
+                    // light wiggle while held
+                    SequentialAnimation on wob {
+                        running: ui.tearing
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 2.5; duration: 90; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: -2.5; duration: 180; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 0; duration: 90; easing.type: Easing.InOutSine }
+                    }
+                }
+            }
+
             Item {
                 id: ui
                 anchors.fill: parent
@@ -3015,6 +4277,119 @@ Scope {
                 property real dragDelta: 0
                 property real dragShiftW: 0
                 property bool justDragged: false
+                // tear-off: an icon dragged up out of the Dock follows the pointer (wiggling); dropped over the desktop it
+                // zooms up and fades while the app opens / comes to the front, dropped back on the Dock it flies home
+                property bool tearing: false
+                property var tearItem: null
+                property string tearSrc: ""
+                property real tearX: 0
+                property real tearY: 0
+                property real tearHomeX: 0
+                property real tearHomeY: 0
+                // window being dragged: its real size (capped) and Hyprland address
+                property real tearW: 900
+                property real tearH: 600
+                property string tearAddr: ""
+                // the real window: once its preview (pulled out of the Dock) has grown to the window's size, the real window
+                // takes over under the pointer and follows it (like Super + drag) until the button is let go; a still copy
+                // fades away where it used to be
+                property bool following: false
+                property bool oldVisible: false
+                NumberAnimation { id: ghostFade; target: tearGhost; property: "opacity"; to: 0; duration: 180; easing.type: Easing.OutCubic }
+                onTearXChanged: if (following) Qt.callLater(moveReal)
+                onTearYChanged: {
+                    if (following) Qt.callLater(moveReal);
+                    else if (tearing && tearAddr && tearGhost.liftRaw >= 1) handoff();
+                }
+                function wsel() { return 'window = "address:' + tearAddr + '"'; }
+                function realPos() {
+                    return { x: Math.round(win.modelData.x + tearX - tearW / 2),
+                             y: Math.round(win.modelData.y + tearGhost.offY + tearY - tearH * 0.035) };
+                }
+                function moveReal() {
+                    if (!following || !tearAddr) return;
+                    var p = realPos();
+                    Hyprland.dispatch('hl.dsp.window.move({ x = ' + p.x + ', y = ' + p.y + ', "exact", ' + wsel() + ' })');
+                }
+                function handoff() {
+                    if (following || !tearAddr) return;
+                    following = true;
+                    var mon = Hyprland.monitorFor(win.modelData);
+                    var ws = (mon && mon.activeWorkspace) ? String(mon.activeWorkspace.name) : "";
+                    var p = realPos(), sel = wsel();
+                    if (ws) Hyprland.dispatch('hl.dsp.window.move({ workspace = "' + ws + '", follow = false, ' + sel + ' })');
+                    Hyprland.dispatch('hl.dsp.window.fullscreen_state({ internal = 0, client = 0, ' + sel + ' })');
+                    Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
+                    Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "no_anim", value = "1", ' + sel + ' })');
+                    Hyprland.dispatch('hl.dsp.window.resize({ x = ' + Math.round(tearW) + ', y = ' + Math.round(tearH) + ', "exact", ' + sel + ' })');
+                    Hyprland.dispatch('hl.dsp.window.move({ x = ' + p.x + ', y = ' + p.y + ', "exact", ' + sel + ' })');
+                    if (tearItem && tearItem.tl) tearItem.tl.activate();
+                    if (oldVisible) { oldSnap.scale = 1; oldSnap.opacity = 1; oldSnap.shown = true; oldOut.restart(); }
+                    // the real window appears exactly where its preview is, the preview fades off it
+                    ghostFade.restart();
+                }
+                function finishFollow() {
+                    following = false;
+                    tearing = false;
+                    if (tearAddr) Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "no_anim", value = "0", ' + wsel() + ' })');
+                    tearAddr = "";
+                    if (!ghostFade.running) tearItem = null;
+                    else ghostFade.finished.connect(function () { if (!ui.tearing) ui.tearItem = null; });
+                }
+                function hyprOf(tl) {
+                    var v = Hyprland.toplevels.values;
+                    for (var i = 0; i < v.length; i++) if (v[i].wayland === tl) return v[i];
+                    return null;
+                }
+                function beginTear(item, src, homeX, homeY) {
+                    if (dragging) { dragTarget = dragIndex; endDrag(); }
+                    menuItem = null;
+                    tearItem = item; tearSrc = src; tearHomeX = homeX; tearHomeY = homeY;
+                    tearGhost.opacity = 1; tearGhost.zoom = 1;
+                    following = false; ghostFade.stop();
+                    tearAddr = "";
+                    if (item.kind === "win") {
+                        var h = hyprOf(item.tl), o = h ? h.lastIpcObject : null;
+                        tearAddr = h ? ("0x" + h.address.replace(/^0x/, "")) : "";
+                        var sw = win.modelData.width, sh = win.modelData.height;
+                        var w = (o && o.size) ? o.size[0] : (gsv.implicitWidth || 900);
+                        var hh = (o && o.size) ? o.size[1] : (gsv.implicitHeight || 600);
+                        // a fullscreen / huge window comes off as a comfortable floating size, like macOS restoring it
+                        var k = Math.min(1, (sw * 0.78) / w, (sh * 0.78) / hh);
+                        tearW = Math.round(w * k); tearH = Math.round(hh * k);
+                        // where it is now: if that's on screen here, a still copy will stand in for it at the hand-off
+                        var mon0 = Hyprland.monitorFor(win.modelData);
+                        oldSnap.shown = false; oldOut.stop();
+                        oldVisible = !!(o && o.at && o.workspace && mon0 && mon0.activeWorkspace && o.workspace.id === mon0.activeWorkspace.id);
+                        if (oldVisible) {
+                            oldSnap.x = o.at[0] - win.modelData.x; oldSnap.y = o.at[1] - win.modelData.y;
+                            oldSnap.width = o.size[0]; oldSnap.height = o.size[1];
+                            oldSv.captureSource = item.tl;          // one still frame (live: false)
+                        }
+                    }
+                    tearing = true;
+                }
+                function endTear() {
+                    if (!tearing) return;
+                    // a window: let go wherever the pointer is — it simply stays there
+                    if (tearAddr && (following || tearY < activeTop - 30)) {
+                        if (!following) handoff();
+                        finishFollow();
+                        justDragged = true;
+                        Qt.callLater(function () { ui.justDragged = false; });
+                        return;
+                    }
+                    tearing = false;
+                    justDragged = true;
+                    Qt.callLater(function () { ui.justDragged = false; });
+                    if (tearY < activeTop - 30) {
+                        tearLaunch.item = tearItem;
+                        tearLaunch.restart();               // enlarge + fade, then open / focus
+                    } else {
+                        // back on the Dock: the preview flies home and the window fades back in where it was
+                        tearHome.restart();                 // back to its place
+                    }
+                }
 
                 function pinnedCount() {
                     var n = 0;
@@ -3066,7 +4441,25 @@ Scope {
                     if (to !== from) root.reorderPinned(from, to);
                 }
 
-                readonly property bool tucked: wantsHide && !revealed && !menuOpen && !dragging
+                SequentialAnimation {
+                    id: tearLaunch
+                    property var item: null
+                    ParallelAnimation {
+                        NumberAnimation { target: tearGhost; property: "zoom"; to: tearGhost.isWin ? 2.0 : 2.6; duration: 460; easing.type: Easing.OutQuint }
+                        NumberAnimation { target: tearGhost; property: "opacity"; to: 0; duration: 460; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: tearGhost; property: "wob"; to: 0; duration: 200 }
+                    }
+                    ScriptAction { script: { if (tearLaunch.item) root.activate(tearLaunch.item, false); ui.tearItem = null; } }
+                }
+                ParallelAnimation {
+                    id: tearHome
+                    NumberAnimation { target: ui; property: "tearX"; to: ui.tearHomeX; duration: 420; easing.type: Easing.OutQuint }
+                    NumberAnimation { target: ui; property: "tearY"; to: ui.tearHomeY; duration: 420; easing.type: Easing.OutQuint }
+                    NumberAnimation { target: tearGhost; property: "wob"; to: 0; duration: 200 }
+                    onFinished: { ui.tearItem = null; ui.tearAddr = ""; }
+                }
+
+                readonly property bool tucked: wantsHide && !revealed && !menuOpen && !dragging && !tearing
                 readonly property real refLeft: (width - root.totalW0) / 2
                 readonly property real activeTop: height - root.margin - root.bgHeight
                                                   - root.iconSize * (root.effMag - 1) - 12
@@ -3150,8 +4543,21 @@ Scope {
                                     sourceComponent: ScreencopyView {
                                         id: sc
                                         captureSource: gw.tl
-                                        live: !root.glassHold && (root.glassRT || !ui.tucked)
-                                        onCaptureSourceChanged: { if (captureSource !== null && !live && !root.glassHold) firstShot.restart(); }
+                                        // 15 fps, not the window's own rate: the glass only shows a blurred, refracted copy, and
+                                        // copying every frame of a busy window (a terminal, a video) cost several % CPU
+                                        live: false
+                                        readonly property bool wantFrames: !root.glassHold && !ui.tucked && (root.glassRT || hh.hovered)
+                                        Timer {
+                                            interval: 66; repeat: true
+                                            running: sc.wantFrames && sc.captureSource !== null
+                                            onTriggered: if (typeof sc.captureFrame === "function") sc.captureFrame()
+                                        }
+                                        Timer {
+                                            interval: 2500; repeat: true
+                                            running: !sc.wantFrames && !root.glassHold && !ui.tucked && sc.captureSource !== null
+                                            onTriggered: if (typeof sc.captureFrame === "function") sc.captureFrame()
+                                        }
+                                        onCaptureSourceChanged: { if (captureSource !== null && !root.glassHold) firstShot.restart(); }
                                         Timer {
                                             id: firstShot
                                             interval: 90
@@ -3231,11 +4637,35 @@ Scope {
                             readonly property real bn: root.glassBlur * 1.4 * ds / 64.0
                             readonly property real margin: 72      // extra backdrop captured around the Dock (refraction + blur reach)
                             readonly property real padPx: 10       // shader item padding (drop shadow)
+
+                            readonly property bool isLive: !ui.tucked && (root.glassRT || hh.hovered || ui.strength > 0.001 || ui.dragging || ui.tearing || dg.updating)
+                            property bool updating: true
+                            Timer {
+                                id: settleTimer
+                                interval: 350
+                                onTriggered: dg.updating = false
+                            }
+                            function triggerUpdate() {
+                                dg.updating = true;
+                                settleTimer.restart();
+                            }
+                            Connections {
+                                target: root
+                                function onWallpaperMapChanged() { dg.triggerUpdate(); }
+                                function onGlassBlurChanged() { dg.triggerUpdate(); }
+                                function onGlassLiquidChanged() { dg.triggerUpdate(); }
+                            }
+                            Connections {
+                                target: ui
+                                function onTuckedChanged() { dg.triggerUpdate(); }
+                            }
+                            Component.onCompleted: dg.triggerUpdate()
+
                             ShaderEffectSource {
                                 id: bsrc
                                 sourceItem: glassBackdrop.item
                                 hideSource: true
-                                live: !ui.tucked
+                                live: dg.isLive
                                 visible: false
                                 sourceRect: Qt.rect(dock.x - parent.padPx - parent.margin,
                                                     dock.y + (win.modelData.height - ui.height) - parent.padPx - parent.margin,
@@ -3258,7 +4688,7 @@ Scope {
                             ShaderEffectSource {
                                 id: bblur
                                 sourceItem: bblurFx
-                                live: !ui.tucked
+                                live: dg.isLive
                                 visible: false
                             }
                             MultiEffect {
@@ -3276,7 +4706,7 @@ Scope {
                                 id: bblur2
                                 // the 2nd pass is a pure copy unless the blur radius exceeds one pass: skip it then (same pixels, one GPU pass less)
                                 sourceItem: dg.bn > 1.0 ? bblur2Fx : null
-                                live: !ui.tucked
+                                live: dg.isLive
                                 visible: false
                             }
                             ShaderEffect {
@@ -3310,6 +4740,8 @@ Scope {
                                 property real dark: root.darkMode ? 1 : 0
                                 property real debug: root.glassDebug ? 1 : 0
                                 property real shadowAmt: 1
+                                property real rimTint: 0
+                                property real ringW: 0
                             }
                         }
                     }
@@ -3343,19 +4775,29 @@ Scope {
 
                         Repeater {
                             id: rep
-                            model: root.items
+                            model: dockModel
 
                             delegate: Item {
                                 id: cell
-                                required property var modelData
+                                required property string key
                                 required property int index
+                                readonly property var modelData: root.itemMap[key] || ({ kind: "sep", key: key, nA: 0, nS: 0 })
                                 readonly property bool isSep: modelData.kind === "sep"
                                 readonly property bool canDrag: !isSep && modelData.pinned === true && !modelData.special
+                                readonly property bool torn: ui.tearing && ui.tearItem && !isSep && ui.tearItem.key === modelData.key
+                                opacity: (torn ? 0.3 : (isDragged ? 0.92 : 1)) * (leavingCell ? appear : 1)
+                                Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                                 readonly property bool isDragged: ui.dragging && modelData.key === ui.dragKey
 
                                 // app cells always show their plain icon; only window cells show a live preview
                                 // (with the app's icon as a badge), grouped next to the Trash
                                 readonly property var thumbWin: (!isSep && modelData.kind === "win") ? modelData.tl : null
+                                // the capture only restarts when the window itself changes — refreshed Dock data hands the cell
+                                // the same window again, and re-binding it used to blank the live preview for ~2 s
+                                property var heldTl: null
+                                readonly property string winAddr: { if (!thumbWin) return ""; var h = ui.hyprOf(thumbWin); return h ? String(h.address).replace(/^0x/, "") : ""; }
+                                readonly property bool closingWin: winAddr !== "" && root.hub && root.hub.closingWins[winAddr] === true
+                                onThumbWinChanged: if (thumbWin !== heldTl) heldTl = thumbWin
                                 readonly property bool useThumb: thumbWin !== null
                                 readonly property bool thumbReady: useThumb && (sv.hasContent === undefined || sv.hasContent === true)
 
@@ -3370,11 +4812,13 @@ Scope {
                                 }
                                 transform: Translate { x: cell.dx }
                                 z: isDragged ? 100 : 0
-                                opacity: isDragged ? 0.92 : 1
 
+                                readonly property bool leavingCell: modelData.leaving === true
                                 property real appear: modelData.fresh ? 0 : 1
-                                Behavior on appear { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-                                Component.onCompleted: Qt.callLater(function () { cell.appear = 1; })
+                                Behavior on appear { NumberAnimation { duration: cell.leavingCell ? root.leaveMs : 320; easing.type: cell.leavingCell ? Easing.InOutCubic : Easing.OutCubic } }
+                                Component.onCompleted: { heldTl = thumbWin; Qt.callLater(function () { cell.appear = cell.leavingCell ? 0 : 1; }); }
+                                onLeavingCellChanged: appear = leavingCell ? 0 : 1
+                                enabled: !leavingCell
 
                                 readonly property real c0: modelData.nA * (root.iconSize + root.spacing)
                                                            + modelData.nS * (root.sepWidth + root.spacing)
@@ -3387,7 +4831,7 @@ Scope {
                                     return 1 + (root.effMag - 1) * f * ui.strength;
                                 }
 
-                                width: isSep ? root.sepWidth : root.iconSize * s * appear
+                                width: isSep ? root.sepWidth * appear : root.iconSize * s * appear
                                 height: root.iconSize
 
                                 Rectangle {
@@ -3446,8 +4890,15 @@ Scope {
                                     ScreencopyView {
                                         id: sv
                                         anchors.centerIn: parent
-                                        captureSource: root.captureCut ? null : cell.thumbWin
-                                        live: !ui.tucked && !root.captureHold          // only keep capturing while the dock is on screen
+                                        captureSource: (root.hub && !root.hub.windowCapture) ? null : cell.heldTl
+                                        // live only while the pointer is on the Dock (where you look at them); otherwise one fresh
+                                        // frame every 2 s — live previews of every window were ~8% CPU at idle
+                                        live: !ui.tucked && !root.previewHold && !cell.closingWin && hh.hovered
+                                        Timer {
+                                            interval: 2000; repeat: true; triggeredOnStart: true
+                                            running: !sv.live && !ui.tucked && !root.previewHold && !cell.closingWin && sv.captureSource !== null
+                                            onTriggered: if (typeof sv.captureFrame === "function") sv.captureFrame()
+                                        }
                                         readonly property real ar: (implicitWidth > 0 && implicitHeight > 0)
                                                                    ? implicitWidth / implicitHeight : 4 / 3
                                         width: Math.min(th.width, th.height * ar)
@@ -3532,13 +4983,26 @@ Scope {
                                     acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                                     property real pressX: 0
 
+                                    property real pressY: 0
                                     onPressed: mouse => {
-                                        if (mouse.button === Qt.LeftButton)
-                                            pressX = ma.mapToItem(ui, mouse.x, 0).x;
+                                        if (mouse.button === Qt.LeftButton) {
+                                            var pp = ma.mapToItem(ui, mouse.x, mouse.y);
+                                            pressX = pp.x; pressY = pp.y;
+                                        }
                                     }
                                     onPositionChanged: mouse => {
-                                        if (!cell.canDrag || !(pressedButtons & Qt.LeftButton)) return;
-                                        var ax = ma.mapToItem(ui, mouse.x, 0).x;
+                                        if (!(pressedButtons & Qt.LeftButton) || cell.isSep) return;
+                                        var ap = ma.mapToItem(ui, mouse.x, mouse.y);
+                                        // pulled up out of the Dock → tear the icon off (any app icon, pinned or running)
+                                        if (ui.tearing) { ui.tearX = ap.x; ui.tearY = ap.y; return; }
+                                        if (pressY - ap.y > 56 && (cell.modelData.kind === "app" || cell.modelData.kind === "win") && !cell.modelData.special) {
+                                            var home = img.mapToItem(ui, img.width / 2, img.height / 2);
+                                            ui.tearX = ap.x; ui.tearY = ap.y;
+                                            ui.beginTear(cell.modelData, root.cellIconSrc(cell.modelData), home.x, home.y);
+                                            return;
+                                        }
+                                        if (!cell.canDrag) return;
+                                        var ax = ap.x;
                                         if (!ui.dragging) {
                                             if (Math.abs(ax - pressX) < 8) return;
                                             ui.beginDrag(cell.index, cell.modelData.key, pressX, cell.width + root.spacing);
@@ -3546,6 +5010,7 @@ Scope {
                                         if (cell.isDragged) ui.dragUpdate(ax);
                                     }
                                     onReleased: mouse => {
+                                        if (ui.tearing) { ui.endTear(); return; }
                                         if (ui.dragging && cell.isDragged) ui.endDrag();
                                     }
                                     onClicked: mouse => {

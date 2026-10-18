@@ -140,6 +140,29 @@ Item {
             readonly property real ds: w.glassBlur >= 8 ? 0.5 : 1.0
             readonly property real bn: Math.min(1.0, w.glassBlur * 1.4 * ds / 64.0)
 
+            property bool updating: true
+            Timer {
+                id: settleTimer
+                interval: 350
+                onTriggered: gl.updating = false
+            }
+            function triggerUpdate() {
+                gl.updating = true;
+                settleTimer.restart();
+            }
+            Connections {
+                target: w
+                function onScreenXChanged() { gl.triggerUpdate(); }
+                function onScreenYChanged() { gl.triggerUpdate(); }
+                function onWallUrlChanged() { gl.triggerUpdate(); }
+                function onGlassBlurChanged() { gl.triggerUpdate(); }
+                function onGlassLiquidChanged() { gl.triggerUpdate(); }
+                function onWidthChanged() { gl.triggerUpdate(); }
+                function onHeightChanged() { gl.triggerUpdate(); }
+                function onEditingChanged() { if (!w.editing) gl.triggerUpdate(); }
+            }
+            Component.onCompleted: gl.triggerUpdate()
+
             // the part of the wallpaper behind the widget, laid out exactly like the screen
             Item {
                 id: backdrop
@@ -155,6 +178,7 @@ Item {
                     }
                 }
                 Image {
+                    id: bgImg
                     x: -(w.screenX - gl.padPx - gl.margin)
                     y: -(w.screenY - gl.padPx - gl.margin)
                     width: w.screenW
@@ -164,13 +188,14 @@ Item {
                     asynchronous: true
                     sourceSize.width: w.screenW
                     smooth: true
+                    onStatusChanged: if (status === Image.Ready) gl.triggerUpdate()
                 }
             }
             ShaderEffectSource {
                 id: bsrc
                 sourceItem: backdrop
                 hideSource: true
-                live: true
+                live: w.editing || gl.updating
                 visible: false
                 textureSize: Qt.size(Math.max(1, Math.round(backdrop.width * gl.ds)),
                                      Math.max(1, Math.round(backdrop.height * gl.ds)))
@@ -189,7 +214,7 @@ Item {
             ShaderEffectSource {
                 id: blurred
                 sourceItem: blurFx
-                live: true
+                live: w.editing || gl.updating
                 visible: false
             }
             ShaderEffect {
@@ -327,43 +352,6 @@ Item {
         }
     }
 
-    // one hourly column: time, (sun / moon icon), temperature
-    component HourCol: Column {
-        id: hc
-        required property var info
-        required property var wd
-        property real colW: 40
-        width: colW
-        spacing: 3 * hc.wd.s
-        Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
-            text: hc.info.h
-            color: Qt.rgba(1, 1, 1, 0.85)
-            font.family: hc.wd.fam
-            font.pixelSize: 12 * hc.wd.s
-            font.weight: Font.DemiBold
-        }
-        Item {
-            width: parent.width
-            height: 20 * hc.wd.s
-            WeatherIcon {
-                visible: hc.wd.showIcon(hc.info.k)
-                anchors.centerIn: parent
-                kind: hc.info.k
-                size: 18 * hc.wd.s
-            }
-        }
-        Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
-            text: hc.info.t + hc.wd.unitSuffix
-            color: "white"
-            font.family: hc.wd.fam
-            font.pixelSize: 15 * hc.wd.s
-            font.weight: Font.DemiBold
-        }
-    }
 
     // ── medium: hourly forecast on the right ──
     Rectangle {   // divider
@@ -378,7 +366,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         Repeater {
             model: w.isMedium ? w.hourly.slice(0, 4) : []
-            delegate: HourCol {
+            delegate: WeatherHourCol {
                 required property var modelData
                 info: modelData
                 wd: w
@@ -395,7 +383,7 @@ Item {
         y: 142 * w.s
         Repeater {
             model: w.isLarge ? w.hourly.slice(0, 6) : []
-            delegate: HourCol {
+            delegate: WeatherHourCol {
                 required property var modelData
                 info: modelData
                 wd: w

@@ -65,9 +65,9 @@ Item {
 
     property var now: new Date()
 
-    // Update often enough that the second ticks glide smoothly.
+    // Update once per second instead of 30 fps to eliminate GPU thrashing
     Timer {
-        interval: 33
+        interval: 1000
         repeat: true
         running: !w.preview
         onTriggered: w.now = new Date()
@@ -170,6 +170,29 @@ Item {
             readonly property real bn:
                 Math.min(1.0, w.glassBlur * 1.4 * ds / 64.0)
 
+            property bool updating: true
+            Timer {
+                id: settleTimer
+                interval: 350
+                onTriggered: gl.updating = false
+            }
+            function triggerUpdate() {
+                gl.updating = true;
+                settleTimer.restart();
+            }
+            Connections {
+                target: w
+                function onScreenXChanged() { gl.triggerUpdate(); }
+                function onScreenYChanged() { gl.triggerUpdate(); }
+                function onWallUrlChanged() { gl.triggerUpdate(); }
+                function onGlassBlurChanged() { gl.triggerUpdate(); }
+                function onGlassLiquidChanged() { gl.triggerUpdate(); }
+                function onWidthChanged() { gl.triggerUpdate(); }
+                function onHeightChanged() { gl.triggerUpdate(); }
+                function onEditingChanged() { if (!w.editing) gl.triggerUpdate(); }
+            }
+            Component.onCompleted: gl.triggerUpdate()
+
             Item {
                 id: backdrop
 
@@ -188,6 +211,7 @@ Item {
                 }
 
                 Image {
+                    id: bgImg
                     x: -(w.screenX - gl.padPx - gl.margin)
                     y: -(w.screenY - gl.padPx - gl.margin)
                     width: w.screenW
@@ -197,6 +221,7 @@ Item {
                     asynchronous: true
                     sourceSize.width: w.screenW
                     smooth: true
+                    onStatusChanged: if (status === Image.Ready) gl.triggerUpdate()
                 }
             }
 
@@ -204,7 +229,7 @@ Item {
                 id: bsrc
                 sourceItem: backdrop
                 hideSource: true
-                live: true
+                live: w.editing || gl.updating
                 visible: false
 
                 textureSize: Qt.size(
@@ -228,7 +253,7 @@ Item {
             ShaderEffectSource {
                 id: blurred
                 sourceItem: blurFx
-                live: true
+                live: w.editing || gl.updating
                 visible: false
             }
 
