@@ -242,7 +242,7 @@ Scope {
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch",
         "spotlightEnabled", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
-        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
+        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
         "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockTall", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
         "notifDnd", "dnd", "nightOn", "keepAwake",
         "kbRepeatRate", "kbRepeatDelay", "mouseSens", "mouseNatural", "tpNatural", "tpTap", "tpDwt", "tpScroll"]
@@ -3307,6 +3307,7 @@ Scope {
     property string wallpaperDir: ""          // "" = ~/Pictures/Wallpapers
     property var wallpaperFavs: []            // favourite image paths, shown first
     property string wallpaperVideo: ""        // animated wallpaper (video) playing right now, "" = a still picture
+    property string wpRestorePath: ""         // the picture the picker set last: put back at every start (awww does not keep it after a reboot)
     property var wpThumbs: ({})               // video path → cached thumbnail
     property var wpPreviews: ({})             // video path → small looping animated WebP (no video player in the shell)
     property string wallpaperCmd: ""          // "" = auto (awww / swww / hyprpaper); or your own command, {} = the image path
@@ -3488,6 +3489,7 @@ Scope {
             return;
         }
         root.wallpaperVideo = "";
+        root.wpRestorePath = path;
         root.wallpaperPath = path;                                            // the glass refracts the new image straight away
         try { if (root.hub && root.hub.dock) root.hub.dock.wallpaperPath = path; } catch (e) {}
         var cmd = (root.wallpaperCmd || "").trim();
@@ -3495,6 +3497,24 @@ Scope {
         wpApplyProc.command = ["sh", "-c", script, "sh", path];
         wpApplyProc.running = true;
     }
+    // Wallpaper that survives a reboot: awww / mpvpaper start empty at login, so the shell puts the last choice back.
+    // A picture is skipped when awww already shows it; light/dark pairs are handled by wpApplyAppearance.
+    function wpRestore() {
+        if (wpHasPair) return;
+        if (wallpaperVideo !== "") {
+            setwallProc.command = ["sh", "-c", '[ -x "$1" ] && exec "$1" "$2"', "sh", setwallScript, wallpaperVideo];
+            setwallProc.running = true;
+            return;
+        }
+        var p = wpRestorePath;
+        if (p === "") return;
+        var cmd = (wallpaperCmd || "").trim();
+        var script = cmd !== "" ? '[ -f "$1" ] || exit 0\n' + cmd.split("{}").join('"$1"')
+                                : '[ -f "$1" ] || exit 0\nif command -v awww >/dev/null 2>&1 && awww query 2>/dev/null | grep -qF -- "$1"; then exit 0; fi\n' + root.awwwScript;
+        wpApplyProc.command = ["sh", "-c", script, "sh", p];
+        wpApplyProc.running = true;
+    }
+    Timer { interval: 3500; running: true; onTriggered: root.wpRestore() }
     Process {
         id: setwallProc
         stdout: StdioCollector {
@@ -6223,8 +6243,21 @@ Scope {
                     }
                     opacity: Math.max(0, Math.min(1, openT * 2.2))
                     visible: opacity > 0
-                    scale: root.barPopupScale
+                    // morph: the panel grows out of the button a little while it springs open
+                    scale: root.barPopupScale * (0.94 + 0.06 * Math.min(1.0, openT))
                     transformOrigin: Item.TopRight
+                    // morph blur: the whole panel starts out of focus and sharpens as it opens; on close it blurs out again.
+                    // The layer only exists while the animation runs, so the open panel is drawn directly (crisp text, no extra pass).
+                    readonly property real blurAmt: Math.pow(Math.max(0, 1 - Math.min(1, openT)), 1.4)
+                    readonly property bool morphing: openT > 0.002 && Math.abs(openT - 1) > 0.002
+                    layer.enabled: morphing
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        blurEnabled: true
+                        blurMax: 40
+                        blur: cc.blurAmt * 0.85
+                        autoPaddingEnabled: true
+                    }
                     // the panel itself never moves above the bar (the menu bar is transparent, so anything that did would
                     // show straight through it). The motion lives in the controls: they slide up into place inside it.
                     onOpeningChanged: if (opening) openSeq++

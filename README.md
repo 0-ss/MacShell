@@ -244,8 +244,10 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 |---|---|
 | `-y`, `--yes` | Don't ask questions (answer yes). |
 | `--no-deps` | Skip the dependency check and package installation. |
-| `--deps-only` | Only check / install dependencies (and enable the bluetooth service), then stop. |
-| `--no-services` | Don't enable system services (bluetooth). |
+| `--deps-only` | Only check / install dependencies (and enable the services below), then stop. |
+| `--doctor` | Check the whole setup (environment, services, wallpaper, shaders, Hyprland, GPU) and explain each problem. |
+| `--low-power` | Settings for older computers: no live window capture, no magnification, plain blur, no real-time glass. |
+| `--no-services` | Don't enable system services (bluetooth, NetworkManager, power-profiles-daemon, PipeWire). |
 | `--no-autostart` | Don't touch the Hyprland config. |
 | `--no-rules` | Don't add the Liquid Glass layer rules to the Hyprland config. |
 | `--channel release\|main` | `release` (default): latest release, or the newest commit if there are none. `main`: always the newest commit. |
@@ -261,6 +263,24 @@ Environment: `MACSHELL_REPO`, `MACSHELL_BRANCH`, `MACSHELL_CHANNEL`, `MACSHELL_D
 
 ## Updating
 
+Run the installer again (`./install.sh` in your clone, or `macshell-install` from anywhere). When MacShell is already
+installed it looks at GitHub and shows a menu:
+
+```
+MacShell is already installed (a1b2c3d4e5f6). Looking for news on GitHub...
+  update available: a1b2c3d4e5f6 -> 9f8e7d6c5b4a
+
+  1) Update to the latest version
+  2) Check and install dependencies
+  3) Doctor: find and explain problems
+  4) Low-power mode for older computers
+  5) Uninstall
+  q) Quit
+```
+
+An update also installs the dependencies the new version needs, updates MacShell and MacLock together, saves the old
+install first, and never touches your settings. The command-line tool is still there for scripts and the daily timer:
+
 ```sh
 macshell-update check       # is there a newer version?
 macshell-update log         # what changed since the installed version
@@ -270,9 +290,8 @@ macshell-update channel main   # follow the newest commit instead of releases (o
 macshell-update status
 ```
 
-An update runs the *new* version's installer, so new files, new dependencies and a new start script come along. It
-saves the old install first (last 3 kept), updates MacShell and MacLock together, never touches your settings, and
-does one update at a time. Dependencies are installed only when `sudo` works without a password (an unattended timer
+`macshell-update update` runs the *new* version's installer too, so new files, new dependencies and a new start script
+come along. It keeps the last 3 installs, and does one update at a time. Dependencies are installed only when `sudo` works without a password (an unattended timer
 cannot type one); otherwise you get a notice listing what to install with `bash install.sh --deps-only`.
 
 The shell also checks by itself and tells you. `bash install.sh --check` does the same check from a clone, and
@@ -346,6 +365,13 @@ MACLOCK_PREVIEW=1 qs -c MacLock                        # preview the design as a
 Passwords are checked with PAM (`/etc/pam.d/hyprlock`). To lock on idle or before sleep with `hypridle`, set
 `lock_cmd = sh ~/.config/quickshell/MacLock/lock-via-ipc.sh`.
 
+## Dock icon tint
+
+Settings → Desktop & Dock → Icon Tint re-colours every Dock icon with one colour (pick a swatch or type a hex
+colour) and works with any icon pack: each icon is desaturated and colourised with your colour, with a small
+brightness lift so light colours (green, yellow...) stay vivid and black stays dark. **Strength** keeps some of the
+original colours. It needs no shader build and no extra packages.
+
 ## Desktop widgets
 
 Settings → General → Desktop Widgets. Weather, Calendar, Clock, Player and **Image** widgets, each in Small, Medium
@@ -388,6 +414,25 @@ by default (`wallpaperDir`).
 Clipboard history is kept on disk (cliphist's database plus `~/.cache/macbar/clip`). Turn it off with `clipHistory: false`
 in `~/.config/macbar/settings.json` if you don't want that.
 
+## Fresh Arch install: recommended route
+
+1. `sudo pacman -Syu`, then reboot if the kernel was updated.
+2. Install Hyprland **0.55 or newer** and make sure you have a `hyprland.lua` (`hyprctl version` shows the version).
+3. `git clone https://github.com/0-ss/MacShell && cd MacShell && bash install.sh` and answer yes. It installs every
+   dependency (on Arch it can build `yay` for `awww` / `mpvpaper`), starts the Bluetooth, Wi-Fi, power-profile and
+   audio services, adds the autostart to `hyprland.lua`, and creates `~/.config/macshell/env`.
+4. Log out and back in (or run `sh ~/.local/bin/macshell-start`), then run `bash install.sh --doctor` if anything
+   looks wrong. On older hardware add `--low-power`.
+
+**Environment variables** (`QS_ICON_THEME`, `QT_QPA_PLATFORM`, `XDG_CURRENT_DESKTOP`, ...): `macshell-start` sets
+sensible ones before it starts the shell, so it works whether it was started by Hyprland, a terminal or a keybind.
+Your own go in `~/.config/macshell/env` (the installer creates it with commented examples, including
+`QSG_RHI_BACKEND=opengl`, `QSG_RENDER_LOOP=basic` and `QT_QUICK_BACKEND=software` for old graphics).
+
+**Wallpaper after a reboot:** `awww` forgets its image at every shutdown. MacShell remembers the wallpaper you picked
+in the picker and puts it back at login (and `macshell-start` runs `awww restore` first). Pick a wallpaper once after
+updating and it stays.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -395,7 +440,9 @@ in `~/.config/macbar/settings.json` if you don't want that.
 | Glass looks flat / "Normal Blur" | `qsb` missing (install `qt6-shadertools`) — the log shows `[macbar-glass] state: failed`. Or ship a prebuilt `liquidglass.frag.qsb` next to `liquidglass.frag`; it is used as a fallback. |
 | Glass shows no wallpaper | Wallpaper not detected: see [Wallpaper](#wallpaper). |
 | Changing the wallpaper only changes the widgets and menus | `awww` is not installed or its daemon can't start. Install it, or set `wallpaperCmd` (see [Wallpaper](#wallpaper)); the log shows `[wallpaper] error:`. |
-| Blank app icons | No Qt icon theme: set one (`qt6ct`, or `QS_ICON_THEME`) and install it. |
+| Blank app icons | No Qt icon theme: `macshell-start` picks your GTK theme or Papirus / WhiteSur / Tela / Adwaita if installed. Otherwise install one (`sudo pacman -S papirus-icon-theme`) or set `QS_ICON_THEME` in `~/.config/macshell/env`. |
+| Wallpaper is gone after a reboot | See [Fresh Arch install](#fresh-arch-install-recommended-route). Check `awww` is installed (`bash install.sh --doctor`) and pick the wallpaper once in the picker. |
+| Slow or choppy on an old laptop | `bash install.sh --low-power`, and try `QSG_RHI_BACKEND=opengl` in `~/.config/macshell/env`. |
 | No notifications | Another daemon owns the D-Bus name. Disable it and restart the shell. |
 | Window menu actions, Alt+Tab focus, paste-after-pick, Log Out or the floating Settings window do nothing | Not on a Lua-config Hyprland 0.55+: run `hyprctl dispatch 'hl.dsp.no_op()'`. |
 | No window previews / glass behind windows | Quickshell built without Hyprland Toplevel Export, or Settings → Dock Behavior → *Live window capture* is off. |

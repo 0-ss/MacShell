@@ -165,6 +165,16 @@ Scope {
         { name: "Green",    c: "#30d158" }, { name: "Graphite", c: "#8e8e93" }
     ]
     property color accent: "#0A84FF"     // menu highlight (macOS blue)
+    // Dock icon tint: every icon is re-coloured with one colour (works with any icon pack)
+    property bool iconTint: false
+    property string iconTintColor: "#0a84ff"
+    property real iconTintStrength: 1.0
+    readonly property var tintChoices: [
+        { name: "Blue",     c: "#0a84ff" }, { name: "Purple", c: "#bf5af2" }, { name: "Pink",  c: "#ff375f" },
+        { name: "Red",      c: "#ff453a" }, { name: "Orange", c: "#ff9f0a" }, { name: "Yellow", c: "#ffd60a" },
+        { name: "Green",    c: "#30d158" }, { name: "Teal",   c: "#40c8e0" }, { name: "Graphite", c: "#8e8e93" },
+        { name: "White",    c: "#ffffff" }, { name: "Black",  c: "#1c1c1e" }
+    ]
     readonly property var defaultPinned: [
         "org.gnome.Nautilus", "org.kde.dolphin", "thunar",
         "firefox", "zen", "chromium", "google-chrome",
@@ -880,7 +890,7 @@ Scope {
                         Repeater {
                             model: [
                                 { c: "#FF5F57", g: "\u00D7", on: true },
-                                { c: "#FEBC2E", g: "\u2212", on: true },
+                                { c: "#FEBC2E", g: "\u2212", on: false },     // minimize: not available (greyed out)
                                 { c: "#28C840", g: "↗", on: true }
                             ]
                             delegate: Rectangle {
@@ -907,7 +917,7 @@ Scope {
                         hoverEnabled: true
                         onClicked: mouse => {
                             if (mouse.x < 22) prefsWindow.visible = false;
-                            else if (mouse.x < 44) prefsWindow.showMinimized();
+                            else if (mouse.x < 44) { }      // minimize is greyed out and does nothing
                             else if (mouse.x < 58) {
                                 if (prefsWindow.visibility === Window.FullScreen) prefsWindow.showNormal();
                                 else prefsWindow.showFullScreen();
@@ -1845,12 +1855,23 @@ Scope {
                                 readonly property int d: Math.abs(index - mid)
                                 readonly property real f: d === 0 ? 1 : (d === 1 ? 0.5 : (d === 2 ? 0.12 : 0))
                                 Image {
+                                    id: pimg
                                     anchors.fill: parent
+                                    visible: false
                                     source: root.iconSrc(pi.modelData.icon)
                                     sourceSize: Qt.size(96, 96)
                                     fillMode: Image.PreserveAspectFit
                                     smooth: true
                                     mipmap: true
+                                }
+                                MultiEffect {
+                                    anchors.fill: pimg
+                                    source: pimg
+                                    saturation: root.iconTint ? -0.75 * root.iconTintStrength : 0.0
+                                    colorization: root.iconTint ? 1.0 * root.iconTintStrength : 0.0
+                                    brightness: root.iconTint ? 0.14 * root.iconTintStrength : 0.0
+                                    contrast: root.iconTint ? 0.04 * root.iconTintStrength : 0.0
+                                    colorizationColor: root.iconTintColor
                                     transformOrigin: Item.Bottom
                                     scale: root.magnificationEnabled ? 1 + (root.magnification - 1) * pi.f : 1
                                     Behavior on scale { NumberAnimation { duration: 120 } }
@@ -1894,6 +1915,71 @@ Scope {
                             value: root.magnification
                             leftLabel: "Min"; rightLabel: "Max"
                             onMoved: v => root.magnification = v
+                        }
+                    }
+                }
+
+                SLabel { t: pal; header: true; text: "Icon Tint" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Tint Dock icons"
+                        subtitle: "Re-colours every icon with one colour. Works with any icon pack."
+                        SSwitch { t: pal; checked: root.iconTint; onToggled: v => root.iconTint = v }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Colour"
+                        opacity: root.iconTint ? 1 : 0.45
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: root.tintChoices
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    width: 18; height: 18; radius: 9
+                                    color: modelData.c
+                                    border.width: String(root.iconTintColor).toLowerCase() === modelData.c ? 2 : 1
+                                    border.color: String(root.iconTintColor).toLowerCase() === modelData.c ? pal.text : pal.cardBorder
+                                    MouseArea { anchors.fill: parent; enabled: root.iconTint; onClicked: root.iconTintColor = parent.modelData.c }
+                                }
+                            }
+                            Rectangle {
+                                width: 74; height: 22; radius: 6
+                                color: pal.ctrl
+                                border.width: 1
+                                border.color: pal.cardBorder
+                                TextInput {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 7; anchors.rightMargin: 7
+                                    verticalAlignment: TextInput.AlignVCenter
+                                    clip: true
+                                    selectByMouse: true
+                                    enabled: root.iconTint
+                                    maximumLength: 7
+                                    color: pal.text
+                                    selectionColor: pal.accent
+                                    font.family: pal.fam
+                                    font.pixelSize: 12
+                                    text: root.iconTintColor
+                                    onEditingFinished: { if (/^#[0-9a-fA-F]{6}$/.test(text)) root.iconTintColor = text.toLowerCase(); else text = root.iconTintColor; }
+                                }
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Strength"
+                        subtitle: "Lower values keep some of the original icon colours"
+                        opacity: root.iconTint ? 1 : 0.45
+                        SSlider {
+                            t: pal
+                            enabled: root.iconTint
+                            from: 0.1; to: 1.0; stepSize: 0.05
+                            value: root.iconTintStrength
+                            leftLabel: "Subtle"; rightLabel: "Full"
+                            onMoved: v => root.iconTintStrength = Math.round(v * 100) / 100
                         }
                     }
                 }
@@ -3564,6 +3650,7 @@ Scope {
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
         darkMode = true; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter Variable";
+        iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
         showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true;
     }
@@ -3571,7 +3658,7 @@ Scope {
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, settingsEnabled, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
-        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture].join("|")
+        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, iconTint, iconTintColor, iconTintStrength].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
     onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
@@ -3587,7 +3674,8 @@ Scope {
             accent: String(accent), fontFamily: fontFamily,
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
             showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators,
-            bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture
+            bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture,
+            iconTint: iconTint, iconTintColor: iconTintColor, iconTintStrength: iconTintStrength
         };
         settingsStore.setText(JSON.stringify(o, null, 2));
     }
@@ -3596,7 +3684,7 @@ Scope {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "settingsEnabled", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
-                    "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture"];
+                    "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture", "iconTint", "iconTintColor", "iconTintStrength"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
             try { root[keys[i]] = o[keys[i]]; } catch (err) { }
@@ -4772,7 +4860,7 @@ Scope {
                                 readonly property bool leavingCell: modelData.leaving === true
                                 property real appear: modelData.fresh ? 0 : 1
                                 Behavior on appear { NumberAnimation { duration: cell.leavingCell ? root.leaveMs : 320; easing.type: cell.leavingCell ? Easing.InOutCubic : Easing.OutCubic } }
-                                Component.onCompleted: { heldTl = thumbWin; Qt.callLater(function () { cell.appear = cell.leavingCell ? 0 : 1; }); }
+                                Component.onCompleted: { heldTl = thumbWin; Qt.callLater(function () { cell.appear = cell.leavingCell ? 0 : 1; cell.bounceStep(); }); }
                                 onLeavingCellChanged: appear = leavingCell ? 0 : 1
                                 enabled: !leavingCell
 
@@ -4824,7 +4912,12 @@ Scope {
                                     shadowOpacity: 0.32
                                     shadowBlur: 0.55
                                     shadowVerticalOffset: 3
-                                    brightness: ma.pressed ? -0.3 : 0.0
+                                    // icon tint: desaturate, then colourise (no shader build needed)
+                                    saturation: root.iconTint ? -0.75 * root.iconTintStrength : 0.0
+                                    colorization: root.iconTint ? 1.0 * root.iconTintStrength : 0.0
+                                    brightness: (ma.pressed ? -0.3 : 0.0) + (root.iconTint ? 0.14 * root.iconTintStrength : 0.0)
+                                    contrast: root.iconTint ? 0.04 * root.iconTintStrength : 0.0
+                                    colorizationColor: root.iconTintColor
                                 }
 
                                 // ── window thumbnail (same box as the icon, so magnification just works) ──
@@ -4892,14 +4985,44 @@ Scope {
                                     y: cell.height + 3
                                 }
 
+                                // ── launch bounce ──
+                                // Bounces while the app launches. When the app opens, the bounce in progress finishes its landing, then a
+                                // couple of smaller bounces settle it back onto the Dock. Nothing plays while the Dock is tucked away.
+                                readonly property bool wantBounce: !cell.isSep && root.bounceOnLaunch && root.launching[cell.modelData.key] !== undefined
+                                property bool bounceShown: false          // a bounce was actually visible, so it deserves a settle
+                                function bounceStep() {
+                                    if (ui.tucked) return;
+                                    if (cell.wantBounce) { cell.bounceShown = true; if (!bounceAnim.running && !settleAnim.running) bounceAnim.start(); }
+                                    else if (cell.bounceShown && !bounceAnim.running && !settleAnim.running) { cell.bounceShown = false; settleAnim.start(); }
+                                }
+                                onWantBounceChanged: bounceStep()
+                                Connections {
+                                    target: ui
+                                    function onTuckedChanged() {
+                                        if (ui.tucked) {                       // dock slid away: drop the bounce, it must not poke out
+                                            bounceAnim.stop(); settleAnim.stop(); img.lift = 0; cell.bounceShown = false;
+                                        } else cell.bounceStep();
+                                    }
+                                }
                                 SequentialAnimation {
-                                    running: !cell.isSep && root.bounceOnLaunch && root.launching[cell.modelData.key] !== undefined
-                                    loops: Animation.Infinite
-                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.4
-                                                      duration: 260; easing.type: Easing.OutQuad }
+                                    id: bounceAnim
+                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.42
+                                                      duration: 280; easing.type: Easing.OutCubic }
                                     NumberAnimation { target: img; property: "lift"; to: 0
-                                                      duration: 260; easing.type: Easing.InQuad }
-                                    onRunningChanged: if (!running) img.lift = 0
+                                                      duration: 280; easing.type: Easing.InCubic }
+                                    onFinished: cell.bounceStep()              // goes again while still launching, otherwise settles
+                                }
+                                SequentialAnimation {
+                                    id: settleAnim
+                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.16
+                                                      duration: 170; easing.type: Easing.OutQuad }
+                                    NumberAnimation { target: img; property: "lift"; to: 0
+                                                      duration: 170; easing.type: Easing.InQuad }
+                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.06
+                                                      duration: 120; easing.type: Easing.OutQuad }
+                                    NumberAnimation { target: img; property: "lift"; to: 0
+                                                      duration: 120; easing.type: Easing.InQuad }
+                                    onFinished: cell.bounceStep()              // relaunched while settling: bounce again
                                 }
 
                                 Rectangle {

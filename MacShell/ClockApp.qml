@@ -390,13 +390,13 @@ Scope {
                     Row {
                         spacing: 8
                         Repeater {
-                            model: [{ c: "#FF5F57", g: "×" }, { c: "#FEBC2E", g: "−" }, { c: "#28C840", g: "↗" }]
+                            model: [{ c: "#FF5F57", g: "×", on: true }, { c: "#FEBC2E", g: "−", on: false }, { c: "#28C840", g: "↗", on: true }]
                             delegate: Rectangle {
                                 required property var modelData
                                 width: 14; height: 14; radius: 7
-                                color: (win.active || tlMa.containsMouse) ? modelData.c : pal.lightOff
+                                color: (modelData.on && (win.active || tlMa.containsMouse)) ? modelData.c : pal.lightOff
                                 border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.14)
-                                Text { anchors.centerIn: parent; visible: tlMa.containsMouse; text: parent.modelData.g; font.pixelSize: 11; font.bold: true; color: Qt.rgba(0, 0, 0, 0.55) }
+                                Text { anchors.centerIn: parent; visible: tlMa.containsMouse && parent.modelData.on; text: parent.modelData.g; font.pixelSize: 11; font.bold: true; color: Qt.rgba(0, 0, 0, 0.55) }
                             }
                         }
                     }
@@ -404,7 +404,7 @@ Scope {
                         id: tlMa; anchors.fill: parent; hoverEnabled: true
                         onClicked: mouse => {
                             if (mouse.x < 22) win.visible = false;
-                            else if (mouse.x < 44) win.showMinimized();
+                            else if (mouse.x < 44) { }      // minimize is greyed out and does nothing
                             else win.visibility === Window.FullScreen ? win.showNormal() : win.showFullScreen();
                         }
                     }
