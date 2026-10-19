@@ -14,6 +14,7 @@
 // togglePlaying() / nextTrack() / previousTrack().
 import QtQuick
 import QtQuick.Effects
+import "I18n.js" as I18n
 
 Item {
     id: w
@@ -349,7 +350,7 @@ Item {
     readonly property real shownFrac: seekShown ? seekFrac : progress
     readonly property real shownPos: seekShown ? seekFrac * length : position
     Timer { id: seekHoldTimer; interval: 900; onTriggered: w.seekHold = false }
-    readonly property string shownTitle: hasPlayer ? (title !== "" ? title : "Unknown Title") : "Not Playing"
+    readonly property string shownTitle: hasPlayer ? (title !== "" ? title : I18n.tr("Unknown Title")) : I18n.tr("Not Playing")
     readonly property string shownSub: hasPlayer ? (artist !== "" ? (album !== "" ? artist + " \u2014 " + album : artist) : album)
                                                  : "Open a music app"
 
@@ -550,7 +551,7 @@ Item {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 visible: w.lyrics.length === 0
-                text: w.lyricsState === "none" ? "No lyrics found" : "Searching for lyrics\u2026"
+                text: w.lyricsState === "none" ? I18n.tr("No lyrics found") : I18n.tr("Searching for lyrics\u2026")
                 color: w.fg2
                 font.family: w.fam
                 font.pixelSize: 20 * w.k

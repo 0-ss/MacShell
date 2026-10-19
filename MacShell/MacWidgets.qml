@@ -15,6 +15,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Mpris
+import "I18n.js" as I18n
 
 Scope {
     id: root
@@ -748,7 +749,7 @@ Scope {
                             color: chooseMa.pressed ? "#D8D8DC" : "#F2F2F5"
                             border.width: 1
                             border.color: Qt.rgba(0, 0, 0, 0.18)
-                            Text { id: chooseText; anchors.centerIn: parent; text: "Choose Image\u2026"; color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
+                            Text { id: chooseText; anchors.centerIn: parent; text: I18n.tr("Choose Image\u2026"); color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
                             MouseArea { id: chooseMa; anchors.fill: parent; onClicked: root.pickImage(ww.wid, "small") }
                         }
                         Rectangle {   // "−" remove badge
