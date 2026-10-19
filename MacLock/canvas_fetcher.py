@@ -262,39 +262,75 @@ def download_video(url, target_path):
 
 # ═══════════════════════ APPLE MUSIC MOTION ARTWORK ═══════════════════════
 
+def clean_song_title(t):
+    """Strip feat, remastered, version, deluxe tags to maximize iTunes search accuracy."""
+    if not t:
+        return ""
+    clean = re.sub(r'[\(\[\{].*?[\)\]\}]', '', t).strip()
+    clean = re.sub(r'\s*-\s*(remaster|live|acoustic|edit|version|radio|deluxe|bonus).*', '', clean, flags=re.IGNORECASE).strip()
+    return clean or t
+
 def fetch_apple_music_motion(artist, title, album, target_path):
     """
     Search Apple Music via iTunes Search API and scrape the album page
     for official motion artwork (tall portrait 3:4 or square 1:1 HLS stream).
-    Downloads H.264 AVC1 SDR video and normalizes timestamps with ffmpeg.
+    Downloads H.264 AVC1 SDR video, scales/crops to Full HD 1080p with Lanczos.
     """
+    clean_t = clean_song_title(title)
+    clean_a = clean_song_title(album)
+
+    # 1. Primary queries: artist + title is vastly more specific than album!
     queries = []
-    if artist and album:
-        queries.append(f"{artist} {album}")
-    if artist and title:
+    if artist and clean_t:
+        queries.append(f"{artist} {clean_t}")
+    if artist and title and title != clean_t:
         queries.append(f"{artist} {title}")
-    if title:
-        queries.append(title)
+    if clean_t:
+        queries.append(clean_t)
+    if artist and clean_a:
+        queries.append(f"{artist} {clean_a}")
 
     checked_urls = set()
     candidate_urls = []
 
-    for q in queries:
+    # Search default storefront, and regional storefront (vn) for regional releases
+    for sf in ["", "vn"]:
+        for q in queries:
+            try:
+                sf_param = f"&country={sf}" if sf else ""
+                search_url = f"https://itunes.apple.com/search?term={urllib.parse.quote_plus(q)}&entity=song&limit=6{sf_param}"
+                req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=4) as r:
+                    res = json.loads(r.read().decode())
+                for item in res.get('results', []):
+                    cu = item.get('collectionViewUrl')
+                    if cu and cu not in checked_urls:
+                        checked_urls.add(cu)
+                        t_name = item.get('trackName', '').strip().lower()
+                        exact = (t_name == title.strip().lower() or t_name == clean_t.strip().lower())
+                        candidate_urls.append((exact, cu))
+            except Exception:
+                continue
+            if any(c[0] for c in candidate_urls):
+                break
+        if any(c[0] for c in candidate_urls):
+            break
+
+    # If song search returned nothing, fallback to album search
+    if not candidate_urls and artist and (clean_a or clean_t):
         try:
-            search_url = f"https://itunes.apple.com/search?term={urllib.parse.quote_plus(q)}&entity=song&limit=5"
+            album_q = f"{artist} {clean_a or clean_t}"
+            search_url = f"https://itunes.apple.com/search?term={urllib.parse.quote_plus(album_q)}&entity=album&limit=3"
             req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as r:
+            with urllib.request.urlopen(req, timeout=4) as r:
                 res = json.loads(r.read().decode())
             for item in res.get('results', []):
                 cu = item.get('collectionViewUrl')
                 if cu and cu not in checked_urls:
                     checked_urls.add(cu)
-                    exact = (item.get('trackName', '').strip().lower() == title.strip().lower())
-                    candidate_urls.append((exact, cu))
+                    candidate_urls.append((True, cu))
         except Exception:
-            continue
-        if candidate_urls:
-            break
+            pass
 
     candidate_urls.sort(key=lambda x: x[0], reverse=True)
 
@@ -420,31 +456,20 @@ def main():
     sanitized_name = sanitize(key_base)
     name_path = os.path.join(CACHE_DIR, f"{sanitized_name}.mp4") if sanitized_name else ""
 
-    # 1. Check local cache files first (prefer name_path which stores high-fidelity Apple Music artwork)
-    if name_path and os.path.exists(name_path) and os.path.getsize(name_path) > 10000:
+    # 1. Check local cache files for real Apple Music files (skip old Spotify symlinks)
+    if name_path and os.path.exists(name_path) and not os.path.islink(name_path) and os.path.getsize(name_path) > 10000:
         ensure_full_hd(name_path)
         mark_used(name_path)
         print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "cache"}))
         return
 
-    if title:
-        title_path = os.path.join(CACHE_DIR, f"{sanitize(title)}.mp4")
-        if os.path.exists(title_path) and os.path.getsize(title_path) > 10000:
-            ensure_full_hd(title_path)
-            mark_used(title_path)
-            print(json.dumps({"success": True, "videoPath": title_path, "isOfficial": True, "source": "cache"}))
-            return
-
-    if track_id:
-        id_path = os.path.join(CACHE_DIR, f"{track_id}.mp4")
-        if os.path.exists(id_path) and os.path.getsize(id_path) > 10000:
-            ensure_full_hd(id_path)
-            mark_used(id_path)
-            print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True, "source": "cache"}))
-            return
-
     # 2. Priority 1: Apple Music Motion Artwork (high resolution, optimal desktop aspect ratio)
     target_apple_path = os.path.join(CACHE_DIR, f"{sanitized_name or (track_id or 'apple_motion')}.mp4")
+    # If an old symlink exists at target path, remove it so real Apple Music file can replace it
+    if os.path.islink(target_apple_path):
+        try: os.remove(target_apple_path)
+        except Exception: pass
+
     if fetch_apple_music_motion(artist, title, album, target_apple_path):
         mark_used(target_apple_path)
         prune_cache()
@@ -455,6 +480,21 @@ def main():
                 pass
         print(json.dumps({"success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic"}))
         return
+
+    # 3. Priority 2: Apple Music not found -> Check existing Spotify cache
+    if name_path and os.path.exists(name_path) and os.path.getsize(name_path) > 10000:
+        ensure_full_hd(name_path)
+        mark_used(name_path)
+        print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "spotify"}))
+        return
+
+    if track_id:
+        id_path = os.path.join(CACHE_DIR, f"{track_id}.mp4")
+        if os.path.exists(id_path) and os.path.getsize(id_path) > 10000:
+            ensure_full_hd(id_path)
+            mark_used(id_path)
+            print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True, "source": "spotify"}))
+            return
 
     # 3. Priority 2: Spotify Canvas (fallback if Apple Music motion artwork is not available)
     canvas_mp4_url = None
