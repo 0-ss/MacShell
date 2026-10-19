@@ -466,20 +466,60 @@ def fetch_local_art(art_url, artist, title):
         pass
     return ""
 
+def get_configured_mode(explicit_mode=None):
+    if explicit_mode:
+        return explicit_mode.lower()
+    env_mode = os.environ.get("MACLOCK_CANVAS_MODE") or os.environ.get("MACSHELL_CANVAS_MODE")
+    if env_mode:
+        return env_mode.lower()
+    for p in ("~/.config/maclock/settings.json", "~/.config/macbar/settings.json"):
+        try:
+            cfg_path = os.path.expanduser(p)
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if "canvasMode" in data and data["canvasMode"]:
+                        return str(data["canvasMode"]).lower()
+        except Exception:
+            pass
+    return "both"
+
 def main():
-    # Args: title, artist, album, artUrl, optional_track_id
-    title = sys.argv[1] if len(sys.argv) > 1 else ""
-    artist = sys.argv[2] if len(sys.argv) > 2 else ""
-    album = sys.argv[3] if len(sys.argv) > 3 else ""
-    art_url = sys.argv[4] if len(sys.argv) > 4 else ""
-    track_id = sys.argv[5] if len(sys.argv) > 5 else ""
+    # Parse CLI flags & positional arguments
+    args = []
+    cli_mode = None
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg in ("--mode", "-m") and i + 1 < len(sys.argv):
+            cli_mode = sys.argv[i + 1].lower()
+            i += 2
+        elif arg.startswith("--mode="):
+            cli_mode = arg.split("=", 1)[1].lower()
+            i += 1
+        else:
+            args.append(arg)
+            i += 1
+
+    title = args[0] if len(args) > 0 else ""
+    artist = args[1] if len(args) > 1 else ""
+    album = args[2] if len(args) > 2 else ""
+    art_url = args[3] if len(args) > 3 else ""
+    track_id = args[4] if len(args) > 4 else ""
+
+    mode = get_configured_mode(cli_mode)
 
     # 1. Immediately fetch and emit local art so QML displays cover art & blurred background in < 0.05s
     local_art = fetch_local_art(art_url, artist, title)
     if local_art:
         print(json.dumps({"type": "art", "localArt": local_art}), flush=True)
 
-    if not track_id:
+    # If canvas is turned off, stop here cleanly
+    if mode in ("off", "none", "false", "disabled", "0"):
+        print(json.dumps({"type": "video", "success": False, "videoPath": "", "isOfficial": False, "source": "off", "localArt": local_art}), flush=True)
+        return
+
+    if not track_id and mode != "applemusic":
         track_id = get_spotify_track_id(title)
 
     key_base = f"{artist} - {title}".strip(" -")
@@ -490,32 +530,40 @@ def main():
     sanitized_name = sanitize(key_base)
     name_path = os.path.join(CACHE_DIR, f"{sanitized_name}.mp4") if sanitized_name else ""
 
-    # 2. Check local cache files for real Apple Music files (skip old Spotify symlinks)
-    if name_path and os.path.exists(name_path) and not os.path.islink(name_path) and os.path.getsize(name_path) > 10000:
+    allow_apple = mode in ("both", "auto", "applemusic", "apple", "all")
+    allow_spotify = mode in ("both", "auto", "spotify", "all")
+
+    # 2. Check local cache files for real Apple Music files
+    if allow_apple and name_path and os.path.exists(name_path) and not os.path.islink(name_path) and os.path.getsize(name_path) > 10000:
         ensure_full_hd(name_path)
         mark_used(name_path)
-        print(json.dumps({"type": "video", "success": True, "videoPath": name_path, "isOfficial": True, "source": "cache", "localArt": local_art}), flush=True)
+        print(json.dumps({"type": "video", "success": True, "videoPath": name_path, "isOfficial": True, "source": "applemusic", "localArt": local_art}), flush=True)
         return
 
-    # 3. Priority 1: Apple Music Motion Artwork (high resolution, optimal desktop aspect ratio)
-    target_apple_path = os.path.join(CACHE_DIR, f"{sanitized_name or (track_id or 'apple_motion')}.mp4")
-    # If an old symlink exists at target path, remove it so real Apple Music file can replace it
-    if os.path.islink(target_apple_path):
-        try: os.remove(target_apple_path)
-        except Exception: pass
+    # 3. Apple Music Motion Artwork
+    if allow_apple:
+        target_apple_path = os.path.join(CACHE_DIR, f"{sanitized_name or (track_id or 'apple_motion')}.mp4")
+        if os.path.islink(target_apple_path):
+            try: os.remove(target_apple_path)
+            except Exception: pass
 
-    if fetch_apple_music_motion(artist, title, album, target_apple_path):
-        mark_used(target_apple_path)
-        prune_cache()
-        if track_id and not os.path.exists(os.path.join(CACHE_DIR, f"{track_id}.mp4")):
-            try:
-                os.symlink(target_apple_path, os.path.join(CACHE_DIR, f"{track_id}.mp4"))
-            except Exception:
-                pass
-        print(json.dumps({"type": "video", "success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic", "localArt": local_art}), flush=True)
+        if fetch_apple_music_motion(artist, title, album, target_apple_path):
+            mark_used(target_apple_path)
+            prune_cache()
+            if track_id and not os.path.exists(os.path.join(CACHE_DIR, f"{track_id}.mp4")):
+                try:
+                    os.symlink(target_apple_path, os.path.join(CACHE_DIR, f"{track_id}.mp4"))
+                except Exception:
+                    pass
+            print(json.dumps({"type": "video", "success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic", "localArt": local_art}), flush=True)
+            return
+
+    # If Apple Music only mode, don't fallback to Spotify
+    if not allow_spotify:
+        print(json.dumps({"type": "video", "success": False, "videoPath": "", "isOfficial": False, "source": "none", "localArt": local_art}), flush=True)
         return
 
-    # 4. Priority 2: Apple Music not found -> Check existing Spotify cache
+    # 4. Check existing Spotify cache
     if name_path and os.path.exists(name_path) and os.path.getsize(name_path) > 10000:
         ensure_full_hd(name_path)
         mark_used(name_path)
@@ -530,8 +578,11 @@ def main():
             print(json.dumps({"type": "video", "success": True, "videoPath": id_path, "isOfficial": True, "source": "spotify", "localArt": local_art}), flush=True)
             return
 
-    # 5. Priority 2: Spotify Canvas (fallback if Apple Music motion artwork is not available)
+    # 5. Spotify Canvas
     canvas_mp4_url = None
+    if not track_id:
+        track_id = get_spotify_track_id(title)
+
     if track_id:
         sp_dc = get_firefox_sp_dc()
         if sp_dc:
@@ -554,7 +605,7 @@ def main():
             print(json.dumps({"type": "video", "success": True, "videoPath": save_path, "isOfficial": True, "source": "spotify", "localArt": local_art}), flush=True)
             return
 
-    # 6. Neither exists -> Fall back cleanly to blurred album art background
+    # 6. Fall back cleanly to blurred album art background
     print(json.dumps({"type": "video", "success": False, "videoPath": "", "isOfficial": False, "source": "none", "localArt": local_art}), flush=True)
 
 if __name__ == "__main__":

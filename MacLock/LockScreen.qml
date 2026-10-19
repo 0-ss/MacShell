@@ -1225,9 +1225,15 @@ Item {
             canvasSource = "";
             return;
         }
+        var cm = (ls.st && ls.st.canvasMode) ? ls.st.canvasMode : "both";
+        if (cm === "off" || cm === "none") {
+            canvasVideo = "";
+            canvasSource = "";
+            return;
+        }
         var art = ls.coverUrl || "";
         canvasProc.running = false;
-        canvasProc.command = ["python3", ls.canvasScript, media.pl.trackTitle || "", media.pl.trackArtist || "", media.pl.trackAlbum || "", art];
+        canvasProc.command = ["python3", ls.canvasScript, media.pl.trackTitle || "", media.pl.trackArtist || "", media.pl.trackAlbum || "", art, "", "--mode", cm];
         canvasProc.running = true;
     }
     Process {

@@ -1,10 +1,44 @@
 import QtQuick
 import QtQuick.Effects
+import QtMultimedia
 
 Item {
     id: art
     required property var wd
     property real r: 7
+
+    // ── animated video canvas (Spotify Canvas / Apple Music Motion) ──
+    Loader {
+        id: canvasLoader
+        anchors.fill: parent
+        active: art.wd && (art.wd.canvasVideo || "") !== "" && (art.wd.desktopCanvas !== false)
+        visible: active && opacity > 0
+        opacity: (art.wd && (art.wd.canvasVideo || "") !== "" && art.wd.playing) ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+        z: 3
+        sourceComponent: Item {
+            anchors.fill: parent
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                maskEnabled: true
+                maskSource: Rectangle { width: art.width; height: art.height; radius: art.r; color: "black" }
+            }
+            MediaPlayer {
+                id: cMp
+                source: art.wd && art.wd.canvasVideo ? ("file://" + art.wd.canvasVideo) : ""
+                loops: MediaPlayer.Infinite
+                videoOutput: cVo
+                audioOutput: null
+                Component.onCompleted: play()
+                onSourceChanged: if (source !== "") play()
+            }
+            VideoOutput {
+                id: cVo
+                anchors.fill: parent
+                fillMode: VideoOutput.PreserveAspectCrop
+            }
+        }
+    }
 
     property int curIdx: 0
     property real prog: 1.0

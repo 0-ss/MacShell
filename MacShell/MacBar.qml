@@ -207,6 +207,13 @@ Scope {
     property bool showSeconds: false
     property bool showBatteryPercent: true
     property bool showCpuRam: true
+    property bool showCpu: true
+    property bool showRam: true
+    property bool showGpu: true
+    property bool showDisk: false
+    property bool showTemp: false
+    property bool showNet: false
+    property bool desktopCanvas: true
     property bool showTray: true
     property bool showSearch: true
     property bool weekStartsMonday: false
@@ -243,7 +250,7 @@ Scope {
 
     readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "panelDarkMode", "accent", "fontFamily", "barHeight", "glassOpacity",
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "showDate",
-        "showSeconds", "showBatteryPercent", "showCpuRam", "showTray", "showSearch",
+        "showSeconds", "showBatteryPercent", "showCpuRam", "showCpu", "showRam", "showGpu", "showDisk", "showTemp", "showNet", "desktopCanvas", "showTray", "showSearch",
         "spotlightEnabled", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
         "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockTall", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
@@ -701,6 +708,21 @@ Scope {
                 line(6.5, 13, 6.5, 15);
                 line(11.5, 13, 11.5, 15);
                 line(14, 13, 14, 15);
+            } else if (k === "disk") {
+                rrect(2.5, 4, 13, 10, 2); ctx.stroke();
+                line(2.5, 10.5, 15.5, 10.5);
+                circ(12.5, 12.2, 0.9); ctx.fill();
+            } else if (k === "temp") {
+                ctx.beginPath();
+                ctx.arc(9, 13, 3, 0, 2 * PI); ctx.stroke();
+                line(7.5, 11, 7.5, 4);
+                line(10.5, 11, 10.5, 4);
+                ctx.beginPath(); ctx.arc(9, 4, 1.5, PI, 0); ctx.stroke();
+                ctx.beginPath(); ctx.arc(9, 13, 1.8, 0, 2 * PI); ctx.fill();
+                line(9, 13, 9, 7);
+            } else if (k === "net") {
+                line(6, 4, 6, 14); line(3.5, 7.5, 6, 4); line(8.5, 7.5, 6, 4);
+                line(12, 4, 12, 14); line(9.5, 10.5, 12, 14); line(14.5, 10.5, 12, 14);
             } else if (k === "volume") {
                 poly([2.2, 7, 5.4, 7, 9.2, 3.6, 9.2, 14.4, 5.4, 11, 2.2, 11], true);
                 ctx.beginPath(); ctx.arc(9.2, 9, 4.4, -0.62, 0.62); ctx.stroke();
@@ -1634,21 +1656,31 @@ Scope {
                                  (n.type !== undefined ? ((n.type & PwNodeType.Sink) !== 0) : n.isSink) ? "set-default-sink" : "set-default-source"]);
     }
 
-    // cpu, memory and gpu monitor
+    // cpu, memory, gpu, disk, temperature and network monitor
     property int cpuUsage: 0
     property int ramUsage: 0
     property int gpuUsage: 0
     property bool hasGpu: true
     property real ramUsedGb: 0
     property real ramTotalGb: 0
+    property int diskUsage: 0
+    property real diskUsedGb: 0
+    property real diskFreeGb: 0
+    property real diskTotalGb: 0
+    property int cpuTemp: 0
+    property bool hasTemp: false
+    property string netSpeed: "0 KB/s"
+    property string netDownSpeed: "0 KB/s"
+    property string netUpSpeed: "0 KB/s"
     property var _cpuPrev: ({ idle: 0, total: 0 })
     property var _gpuPrev: ({ time: 0, rc6: 0 })
+    property var _netPrev: ({ time: 0, rx: 0, tx: 0 })
 
     Timer {
         id: sysResTimer
         interval: 2000
         repeat: true
-        running: root.barEnabled && (root.showCpuRam || root.barWidgetEnabled("cpuRam"))
+        running: root.barEnabled && (root.showCpuRam || root.barWidgetEnabled("cpuRam") || ui.pop === "sys")
         triggeredOnStart: true
         onTriggered: {
             if (!sysResProc.running) sysResProc.running = true;
@@ -1657,58 +1689,91 @@ Scope {
 
     Process {
         id: sysResProc
-        command: ["sh", "-c", "cat /proc/stat | head -n 1; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; if [ -f /sys/class/drm/card1/power/rc6_residency_ms ]; then echo \"RC6:$(cat /sys/class/drm/card1/power/rc6_residency_ms 2>/dev/null)\"; elif [ -f /sys/class/drm/card0/power/rc6_residency_ms ]; then echo \"RC6:$(cat /sys/class/drm/card0/power/rc6_residency_ms 2>/dev/null)\"; elif [ -f /sys/class/drm/card0/device/gpu_busy_percent ]; then echo \"BUSY:$(cat /sys/class/drm/card0/device/gpu_busy_percent 2>/dev/null)\"; elif [ -f /sys/class/drm/card1/device/gpu_busy_percent ]; then echo \"BUSY:$(cat /sys/class/drm/card1/device/gpu_busy_percent 2>/dev/null)\"; elif command -v nvidia-smi >/dev/null 2>&1; then echo \"BUSY:$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -n 1)\"; else echo 'NONE'; fi"]
+        command: ["sh", "-c", "cat /proc/stat | head -n 1; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; df -k / | tail -n 1 | awk '{printf \"DISK:%s:%s:%s\\n\", $2, $3, $4}'; t=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -nr | head -n 1); [ -n \"$t\" ] && echo \"TEMP:$((t/1000))\" || echo \"TEMP:0\"; awk -F: '/:[ 0-9]+/ && !/lo:/ {split($2,a,\" \"); rx+=a[1]; tx+=a[9]} END {printf \"NET:%s:%s\\n\", rx, tx}' /proc/net/dev 2>/dev/null; if [ -f /sys/class/drm/card1/power/rc6_residency_ms ]; then echo \"RC6:$(cat /sys/class/drm/card1/power/rc6_residency_ms 2>/dev/null)\"; elif [ -f /sys/class/drm/card0/power/rc6_residency_ms ]; then echo \"RC6:$(cat /sys/class/drm/card0/power/rc6_residency_ms 2>/dev/null)\"; elif [ -f /sys/class/drm/card0/device/gpu_busy_percent ]; then echo \"BUSY:$(cat /sys/class/drm/card0/device/gpu_busy_percent 2>/dev/null)\"; elif [ -f /sys/class/drm/card1/device/gpu_busy_percent ]; then echo \"BUSY:$(cat /sys/class/drm/card1/device/gpu_busy_percent 2>/dev/null)\"; elif command -v nvidia-smi >/dev/null 2>&1; then echo \"BUSY:$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -n 1)\"; else echo 'NONE'; fi"]
         stdout: StdioCollector {
             onStreamFinished: {
                 var lines = text.trim().split("\n");
-                if (lines.length >= 3) {
-                    var cpuParts = lines[0].trim().split(/\s+/).slice(1);
-                    var nums = [];
-                    for (var i = 0; i < cpuParts.length; i++) nums.push(parseFloat(cpuParts[i]) || 0);
-                    if (nums.length >= 4) {
-                        var idle = nums[3] + (nums[4] || 0);
-                        var total = 0;
-                        for (var j = 0; j < nums.length; j++) total += nums[j];
-                        if (root._cpuPrev.total > 0) {
-                            var dTotal = total - root._cpuPrev.total;
-                            var dIdle = idle - root._cpuPrev.idle;
-                            if (dTotal > 0) {
-                                root.cpuUsage = Math.max(0, Math.min(100, Math.round((1 - dIdle / dTotal) * 100)));
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].trim();
+                    if (i === 0 && line.indexOf("cpu ") === 0) {
+                        var cpuParts = line.split(/\s+/).slice(1);
+                        var nums = [];
+                        for (var c = 0; c < cpuParts.length; c++) nums.push(parseFloat(cpuParts[c]) || 0);
+                        if (nums.length >= 4) {
+                            var idle = nums[3] + (nums[4] || 0);
+                            var total = 0;
+                            for (var j = 0; j < nums.length; j++) total += nums[j];
+                            if (root._cpuPrev.total > 0) {
+                                var dTotal = total - root._cpuPrev.total;
+                                var dIdle = idle - root._cpuPrev.idle;
+                                if (dTotal > 0) {
+                                    root.cpuUsage = Math.max(0, Math.min(100, Math.round((1 - dIdle / dTotal) * 100)));
+                                }
                             }
+                            root._cpuPrev = { idle: idle, total: total };
                         }
-                        root._cpuPrev = { idle: idle, total: total };
-                    }
-                    var memTotal = 0, memAvail = 0;
-                    for (var k = 1; k < lines.length; k++) {
-                        var m = lines[k].match(/^(\w+):\s+(\d+)/);
-                        if (m) {
-                            if (m[1] === "MemTotal") memTotal = parseInt(m[2]) || 0;
-                            else if (m[1] === "MemAvailable") memAvail = parseInt(m[2]) || 0;
+                    } else if (line.indexOf("MemTotal:") === 0) {
+                        var mt = parseInt(line.split(/\s+/)[1]) || 0;
+                        if (mt > 0) root.ramTotalGb = parseFloat((mt / 1048576).toFixed(1));
+                    } else if (line.indexOf("MemAvailable:") === 0) {
+                        var ma = parseInt(line.split(/\s+/)[1]) || 0;
+                        if (root.ramTotalGb > 0) {
+                            var mtKb = root.ramTotalGb * 1048576;
+                            root.ramUsedGb = parseFloat(((mtKb - ma) / 1048576).toFixed(1));
+                            root.ramUsage = Math.max(0, Math.min(100, Math.round((1 - ma / mtKb) * 100)));
                         }
-                    }
-                    if (memTotal > 0) {
-                        root.ramTotalGb = parseFloat((memTotal / 1048576).toFixed(1));
-                        root.ramUsedGb = parseFloat(((memTotal - memAvail) / 1048576).toFixed(1));
-                        root.ramUsage = Math.max(0, Math.min(100, Math.round((1 - memAvail / memTotal) * 100)));
-                    }
-
-                    // GPU calculation
-                    var gpuLine = lines[lines.length - 1].trim();
-                    if (gpuLine.indexOf("RC6:") === 0) {
-                        var rc6Val = parseInt(gpuLine.substring(4)) || 0;
-                        var now = Date.now();
+                    } else if (line.indexOf("DISK:") === 0) {
+                        var dp = line.substring(5).split(":");
+                        var dTot = parseFloat(dp[0]) || 0;
+                        var dUsed = parseFloat(dp[1]) || 0;
+                        var dFree = parseFloat(dp[2]) || 0;
+                        if (dTot > 0) {
+                            root.diskTotalGb = parseFloat((dTot / 1048576).toFixed(1));
+                            root.diskUsedGb = parseFloat((dUsed / 1048576).toFixed(1));
+                            root.diskFreeGb = parseFloat((dFree / 1048576).toFixed(1));
+                            root.diskUsage = Math.max(0, Math.min(100, Math.round((dUsed / dTot) * 100)));
+                        }
+                    } else if (line.indexOf("TEMP:") === 0) {
+                        var tv = parseInt(line.substring(5)) || 0;
+                        if (tv > 0 && tv < 125) {
+                            root.cpuTemp = tv;
+                            root.hasTemp = true;
+                        }
+                    } else if (line.indexOf("NET:") === 0) {
+                        var np = line.substring(4).split(":");
+                        var rxBytes = parseFloat(np[0]) || 0;
+                        var txBytes = parseFloat(np[1]) || 0;
+                        var nowNet = Date.now();
+                        if (root._netPrev.time > 0 && rxBytes > 0) {
+                            var dtSec = Math.max(0.1, (nowNet - root._netPrev.time) / 1000);
+                            var dRx = Math.max(0, rxBytes - root._netPrev.rx) / dtSec;
+                            var dTx = Math.max(0, txBytes - root._netPrev.tx) / dtSec;
+                            var totSpeed = dRx + dTx;
+                            var fmt = function(b) {
+                                if (b >= 1048576) return (b / 1048576).toFixed(1) + " MB/s";
+                                if (b >= 1024) return Math.round(b / 1024) + " KB/s";
+                                return Math.round(b) + " B/s";
+                            };
+                            root.netDownSpeed = fmt(dRx);
+                            root.netUpSpeed = fmt(dTx);
+                            root.netSpeed = fmt(totSpeed);
+                        }
+                        root._netPrev = { time: nowNet, rx: rxBytes, tx: txBytes };
+                    } else if (line.indexOf("RC6:") === 0) {
+                        var rc6Val = parseInt(line.substring(4)) || 0;
+                        var nowGpu = Date.now();
                         if (root._gpuPrev.time > 0 && rc6Val > 0) {
-                            var dtMs = now - root._gpuPrev.time;
+                            var dtMs = nowGpu - root._gpuPrev.time;
                             var dRc6 = rc6Val - root._gpuPrev.rc6;
                             if (dtMs > 0 && dRc6 >= 0) {
                                 var busy = 100 - (dRc6 / dtMs) * 100;
                                 root.gpuUsage = Math.max(0, Math.min(100, Math.round(busy)));
                             }
                         }
-                        root._gpuPrev = { time: now, rc6: rc6Val };
+                        root._gpuPrev = { time: nowGpu, rc6: rc6Val };
                         root.hasGpu = true;
-                    } else if (gpuLine.indexOf("BUSY:") === 0) {
-                        var bVal = parseInt(gpuLine.substring(5)) || 0;
+                    } else if (line.indexOf("BUSY:") === 0) {
+                        var bVal = parseInt(line.substring(5)) || 0;
                         root.gpuUsage = Math.max(0, Math.min(100, bVal));
                         root.hasGpu = true;
                     }
@@ -3602,6 +3667,7 @@ Scope {
     property string wallpaperDir: ""          // "" = ~/Pictures/Wallpapers
     property var wallpaperFavs: []            // favourite image paths, shown first
     property string wallpaperVideo: ""        // animated wallpaper (video) playing right now, "" = a still picture
+    property string wpRestorePath: ""         // remembered still wallpaper path across reboots
     property var wpThumbs: ({})               // video path → cached thumbnail
     property var wpPreviews: ({})             // video path → small looping animated WebP (no video player in the shell)
     property string wallpaperCmd: ""          // "" = auto (awww / swww / hyprpaper); or your own command, {} = the image path
@@ -3817,7 +3883,7 @@ Scope {
             setwallProc.running = true;
             return;
         }
-        var p = wpRestorePath;
+        var p = root.wpRestorePath;
         if (p === "") return;
         var cmd = (wallpaperCmd || "").trim();
         var script = cmd !== "" ? '[ -f "$1" ] || exit 0\n' + cmd.split("{}").join('"$1"')
@@ -4960,7 +5026,7 @@ Scope {
                                 onWheel: wheel => root.cycleKeyboardLayout(wheel.angleDelta.y > 0 ? -1 : 1)
                             }
                         }
-                        // CPU & RAM monitor
+                        // System Monitor (CPU, RAM, GPU, Disk, Temp, Net)
                         Item {
                             id: sysResBtn
                             visible: root.showCpuRam || root.barWidgetEnabled("cpuRam")
@@ -4969,15 +5035,17 @@ Scope {
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: parent.width - 2; height: parent.height - 6; radius: 6
-                                color: sysResMouse.containsMouse ? bpal.hover : "transparent"
+                                color: (ui.pop === "sys" || sysResMouse.containsMouse) ? bpal.hover : "transparent"
                             }
                             Row {
                                 id: sysResRow
                                 anchors.centerIn: parent
                                 spacing: 6
+                                // CPU
                                 Row {
                                     spacing: 3
                                     anchors.verticalCenter: parent.verticalCenter
+                                    visible: root.showCpu
                                     Glyph {
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: 14; height: 14
@@ -4991,9 +5059,11 @@ Scope {
                                         font.family: bpal.fam; font.pixelSize: 11; font.weight: Font.Medium
                                     }
                                 }
+                                // RAM
                                 Row {
                                     spacing: 3
                                     anchors.verticalCenter: parent.verticalCenter
+                                    visible: root.showRam
                                     Glyph {
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: 14; height: 14
@@ -5007,10 +5077,11 @@ Scope {
                                         font.family: bpal.fam; font.pixelSize: 11; font.weight: Font.Medium
                                     }
                                 }
+                                // GPU
                                 Row {
                                     spacing: 3
                                     anchors.verticalCenter: parent.verticalCenter
-                                    visible: root.hasGpu
+                                    visible: root.showGpu && root.hasGpu
                                     Glyph {
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: 14; height: 14
@@ -5024,14 +5095,73 @@ Scope {
                                         font.family: bpal.fam; font.pixelSize: 11; font.weight: Font.Medium
                                     }
                                 }
+                                // Disk
+                                Row {
+                                    spacing: 3
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: root.showDisk
+                                    Glyph {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 14; height: 14
+                                        kind: "disk"
+                                        color: root.diskUsage > 90 ? "#FF453A" : (root.diskUsage > 75 ? "#FF9F0A" : bpal.fg2)
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.diskUsage + "%"
+                                        color: bpal.fg
+                                        font.family: bpal.fam; font.pixelSize: 11; font.weight: Font.Medium
+                                    }
+                                }
+                                // Temp
+                                Row {
+                                    spacing: 3
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: root.showTemp && root.hasTemp
+                                    Glyph {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 14; height: 14
+                                        kind: "temp"
+                                        color: root.cpuTemp > 80 ? "#FF453A" : (root.cpuTemp > 68 ? "#FF9F0A" : bpal.fg2)
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.cpuTemp + "°C"
+                                        color: bpal.fg
+                                        font.family: bpal.fam; font.pixelSize: 11; font.weight: Font.Medium
+                                    }
+                                }
+                                // Net
+                                Row {
+                                    spacing: 3
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: root.showNet
+                                    Glyph {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 14; height: 14
+                                        kind: "net"
+                                        color: bpal.fg2
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.netSpeed
+                                        color: bpal.fg
+                                        font.family: bpal.fam; font.pixelSize: 11; font.weight: Font.Medium
+                                    }
+                                }
                             }
                             MouseArea {
                                 id: sysResMouse
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    Quickshell.execDetached(["sh", "-c", "flatpak run org.gnome.SystemMonitor 2>/dev/null || gnome-system-monitor 2>/dev/null || btop 2>/dev/null || htop 2>/dev/null || " + (root.terminal || "kitty") + " -e btop || " + (root.terminal || "kitty") + " -e htop"]);
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: mouse => {
+                                    if (mouse.button === Qt.RightButton) {
+                                        Quickshell.execDetached(["sh", "-c", "flatpak run org.gnome.SystemMonitor 2>/dev/null || gnome-system-monitor 2>/dev/null || btop 2>/dev/null || htop 2>/dev/null || " + (root.terminal || "kitty") + " -e btop || " + (root.terminal || "kitty") + " -e htop"]);
+                                    } else {
+                                        ui.openPop("sys", sysResBtn.mapToItem(ui, 0, 0).x + sysResBtn.width / 2);
+                                    }
                                 }
                             }
                         }
@@ -6640,6 +6770,342 @@ Scope {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 onClicked: { ui.pop = ""; root.openSettings("bluetooth"); }
+                            }
+                        }
+                    }
+                }
+
+                // ═════════ System Monitor Popover (Activity Monitor style) ═════════
+                Item {
+                    id: sysPop
+                    z: 10
+                    width: 320
+                    height: sysCol.height + 26
+                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX + 14 - width / 2))
+                    y: root.barHeight + 6
+                    opacity: ui.pop === "sys" ? 1 : 0
+                    visible: opacity > 0
+                    scale: root.barPopupScale * (ui.pop === "sys" ? 1 : 0.96)
+                    transformOrigin: Item.Top
+                    Behavior on opacity { NumberAnimation { duration: 110 } }
+                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: ui.glassSrc
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.panelDarkMode
+                        bx: sysPop.x; by: sysPop.y
+                        cornerR: 22
+                        tint: root.glassOpacity
+                        thickness: 22
+                        strength: 0.55 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: 42
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: 22
+                        dark: root.panelDarkMode
+                        tint: root.menuBorderColor
+                    }
+
+                    Column {
+                        id: sysCol
+                        x: 14; y: 13
+                        width: parent.width - 28
+                        spacing: 11
+
+                        // Header
+                        Item {
+                            width: parent.width; height: 28
+                            Row {
+                                spacing: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                Glyph {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 18; height: 18
+                                    kind: "cpu"
+                                    color: panelPal.fg
+                                }
+                                Column {
+                                    spacing: 1
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    Text {
+                                        text: "Activity Monitor"
+                                        color: panelPal.fg
+                                        font.family: panelPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        text: "Hardware Statistics"
+                                        color: panelPal.fg2
+                                        font.family: panelPal.fam; font.pixelSize: 10
+                                    }
+                                }
+                            }
+                            // Refresh / launch activity monitor icon button
+                            Item {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 24; height: 24
+                                Rectangle {
+                                    anchors.fill: parent; radius: 12
+                                    color: actBtnMa.containsMouse ? (panelPal.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)) : "transparent"
+                                }
+                                Glyph {
+                                    anchors.centerIn: parent
+                                    width: 13; height: 13
+                                    kind: "coffee"
+                                    color: panelPal.fg2
+                                }
+                                MouseArea {
+                                    id: actBtnMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        ui.pop = "";
+                                        Quickshell.execDetached(["sh", "-c", "flatpak run org.gnome.SystemMonitor 2>/dev/null || gnome-system-monitor 2>/dev/null || btop 2>/dev/null || htop 2>/dev/null || " + (root.terminal || "kitty") + " -e btop || " + (root.terminal || "kitty") + " -e htop"]);
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle { width: parent.width; height: 1; color: panelPal.sep }
+
+                        // ── CPU Card ──
+                        Column {
+                            width: parent.width; spacing: 5
+                            Item {
+                                width: parent.width; height: 16
+                                Row {
+                                    spacing: 5; anchors.verticalCenter: parent.verticalCenter
+                                    Glyph { width: 13; height: 13; kind: "cpu"; color: panelPal.fg2; anchors.verticalCenter: parent.verticalCenter }
+                                    Text { text: "Processor (CPU)"; color: panelPal.fg; font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Medium }
+                                }
+                                Row {
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                                    Text {
+                                        visible: root.hasTemp
+                                        text: root.cpuTemp + "°C"
+                                        color: root.cpuTemp > 80 ? "#FF453A" : (root.cpuTemp > 68 ? "#FF9F0A" : panelPal.fg2)
+                                        font.family: panelPal.fam; font.pixelSize: 11; font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        text: root.cpuUsage + "%"
+                                        color: root.cpuUsage > 85 ? "#FF453A" : (root.cpuUsage > 60 ? "#FF9F0A" : panelPal.fg)
+                                        font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Bold
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                width: parent.width; height: 6; radius: 3; color: panelPal.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
+                                Rectangle {
+                                    width: Math.max(height, parent.width * Math.min(1, root.cpuUsage / 100)); height: parent.height; radius: 3
+                                    color: root.cpuUsage > 85 ? "#FF453A" : (root.cpuUsage > 60 ? "#FF9F0A" : root.accent)
+                                    Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                                }
+                            }
+                        }
+
+                        // ── RAM Card ──
+                        Column {
+                            width: parent.width; spacing: 5
+                            Item {
+                                width: parent.width; height: 16
+                                Row {
+                                    spacing: 5; anchors.verticalCenter: parent.verticalCenter
+                                    Glyph { width: 13; height: 13; kind: "ram"; color: panelPal.fg2; anchors.verticalCenter: parent.verticalCenter }
+                                    Text { text: "Memory (RAM)"; color: panelPal.fg; font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Medium }
+                                }
+                                Row {
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                                    Text {
+                                        text: (root.ramUsedGb > 0 ? (root.ramUsedGb + " / " + root.ramTotalGb + " GB") : "")
+                                        color: panelPal.fg2; font.family: panelPal.fam; font.pixelSize: 11
+                                    }
+                                    Text {
+                                        text: root.ramUsage + "%"
+                                        color: root.ramUsage > 85 ? "#FF453A" : (root.ramUsage > 75 ? "#FF9F0A" : panelPal.fg)
+                                        font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Bold
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                width: parent.width; height: 6; radius: 3; color: panelPal.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
+                                Rectangle {
+                                    width: Math.max(height, parent.width * Math.min(1, root.ramUsage / 100)); height: parent.height; radius: 3
+                                    color: root.ramUsage > 85 ? "#FF453A" : (root.ramUsage > 75 ? "#FF9F0A" : "#30D158")
+                                    Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                                }
+                            }
+                        }
+
+                        // ── GPU Card (if detected) ──
+                        Column {
+                            visible: root.hasGpu
+                            width: parent.width; spacing: 5
+                            Item {
+                                width: parent.width; height: 16
+                                Row {
+                                    spacing: 5; anchors.verticalCenter: parent.verticalCenter
+                                    Glyph { width: 13; height: 13; kind: "gpu"; color: panelPal.fg2; anchors.verticalCenter: parent.verticalCenter }
+                                    Text { text: "Graphics (GPU)"; color: panelPal.fg; font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Medium }
+                                }
+                                Text {
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    text: root.gpuUsage + "%"
+                                    color: root.gpuUsage > 85 ? "#FF453A" : (root.gpuUsage > 60 ? "#FF9F0A" : panelPal.fg)
+                                    font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Bold
+                                }
+                            }
+                            Rectangle {
+                                width: parent.width; height: 6; radius: 3; color: panelPal.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
+                                Rectangle {
+                                    width: Math.max(height, parent.width * Math.min(1, root.gpuUsage / 100)); height: parent.height; radius: 3
+                                    color: root.gpuUsage > 85 ? "#FF453A" : (root.gpuUsage > 60 ? "#FF9F0A" : "#BF5AF2")
+                                    Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                                }
+                            }
+                        }
+
+                        // ── Disk Storage Card ──
+                        Column {
+                            width: parent.width; spacing: 5
+                            Item {
+                                width: parent.width; height: 16
+                                Row {
+                                    spacing: 5; anchors.verticalCenter: parent.verticalCenter
+                                    Glyph { width: 13; height: 13; kind: "disk"; color: panelPal.fg2; anchors.verticalCenter: parent.verticalCenter }
+                                    Text { text: "Disk Storage"; color: panelPal.fg; font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Medium }
+                                }
+                                Row {
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                                    Text {
+                                        text: root.diskFreeGb > 0 ? (root.diskFreeGb + " GB free") : ""
+                                        color: panelPal.fg2; font.family: panelPal.fam; font.pixelSize: 11
+                                    }
+                                    Text {
+                                        text: root.diskUsage + "%"
+                                        color: root.diskUsage > 90 ? "#FF453A" : (root.diskUsage > 75 ? "#FF9F0A" : panelPal.fg)
+                                        font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Bold
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                width: parent.width; height: 6; radius: 3; color: panelPal.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
+                                Rectangle {
+                                    width: Math.max(height, parent.width * Math.min(1, root.diskUsage / 100)); height: parent.height; radius: 3
+                                    color: root.diskUsage > 90 ? "#FF453A" : (root.diskUsage > 75 ? "#FF9F0A" : "#64D2FF")
+                                    Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                                }
+                            }
+                        }
+
+                        // ── Network Throughput Card ──
+                        Item {
+                            width: parent.width; height: 26
+                            Row {
+                                spacing: 5; anchors.verticalCenter: parent.verticalCenter
+                                Glyph { width: 13; height: 13; kind: "net"; color: panelPal.fg2; anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: "Network Speed"; color: panelPal.fg; font.family: panelPal.fam; font.pixelSize: 12; font.weight: Font.Medium }
+                            }
+                            Row {
+                                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                spacing: 8
+                                Text {
+                                    text: "↓ " + root.netDownSpeed
+                                    color: root.accent; font.family: panelPal.fam; font.pixelSize: 11; font.weight: Font.DemiBold
+                                }
+                                Text {
+                                    text: "↑ " + root.netUpSpeed
+                                    color: panelPal.fg2; font.family: panelPal.fam; font.pixelSize: 11; font.weight: Font.Medium
+                                }
+                            }
+                        }
+
+                        Rectangle { width: parent.width; height: 1; color: panelPal.sep }
+
+                        // ── Top Bar Display Toggles ──
+                        Column {
+                            width: parent.width; spacing: 6
+                            Text {
+                                text: "Show in Menu Bar:"
+                                color: panelPal.fg2
+                                font.family: panelPal.fam; font.pixelSize: 11; font.weight: Font.DemiBold
+                            }
+                            Flow {
+                                width: parent.width; spacing: 5
+                                Repeater {
+                                    model: [
+                                        { id: "cpu",  label: "CPU",  get: () => root.showCpu,  set: v => root.showCpu = v },
+                                        { id: "ram",  label: "RAM",  get: () => root.showRam,  set: v => root.showRam = v },
+                                        { id: "gpu",  label: "GPU",  get: () => root.showGpu,  set: v => root.showGpu = v },
+                                        { id: "disk", label: "Disk", get: () => root.showDisk, set: v => root.showDisk = v },
+                                        { id: "temp", label: "Temp", get: () => root.showTemp, set: v => root.showTemp = v },
+                                        { id: "net",  label: "Net",  get: () => root.showNet,  set: v => root.showNet = v }
+                                    ]
+                                    delegate: Item {
+                                        id: pillItem
+                                        required property var modelData
+                                        width: pillTxt.implicitWidth + 14; height: 22
+                                        readonly property bool active: pillItem.modelData.get()
+                                        Rectangle {
+                                            anchors.fill: parent; radius: 11
+                                            color: pillItem.active ? root.accent : (pillMa.containsMouse ? (panelPal.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.10)) : (panelPal.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.05)))
+                                            Behavior on color { ColorAnimation { duration: 150 } }
+                                        }
+                                        Text {
+                                            id: pillTxt
+                                            anchors.centerIn: parent
+                                            text: pillItem.modelData.label
+                                            color: pillItem.active ? "white" : panelPal.fg
+                                            font.family: panelPal.fam; font.pixelSize: 11; font.weight: Font.Medium
+                                        }
+                                        MouseArea {
+                                            id: pillMa
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: pillItem.modelData.set(!pillItem.active)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle { width: parent.width; height: 1; color: panelPal.sep }
+
+                        // ── Open Full Activity Monitor Button ──
+                        Item {
+                            width: parent.width; height: 28
+                            Rectangle {
+                                anchors.fill: parent; radius: 8
+                                color: root.accent
+                                visible: oma.containsMouse
+                            }
+                            Text {
+                                x: 8; anchors.verticalCenter: parent.verticalCenter
+                                text: "Open Activity Monitor\u2026"
+                                color: oma.containsMouse ? "white" : panelPal.fg
+                                font.family: panelPal.fam; font.pixelSize: 12
+                            }
+                            MouseArea {
+                                id: oma
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    ui.pop = "";
+                                    Quickshell.execDetached(["sh", "-c", "flatpak run org.gnome.SystemMonitor 2>/dev/null || gnome-system-monitor 2>/dev/null || btop 2>/dev/null || htop 2>/dev/null || " + (root.terminal || "kitty") + " -e btop || " + (root.terminal || "kitty") + " -e htop"]);
+                                }
                             }
                         }
                     }

@@ -1644,12 +1644,56 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "CPU & RAM usage"
-                        subtitle: "Display live processor and memory usage on the menu bar"
+                        title: "System monitor on menu bar"
+                        subtitle: "Display live hardware metrics on the top bar. Click to open Activity Monitor popover."
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.showCpuRam : true
                             onToggled: v => { if (root.bar) root.bar.showCpuRam = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: root.bar ? root.bar.showCpuRam : true
+                        title: "System monitor items"
+                        subtitle: "Select metrics to display on the menu bar"
+                        Row {
+                            spacing: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            Repeater {
+                                model: [
+                                    { id: "cpu",  label: "CPU",  get: () => root.bar && root.bar.showCpu,  set: v => { if (root.bar) root.bar.showCpu = v; } },
+                                    { id: "ram",  label: "RAM",  get: () => root.bar && root.bar.showRam,  set: v => { if (root.bar) root.bar.showRam = v; } },
+                                    { id: "gpu",  label: "GPU",  get: () => root.bar && root.bar.showGpu,  set: v => { if (root.bar) root.bar.showGpu = v; } },
+                                    { id: "disk", label: "Disk", get: () => root.bar && root.bar.showDisk, set: v => { if (root.bar) root.bar.showDisk = v; } },
+                                    { id: "temp", label: "Temp", get: () => root.bar && root.bar.showTemp, set: v => { if (root.bar) root.bar.showTemp = v; } },
+                                    { id: "net",  label: "Net",  get: () => root.bar && root.bar.showNet,  set: v => { if (root.bar) root.bar.showNet = v; } }
+                                ]
+                                delegate: Item {
+                                    id: smPill
+                                    required property var modelData
+                                    width: smTxt.implicitWidth + 12; height: 22
+                                    readonly property bool active: smPill.modelData.get()
+                                    Rectangle {
+                                        anchors.fill: parent; radius: 11
+                                        color: smPill.active ? root.accent : (smMa.containsMouse ? (pal.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.10)) : (pal.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.05)))
+                                    }
+                                    Text {
+                                        id: smTxt
+                                        anchors.centerIn: parent
+                                        text: smPill.modelData.label
+                                        color: smPill.active ? "white" : pal.fg
+                                        font.family: pal.fam; font.pixelSize: 11; font.weight: Font.Medium
+                                    }
+                                    MouseArea {
+                                        id: smMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: smPill.modelData.set(!smPill.active)
+                                    }
+                                }
+                            }
                         }
                     }
                     SRow {
@@ -2934,9 +2978,16 @@ Scope {
                 id: lockPane
                 spacing: 10
                 property string slot: "top"
+                property string canvasMode: "both"
                 Component.onCompleted: slotGet.running = true
-                Process { id: slotGet; command: ["sh", "-c", "jq -r '.mediaSlot // \"top\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo top"]
-                          stdout: StdioCollector { onStreamFinished: lockPane.slot = text.trim() === "bottom" ? "bottom" : "top" } }
+                Process { id: slotGet; command: ["sh", "-c", "jq -r '.mediaSlot // \"top\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo top; jq -r '.canvasMode // \"both\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo both"]
+                          stdout: StdioCollector {
+                              onStreamFinished: {
+                                  var lines = text.trim().split("\n");
+                                  lockPane.slot = (lines[0] || "").trim() === "bottom" ? "bottom" : "top";
+                                  lockPane.canvasMode = (lines[1] || "both").trim();
+                              }
+                          } }
                 SCard {
                     t: pal
                     SRow {
@@ -2947,8 +2998,35 @@ Scope {
                             current: lockPane.slot === "bottom" ? 1 : 0
                             onPicked: i => {
                                 lockPane.slot = i === 1 ? "bottom" : "top";
-                                Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/maclock\" && printf '{\\n  \"mediaSlot\": \"%s\"\\n}\\n' \"$1\" > \"$HOME/.config/maclock/settings.json\"", "sh", lockPane.slot]);
+                                Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/maclock\" && tmp=$(mktemp) && jq --arg s \"$1\" '.mediaSlot = $s' \"$HOME/.config/maclock/settings.json\" > \"$tmp\" 2>/dev/null && mv \"$tmp\" \"$HOME/.config/maclock/settings.json\" || printf '{\\n  \"mediaSlot\": \"%s\"\\n}\\n' \"$1\" > \"$HOME/.config/maclock/settings.json\"", "sh", lockPane.slot]);
                             }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Animated Album Canvas"
+                        subtitle: lockPane.canvasMode === "applemusic" ? "Apple Music Motion Artwork only (1080p)"
+                                : (lockPane.canvasMode === "spotify" ? "Spotify Canvas only"
+                                : (lockPane.canvasMode === "off" ? "Disabled, static artwork only"
+                                : "Auto: Apple Music priority with Spotify Canvas fallback"))
+                        SSegmented {
+                            t: pal; model: ["Auto (Both)", "Apple Music", "Spotify", "Off"]; segWidth: 85
+                            current: lockPane.canvasMode === "applemusic" ? 1
+                                   : (lockPane.canvasMode === "spotify" ? 2
+                                   : (lockPane.canvasMode === "off" ? 3 : 0))
+                            onPicked: i => {
+                                var m = i === 1 ? "applemusic" : (i === 2 ? "spotify" : (i === 3 ? "off" : "both"));
+                                lockPane.canvasMode = m;
+                                Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/maclock\" && tmp=$(mktemp) && jq --arg cm \"$1\" '.canvasMode = $cm' \"$HOME/.config/maclock/settings.json\" > \"$tmp\" 2>/dev/null && mv \"$tmp\" \"$HOME/.config/maclock/settings.json\" || printf '{\\n  \"canvasMode\": \"%s\"\\n}\\n' \"$1\" > \"$HOME/.config/maclock/settings.json\"", "sh", m]);
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: "Desktop Now Playing Canvas"
+                        subtitle: "Show animated album canvas in desktop Now Playing widget"
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? (root.bar.desktopCanvas !== false) : true
+                            onToggled: v => { if (root.bar) root.bar.desktopCanvas = v; }
                         }
                     }
                     SRow {

@@ -79,6 +79,7 @@ ShellRoot {
         property string npMode: Quickshell.env("MACLOCK_NP") || (Quickshell.env("MACLOCK_ART") === "1" ? "art" : "")
 
         property bool spatial3D: true
+        property string canvasMode: "both"
         function setMediaSlot(v) {
             if (v === mediaSlot) return;
             mediaSlot = v;
@@ -89,8 +90,13 @@ ShellRoot {
             spatial3D = v;
             saveSettings();
         }
+        function setCanvasMode(v) {
+            if (v === canvasMode) return;
+            canvasMode = v;
+            saveSettings();
+        }
         function saveSettings() {
-            saveProc.command = ["sh", "-c", "mkdir -p \"$HOME/.config/maclock\" && jq -n --arg slot \"$1\" --argjson s3d \"$2\" '{mediaSlot: $slot, spatial3D: $s3d}' > \"$HOME/.config/maclock/settings.json\"", "sh", mediaSlot, spatial3D ? "true" : "false"];
+            saveProc.command = ["sh", "-c", "mkdir -p \"$HOME/.config/maclock\" && jq -n --arg slot \"$1\" --argjson s3d \"$2\" --arg cm \"$3\" '{mediaSlot: $slot, spatial3D: $s3d, canvasMode: $cm}' > \"$HOME/.config/maclock/settings.json\"", "sh", mediaSlot, spatial3D ? "true" : "false", canvasMode];
             saveProc.running = true;
         }
         function checkCaps() { if (!capsProc.running) capsProc.running = true; }
@@ -200,6 +206,7 @@ ShellRoot {
             + "nmcli -t -f TYPE,STATE dev 2>/dev/null | grep -q '^ethernet:connected$' && echo eth || echo -; "
             + "jq -r '.mediaSlot // \"top\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo top; "
             + "jq -r '.spatial3D // true' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo true; "
+            + "jq -r '.canvasMode // \"both\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo both; "
             + "[ \"$(jq -r '.uiSounds' \"$HOME/.config/macbar/settings.json\" 2>/dev/null)\" != false ] && [ ! -f \"${XDG_RUNTIME_DIR:-/tmp}/macshell-gaming.state\" ] && echo snd || echo -; "
             + "jq -r '.lockArtBackground' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.use24h' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
@@ -214,10 +221,11 @@ ShellRoot {
                 lockState.ethernet = (l[3] || "").trim() === "eth";
                 lockState.mediaSlot = (l[4] || "top").trim() === "bottom" ? "bottom" : "top";
                 lockState.spatial3D = (l[5] || "true").trim() !== "false";
-                lockState.sounds = (l[6] || "").trim() === "snd";
-                lockState.artBg = (l[7] || "true").trim() !== "false";
-                lockState.use24h = (l[8] || "true").trim() !== "false";
-                if (!Quickshell.env("MACLOCK_CLOCK")) { try { lockState.clockCfg = JSON.parse((l[9] || "{}").trim() || "{}"); } catch (e) { } }
+                lockState.canvasMode = (l[6] || "both").trim();
+                lockState.sounds = (l[7] || "").trim() === "snd";
+                lockState.artBg = (l[8] || "true").trim() !== "false";
+                lockState.use24h = (l[9] || "true").trim() !== "false";
+                if (!Quickshell.env("MACLOCK_CLOCK")) { try { lockState.clockCfg = JSON.parse((l[10] || "{}").trim() || "{}"); } catch (e) { } }
                 if (!root.preview) lockState.sound("lock");
             }
         }
