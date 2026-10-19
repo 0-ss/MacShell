@@ -7112,9 +7112,10 @@ Scope {
                             }
                             Column {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 62 - 10
                                 spacing: 1
-                                Text { text: I18n.tr("Focus"); color: tl.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                MorphText { animateWidth: false; duration: 420; text: root.dnd ? I18n.tr("On") : I18n.tr("Off"); color: tl.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
+                                Text { width: parent.width; elide: Text.ElideRight; text: I18n.tr("Focus"); color: tl.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                MorphText { animateWidth: false; duration: 420; width: parent.width; elide: Text.ElideRight; text: root.dnd ? I18n.tr("On") : I18n.tr("Off"); color: tl.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
                             }
                         }
                     }

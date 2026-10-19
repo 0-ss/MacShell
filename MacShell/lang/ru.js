@@ -137,7 +137,7 @@ var strings = {
     "Wallpaper": "Обои",
     "Notifications": "Уведомления",
     "Sound": "Звук",
-    "Focus": "Фокусирование",
+    "Focus": "Фокус",
     "Users & Groups": "Пользователи и группы",
     "Keyboard": "Клавиатура",
     "Mouse": "Мышь",
