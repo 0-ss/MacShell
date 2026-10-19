@@ -141,6 +141,8 @@ Scope {
     property int cornerRadius: 18
     property int margin: 6
     property bool darkMode: true
+    // the dock keeps one fixed look (dark): switching the system between Light and Dark does not change its colours
+    readonly property bool dockDark: true
     property string appearanceMode: "dark"      // light | dark | auto (kept in step with the Menu Bar, see setAppearance)
     property string dockStyle: "blur"   // "blur" = Normal Blur, "liquid" = Apple Liquid Glass
     // Liquid Glass tuning (settings.json): rim = edge highlight, grain = noise, liquid = refraction depth
@@ -914,7 +916,7 @@ Scope {
                             property real blurPx: 1.5
                             property real tintMix: root.glassOpacity * 0.5
                             property real saturation: 1.25
-                            property real dark: root.darkMode ? 1 : 0
+                            property real dark: root.dockDark ? 1 : 0
                             property real debug: 0
                             property real shadowAmt: 0.6
                             property real rimTint: 0
@@ -1073,7 +1075,28 @@ Scope {
                 }
 
                 // pane list (scrolls; sections separated by a gap, like System Settings)
+                // feather: the list dissolves at the top / bottom edge wherever more rows are hidden beyond it
+                Item {
+                    id: navFeather
+                    visible: false; layer.enabled: true
+                    width: navFlick.width; height: navFlick.height
+                    readonly property real size: 26
+                    readonly property real topFade: Math.max(0, Math.min(1, navFlick.contentY / 18))
+                    readonly property real bottomFade: Math.max(0, Math.min(1, (navFlick.contentHeight - navFlick.height - navFlick.contentY) / 18))
+                    Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 1 - navFeather.topFade) }
+                            GradientStop { position: Math.min(0.49, navFeather.size / Math.max(1, navFeather.height)); color: "black" }
+                            GradientStop { position: Math.max(0.51, 1 - navFeather.size / Math.max(1, navFeather.height)); color: "black" }
+                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 1 - navFeather.bottomFade) }
+                        }
+                    }
+                }
                 Flickable {
+                    id: navFlick
+                    layer.enabled: true
+                    layer.effect: MultiEffect { maskEnabled: true; maskSource: navFeather }
                     x: 10; y: acct.visible ? 150 : 92
                     width: parent.width - 20
                     height: parent.height - y - 8
@@ -1204,8 +1227,28 @@ Scope {
             }
 
             // ───────── scrolling content ─────────
+            // feather: pages dissolve into the toolbar as they scroll under it (no hard cut at the top edge)
+            Item {
+                id: flickFeather
+                visible: false; layer.enabled: true
+                width: flick.width; height: flick.height
+                readonly property real size: 34
+                readonly property real topFade: Math.max(0, Math.min(1, flick.contentY / 24))
+                readonly property real bottomFade: 0
+                Rectangle {
+                    anchors.fill: parent
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 1 - flickFeather.topFade) }
+                        GradientStop { position: Math.min(0.49, flickFeather.size / Math.max(1, flickFeather.height)); color: "black" }
+                        GradientStop { position: Math.max(0.51, 1 - flickFeather.size / Math.max(1, flickFeather.height)); color: "black" }
+                        GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 1 - flickFeather.bottomFade) }
+                    }
+                }
+            }
             Flickable {
                 id: flick
+                layer.enabled: true
+                layer.effect: MultiEffect { maskEnabled: true; maskSource: flickFeather }
                 x: sidebar.x + sidebar.width + 1
                 y: 52
                 width: parent.width - sidebar.x - sidebar.width - 2
@@ -1890,10 +1933,10 @@ Scope {
                         width: prow.width + 16
                         height: pv.base + 14
                         radius: root.cornerRadius * 0.6
-                        color: root.darkMode ? Qt.rgba(0.10, 0.10, 0.11, root.glassOpacity)
+                        color: root.dockDark ? Qt.rgba(0.10, 0.10, 0.11, root.glassOpacity)
                                              : Qt.rgba(1, 1, 1, root.glassOpacity * 0.55)
                         border.width: 1
-                        border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.45)
+                        border.color: root.dockDark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.45)
                     }
                     Row {
                         id: prow
@@ -3105,7 +3148,7 @@ Scope {
                             Quickshell.execDetached(["sh", "-c", "MACLOCK_PREVIEW=1 MACLOCK_CLOCK=\"$1\" timeout 6 qs -c MacLock >/dev/null 2>&1", "sh", cfg]);
                         }
                     }
-                    SButton { t: pal; text: "Lock Screen Now"; onClicked: { prefsWindow.visible = false; Quickshell.execDetached(["loginctl", "lock-session"]); } }
+                    SButton { t: pal; text: "Lock Screen Now"; onClicked: { prefsWindow.visible = false; Quickshell.execDetached(["sh", "-c", "pgrep -f -- \"-c [M]acLock\" >/dev/null 2>&1 || qs -c MacLock"]); } }
                 }
             }
         }
@@ -3578,7 +3621,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: "Version 0.0.7 \u2022 Hyprland \u2022 Quickshell"
+                            text: "Version 0.1.5 \u2022 Hyprland \u2022 Quickshell"
                             color: pal.text2
                             font.family: pal.fam
                             font.pixelSize: 12
@@ -4943,7 +4986,7 @@ Scope {
                                 property real blurPx: 1.5            // tiny residual smoothing; the real blur is the MultiEffect pre-pass
                                 property real tintMix: root.glassOpacity * 0.55
                                 property real saturation: 1.25
-                                property real dark: root.darkMode ? 1 : 0
+                                property real dark: root.dockDark ? 1 : 0
                                 property real debug: root.glassDebug ? 1 : 0
                                 property real shadowAmt: 1
                                 property real rimTint: 0
@@ -4956,10 +4999,10 @@ Scope {
                         visible: !root.liquidActive
                         anchors.fill: parent
                         radius: root.cornerRadius
-                        color: root.darkMode ? Qt.rgba(0.10, 0.10, 0.11, root.glassOpacity)
+                        color: root.dockDark ? Qt.rgba(0.10, 0.10, 0.11, root.glassOpacity)
                                              : Qt.rgba(1, 1, 1, root.glassOpacity * 0.55)
                         border.width: 1
-                        border.color: root.darkMode ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(0, 0, 0, 0.12)
+                        border.color: root.dockDark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(0, 0, 0, 0.12)
 
                         Rectangle {
                             anchors.fill: parent
@@ -4967,7 +5010,7 @@ Scope {
                             radius: parent.radius - 1
                             color: "transparent"
                             border.width: 1
-                            border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.45)
+                            border.color: root.dockDark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.45)
                         }
                     }
 
@@ -5045,7 +5088,7 @@ Scope {
                                     width: 1
                                     height: root.iconSize * 0.85
                                     anchors.centerIn: parent
-                                    color: root.darkMode ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(0, 0, 0, 0.22)
+                                    color: root.dockDark ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(0, 0, 0, 0.22)
                                 }
 
                                 Image {
@@ -5120,7 +5163,7 @@ Scope {
                                         radius: 3
                                         color: ma.pressed ? Qt.rgba(0, 0, 0, 0.3) : "transparent"
                                         border.width: 1
-                                        border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(0, 0, 0, 0.28)
+                                        border.color: root.dockDark ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(0, 0, 0, 0.28)
                                     }
                                 }
                                 // small app icon in the corner, so you can tell which app the window belongs to
@@ -5142,7 +5185,7 @@ Scope {
                                 Rectangle {
                                     visible: !cell.isSep && cell.modelData.running && root.showIndicators
                                     width: 4; height: 4; radius: 2
-                                    color: root.darkMode ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(0, 0, 0, 0.6)
+                                    color: root.dockDark ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(0, 0, 0, 0.6)
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     y: cell.height + 3
                                 }

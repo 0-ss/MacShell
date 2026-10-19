@@ -188,6 +188,21 @@ void main()
         col = mix(col, rimCol, ring * (0.55 + 0.35 * clamp(facing * 0.5 + 0.5, 0.0, 1.0)));
     }
 
+    // ringW < 0: "corner light" border. A line (|ringW| px) that runs all the way round the glass and fades out only at the
+    // top-right and bottom-left corners, and takes a bright shade of the backdrop colour at that spot (dynamic: it follows what
+    // is behind the glass). Used by the Control Center; everything else keeps ringW >= 0 and is unchanged.
+    if (ringW < 0.0) {
+        float rw   = -ringW;
+        float ring = 1.0 - smoothstep(rw * 0.5, rw * 0.5 + 1.0, t);
+        float glow = exp(-t / (rw * 2.2)) * 0.30;
+        float fall = max(r * 3.0, 26.0);
+        float wTR  = pow(clamp(1.0 - length(q - vec2( hs.x, -hs.y)) / fall, 0.0, 1.0), 1.2);
+        float wBL  = pow(clamp(1.0 - length(q - vec2(-hs.x,  hs.y)) / fall, 0.0, 1.0), 1.2);
+        float cw   = 1.0 - max(wTR, wBL);
+        vec3  ringCol = clamp(col * 2.0 + 0.18, 0.0, 1.0);
+        col = mix(col, ringCol, clamp((ring + glow) * cw, 0.0, 1.0) * 0.95);
+    }
+
     // fine triangular-distribution grain, same on every channel so it reads as texture, not colour noise
     float gn = hash12(gl_FragCoord.xy) + hash12(gl_FragCoord.xy * 1.7 + 17.0) - 1.0;
     col += gn * grain;
