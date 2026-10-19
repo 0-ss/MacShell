@@ -190,34 +190,65 @@ def get_spotify_track_id(expected_title=None):
     return ""
 
 def is_full_hd(video_path):
-    """Check if video is already scaled to 1920x1080 Full HD."""
+    """Check if video is already rendered in 1920x1080 ambient centered format."""
+    try:
+        out = subprocess.run([
+            'ffprobe', '-v', 'error',
+            '-show_entries', 'format_tags=comment:stream=width,height',
+            '-of', 'default=noprint_wrappers=1',
+            video_path
+        ], capture_output=True, text=True, timeout=1.5)
+        text = out.stdout.strip()
+        return out.returncode == 0 and '1920' in text and '1080' in text and 'ambient_fhd' in text
+    except Exception:
+        return False
+
+def get_video_dimensions(video_path):
     try:
         out = subprocess.run([
             'ffprobe', '-v', 'error', '-select_streams', 'v:0',
             '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0',
             video_path
         ], capture_output=True, text=True, timeout=1.5)
-        return out.returncode == 0 and '1920x1080' in out.stdout.strip()
+        if out.returncode == 0:
+            parts = out.stdout.strip().split('x')
+            if len(parts) == 2:
+                return int(parts[0]), int(parts[1])
     except Exception:
-        return False
+        pass
+    return 1920, 1080
 
 def scale_to_full_hd(src_video, dest_video):
     """
-    Scale / crop video to pristine 1920x1080 Full HD (16:9) using high-quality
-    Lanczos filtering and subtle unsharp enhancement so it renders 1:1 pixel-perfect
-    on desktop screens without runtime bilinear scaling blur.
+    Scale video to 1920x1080 Full HD without cropping out subjects/characters!
+    - If vertical (9:16), iPad (3:4), or square (1:1):
+      Fills 1920x1080 with ambient blurred motion background so no black bars,
+      and places the uncropped original video in the center (scaled to 1080 height)
+      preserving 100% of the character, artwork, and typography.
+    - If already widescreen (16:9), scales directly to 1920x1080.
     """
     try:
+        w, h = get_video_dimensions(src_video)
+        aspect = (w / h) if h > 0 else 1.77
         temp_out = dest_video + ".fhd_tmp.mp4"
+
+        if aspect >= 1.65:
+            filter_args = ['-vf', 'scale=1920:1080:flags=lanczos,unsharp=5:5:0.4:5:5:0.0']
+        else:
+            # Ambient blurred background (fast downscaled blur) + centered uncropped subject
+            vf = '[0:v]scale=320:180:force_original_aspect_ratio=increase,crop=320:180,boxblur=8:1,scale=1920:1080:flags=bilinear,eq=brightness=-0.08:saturation=1.2[bg];[0:v]scale=-2:1080:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:0'
+            filter_args = ['-filter_complex', vf]
+
         cmd = [
             'ffmpeg', '-y', '-loglevel', 'error',
-            '-i', src_video,
-            '-vf', 'scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,unsharp=5:5:0.5:5:5:0.0',
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '17',
+            '-i', src_video
+        ] + filter_args + [
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18',
             '-pix_fmt', 'yuv420p',
+            '-metadata', 'comment=ambient_fhd',
             temp_out
         ]
-        res = subprocess.run(cmd, timeout=25)
+        res = subprocess.run(cmd, timeout=35)
         if res.returncode == 0 and os.path.exists(temp_out) and os.path.getsize(temp_out) > 10000:
             os.replace(temp_out, dest_video)
             return True
@@ -474,27 +505,30 @@ def main():
     art_url = sys.argv[4] if len(sys.argv) > 4 else ""
     track_id = sys.argv[5] if len(sys.argv) > 5 else ""
 
+    # 1. Immediately fetch and emit local art so QML displays cover art & blurred background in < 0.05s
     local_art = fetch_local_art(art_url, artist, title)
+    if local_art:
+        print(json.dumps({"type": "art", "localArt": local_art}), flush=True)
 
     if not track_id:
         track_id = get_spotify_track_id(title)
 
     key_base = f"{artist} - {title}".strip(" -")
     if not key_base and not track_id:
-        print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none", "localArt": local_art}))
+        print(json.dumps({"type": "video", "success": False, "videoPath": "", "isOfficial": False, "source": "none", "localArt": local_art}), flush=True)
         return
 
     sanitized_name = sanitize(key_base)
     name_path = os.path.join(CACHE_DIR, f"{sanitized_name}.mp4") if sanitized_name else ""
 
-    # 1. Check local cache files for real Apple Music files (skip old Spotify symlinks)
+    # 2. Check local cache files for real Apple Music files (skip old Spotify symlinks)
     if name_path and os.path.exists(name_path) and not os.path.islink(name_path) and os.path.getsize(name_path) > 10000:
         ensure_full_hd(name_path)
         mark_used(name_path)
-        print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "cache", "localArt": local_art}))
+        print(json.dumps({"type": "video", "success": True, "videoPath": name_path, "isOfficial": True, "source": "cache", "localArt": local_art}), flush=True)
         return
 
-    # 2. Priority 1: Apple Music Motion Artwork (high resolution, optimal desktop aspect ratio)
+    # 3. Priority 1: Apple Music Motion Artwork (high resolution, optimal desktop aspect ratio)
     target_apple_path = os.path.join(CACHE_DIR, f"{sanitized_name or (track_id or 'apple_motion')}.mp4")
     # If an old symlink exists at target path, remove it so real Apple Music file can replace it
     if os.path.islink(target_apple_path):
@@ -509,14 +543,14 @@ def main():
                 os.symlink(target_apple_path, os.path.join(CACHE_DIR, f"{track_id}.mp4"))
             except Exception:
                 pass
-        print(json.dumps({"success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic", "localArt": local_art}))
+        print(json.dumps({"type": "video", "success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic", "localArt": local_art}), flush=True)
         return
 
-    # 3. Priority 2: Apple Music not found -> Check existing Spotify cache
+    # 4. Priority 2: Apple Music not found -> Check existing Spotify cache
     if name_path and os.path.exists(name_path) and os.path.getsize(name_path) > 10000:
         ensure_full_hd(name_path)
         mark_used(name_path)
-        print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "spotify", "localArt": local_art}))
+        print(json.dumps({"type": "video", "success": True, "videoPath": name_path, "isOfficial": True, "source": "spotify", "localArt": local_art}), flush=True)
         return
 
     if track_id:
@@ -524,10 +558,10 @@ def main():
         if os.path.exists(id_path) and os.path.getsize(id_path) > 10000:
             ensure_full_hd(id_path)
             mark_used(id_path)
-            print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True, "source": "spotify", "localArt": local_art}))
+            print(json.dumps({"type": "video", "success": True, "videoPath": id_path, "isOfficial": True, "source": "spotify", "localArt": local_art}), flush=True)
             return
 
-    # 3. Priority 2: Spotify Canvas (fallback if Apple Music motion artwork is not available)
+    # 5. Priority 2: Spotify Canvas (fallback if Apple Music motion artwork is not available)
     canvas_mp4_url = None
     if track_id:
         sp_dc = get_firefox_sp_dc()
@@ -548,11 +582,11 @@ def main():
                         os.symlink(save_path, name_path)
                 except Exception:
                     pass
-            print(json.dumps({"success": True, "videoPath": save_path, "isOfficial": True, "source": "spotify", "localArt": local_art}))
+            print(json.dumps({"type": "video", "success": True, "videoPath": save_path, "isOfficial": True, "source": "spotify", "localArt": local_art}), flush=True)
             return
 
-    # 4. Neither exists -> Fall back cleanly to blurred album art background
-    print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none", "localArt": local_art}))
+    # 6. Neither exists -> Fall back cleanly to blurred album art background
+    print(json.dumps({"type": "video", "success": False, "videoPath": "", "isOfficial": False, "source": "none", "localArt": local_art}), flush=True)
 
 if __name__ == "__main__":
     main()

@@ -1232,16 +1232,24 @@ Item {
     }
     Process {
         id: canvasProc
-        stdout: StdioCollector {
-            onStreamFinished: {
+        stdout: SplitParser {
+            onRead: line => {
+                var s = line.trim();
+                if (s === "") return;
+                var o;
                 try {
-                    var s = String(text || "{}").trim();
                     var b1 = s.indexOf("{"), b2 = s.lastIndexOf("}");
-                    var o = (b1 >= 0 && b2 > b1) ? JSON.parse(s.substring(b1, b2 + 1)) : JSON.parse(s);
-                    if (o && o.localArt) {
+                    o = (b1 >= 0 && b2 > b1) ? JSON.parse(s.substring(b1, b2 + 1)) : JSON.parse(s);
+                } catch (e) { return; }
+                if (!o) return;
+
+                if (o.type === "art" || o.localArt) {
+                    if (o.localArt) {
                         ls.localCoverUrl = "file://" + o.localArt;
                     }
-                    if (o && o.success && o.videoPath) {
+                }
+                if (o.type === "video" || o.videoPath !== undefined) {
+                    if (o.success && o.videoPath) {
                         ls.canvasVideo = o.videoPath;
                         ls.canvasOfficial = !!o.isOfficial;
                         ls.canvasSource = o.source || "";
@@ -1250,9 +1258,6 @@ Item {
                         ls.canvasOfficial = false;
                         ls.canvasSource = "";
                     }
-                } catch (e) {
-                    ls.canvasVideo = "";
-                    ls.canvasSource = "";
                 }
             }
         }
@@ -1263,12 +1268,15 @@ Item {
     property string lyrStatus: "idle"      // idle | loading | synced | plain | none
     readonly property string trackKey: (media.pl ? (media.pl.trackArtist || "") + "\u0001" + (media.pl.trackTitle || "") : "") + "\u0001" + ls.coverUrl
     onTrackKeyChanged: {
+        ls.canvasVideo = "";
+        ls.canvasSource = "";
+        ls.canvasOfficial = false;
         ls.localCoverUrl = "";
         lyrFetchDelay.restart();
         canvasFetchDelay.restart();
     }
     Timer { id: lyrFetchDelay; interval: 400; onTriggered: { ls.lyrTries = 0; ls.fetchLyrics(); } }
-    Timer { id: canvasFetchDelay; interval: 50; onTriggered: ls.fetchCanvas() }
+    Timer { id: canvasFetchDelay; interval: 20; onTriggered: ls.fetchCanvas() }
     property int lyrTries: 0
     Timer { id: lyrRetry; interval: 12000; onTriggered: ls.fetchLyrics() }
     readonly property string lyricsScript: decodeURIComponent(Qt.resolvedUrl("lyrics_fetcher.py").toString().replace(/^file:\/\//, ""))
