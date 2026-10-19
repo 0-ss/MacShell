@@ -20,8 +20,9 @@ Item {
     property bool paused: false
     property string screenName: ""
     property bool desktopCovered: false
+    property bool appFocused: false
     readonly property bool isHovered: hoverArea.hovered
-    readonly property bool isCovered: desktopCovered && !isHovered
+    readonly property bool isCovered: (desktopCovered || appFocused) && !isHovered && !editing
 
     readonly property bool isSmall: size === "small"
     readonly property bool isMedium: size === "medium"

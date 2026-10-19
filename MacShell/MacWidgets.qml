@@ -739,6 +739,7 @@ Scope {
             id: win
             required property var modelData
             screen: modelData
+            readonly property bool screenCovered: root.hub ? root.hub.isScreenCovered(win.modelData.name) : false
             anchors { left: true; right: true; top: true; bottom: true }
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore
@@ -816,6 +817,7 @@ Scope {
                             wtype: ww.wtype; wstyle: ww.wstyle; wsize: ww.wsize; wmode: ww.wmode; wsrc: ww.wsrc
                             sx: ww.x; sy: ww.y
                             sname: win.modelData.name; sw: win.modelData.width; sh: win.modelData.height
+                            screenCovered: win.screenCovered
                         }
 
                         scale: dragArea.pressed ? 1.03 : 1.0

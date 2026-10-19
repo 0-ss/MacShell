@@ -16,6 +16,7 @@ Item {
     property string sname: ""            // screen name
     property real sw: 1920
     property real sh: 1080
+    property bool screenCovered: false
         Component {
             id: weatherVisual
             WeatherWidget {
@@ -138,6 +139,8 @@ Item {
                 glassGrain: host.glassGrain
                 darkGlass: host.darkGlass
                 editing: host.editing
+                desktopCovered: v.screenCovered
+                appFocused: host.hub ? host.hub.appFocused : false
                 onSeek: seconds => { if (host.player && host.player.canSeek) host.player.position = seconds; }
                 onTogglePlaying: { if (host.player && host.player.canTogglePlaying) host.player.togglePlaying(); }
                 onNextTrack: { if (host.player && host.player.canGoNext) host.player.next(); }
@@ -208,6 +211,8 @@ Item {
                 glassGrain: host.glassGrain
                 darkGlass: host.darkGlass
                 editing: host.editing
+                desktopCovered: v.screenCovered
+                appFocused: host.hub ? host.hub.appFocused : false
                 onGlassFailed: host.glassState = "failed"
             }
         }
@@ -245,7 +250,8 @@ Item {
                 darkGlass: host.darkGlass
                 editing: host.editing
                 screenName: v.sname
-                desktopCovered: host.dock && host.dock.busyMonitors ? (host.dock.busyMonitors[v.sname] === true) : false
+                desktopCovered: v.screenCovered
+                appFocused: host.hub ? host.hub.appFocused : false
             }
         }
         Component {

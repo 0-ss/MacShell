@@ -90,13 +90,22 @@ Item {
     property bool playing: false
     property real position: 0                // seconds
     property real length: 0                  // seconds (0 = unknown)
+    // ── background resource throttling / occlusion (macOS App Nap) ──
+    property bool desktopCovered: false
+    property bool appFocused: false
+    readonly property bool isHovered: hoverHandler.hovered
+    readonly property bool occluded: (desktopCovered || appFocused) && !isHovered && !editing
+
+    HoverHandler { id: hoverHandler }
+
     property real livePos: position
     property real liveAt: Date.now()
     onPositionChanged: { livePos = position; liveAt = Date.now(); }
     Timer {
+        id: lyricsTick
         interval: 40
         repeat: true
-        running: w.playing && w.lyricsOn
+        running: w.playing && w.lyricsOn && !w.occluded
         onTriggered: {
             if (w.playing) {
                 var delta = (Date.now() - w.liveAt) / 1000;
@@ -104,7 +113,24 @@ Item {
             }
         }
     }
-    readonly property real evalPos: (w.playing && w.lyricsOn) ? w.livePos : w.position
+    readonly property real evalPos: (w.playing && (w.lyricsOn || w.canvasVideo !== "")) ? w.livePos : w.position
+
+    onOccludedChanged: {
+        if (!occluded) {
+            if (w.playing) {
+                var delta = (Date.now() - w.liveAt) / 1000;
+                w.livePos = w.position + delta;
+            }
+            if (w.lyricsView && w.lyricsSynced) {
+                Qt.callLater(() => {
+                    var idx = w.lyricIdx;
+                    if (idx >= 0 && typeof lyrList !== "undefined" && lyrList) {
+                        lyrList.positionViewAtIndex(idx, ListView.Center);
+                    }
+                });
+            }
+        }
+    }
 
     property bool shuffle: false
     property int loop: 0                     // 0 = off, 1 = repeat song, 2 = repeat all
@@ -377,7 +403,7 @@ Item {
                 id: bsrc
                 sourceItem: backdrop
                 hideSource: true
-                live: w.editing || gl.updating
+                live: (w.editing || gl.updating) && !w.occluded
                 visible: false
                 textureSize: Qt.size(Math.max(1, Math.round(backdrop.width * gl.ds)),
                                      Math.max(1, Math.round(backdrop.height * gl.ds)))
@@ -396,7 +422,7 @@ Item {
             ShaderEffectSource {
                 id: blurred
                 sourceItem: blurFx
-                live: w.editing || gl.updating
+                live: (w.editing || gl.updating) && !w.occluded
                 visible: false
             }
             ShaderEffect {

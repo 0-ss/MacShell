@@ -16,6 +16,12 @@ Item {
     property real screenX: x
     property real screenY: y
     property bool editing: false
+    property bool desktopCovered: false
+    property bool appFocused: false
+    readonly property bool isHovered: hoverHandler.hovered
+    readonly property bool occluded: (desktopCovered || appFocused) && !isHovered && !editing
+
+    HoverHandler { id: hoverHandler }
 
     // Liquid Glass properties
     property bool glassReady: false
@@ -86,12 +92,15 @@ Item {
 
     Timer {
         interval: 3000
-        running: true
+        running: !w.occluded
         repeat: true
         triggeredOnStart: true
         onTriggered: {
             if (!sysProc.running) sysProc.running = true;
         }
+    }
+    onOccludedChanged: {
+        if (!occluded && !sysProc.running) sysProc.running = true;
     }
 
     // ───────────── Backdrop ─────────────

@@ -19,6 +19,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import Quickshell.Hyprland
 
 ShellRoot {
@@ -41,6 +42,16 @@ ShellRoot {
         property var airdrop: airDrop
         property var reminders: remindersApp
         function openSettings(pane) { macDock.openPrefs(pane); }
+
+        // ── macOS App Nap / Resource Throttling: detect when user is focused on an application ──
+        readonly property var activeTl: ToplevelManager.activeToplevel
+        readonly property bool appFocused: activeTl !== null && (activeTl.appId !== "org.quickshell" || activeTl.title === "" || activeTl.title === "Clock" || activeTl.title === "App Store")
+        readonly property string activeMonName: Hyprland.focusedMonitor ? Hyprland.focusedMonitor.name : ""
+        readonly property var busyMonitors: macDock ? macDock.busyMonitors : ({})
+        function isScreenCovered(screenName) {
+            if (!screenName) return appFocused;
+            return (busyMonitors[screenName] === true) || (appFocused && (activeMonName === "" || activeMonName === screenName));
+        }
 
         // set by MacBar / MacDock (Binding elements) when their glass needs live data
         property bool barWantsGeo: false
