@@ -208,7 +208,7 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    `yay` for you) or the Fedora COPR. It also enables the `bluetooth` service, which Bluetooth needs.
    `bash install.sh --deps-only` does just this step.
    Hyprland 0.55+ with a Lua config may need a newer package than your distro ships, so check `hyprctl version`.
-   Debian/Ubuntu have no `quickshell` / `hyprland` packages: build those from source.
+   Debian 13 has `quickshell` and `hyprland` in `trixie-backports` (see [docs/DEBIAN.md](docs/DEBIAN.md)); on Ubuntu build them from source.
 2. Run the installer, either from a clone:
    ```sh
    git clone https://github.com/0-ss/MacShell
