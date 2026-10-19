@@ -190,65 +190,34 @@ def get_spotify_track_id(expected_title=None):
     return ""
 
 def is_full_hd(video_path):
-    """Check if video is already rendered in 1920x1080 ambient centered format."""
-    try:
-        out = subprocess.run([
-            'ffprobe', '-v', 'error',
-            '-show_entries', 'format_tags=comment:stream=width,height',
-            '-of', 'default=noprint_wrappers=1',
-            video_path
-        ], capture_output=True, text=True, timeout=1.5)
-        text = out.stdout.strip()
-        return out.returncode == 0 and '1920' in text and '1080' in text and 'ambient_fhd' in text
-    except Exception:
-        return False
-
-def get_video_dimensions(video_path):
+    """Check if video is already scaled to 1920x1080 Full HD."""
     try:
         out = subprocess.run([
             'ffprobe', '-v', 'error', '-select_streams', 'v:0',
             '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0',
             video_path
         ], capture_output=True, text=True, timeout=1.5)
-        if out.returncode == 0:
-            parts = out.stdout.strip().split('x')
-            if len(parts) == 2:
-                return int(parts[0]), int(parts[1])
+        return out.returncode == 0 and '1920x1080' in out.stdout.strip()
     except Exception:
-        pass
-    return 1920, 1080
+        return False
 
 def scale_to_full_hd(src_video, dest_video):
     """
-    Scale video to 1920x1080 Full HD without cropping out subjects/characters!
-    - If vertical (9:16), iPad (3:4), or square (1:1):
-      Fills 1920x1080 with ambient blurred motion background so no black bars,
-      and places the uncropped original video in the center (scaled to 1080 height)
-      preserving 100% of the character, artwork, and typography.
-    - If already widescreen (16:9), scales directly to 1920x1080.
+    Scale / crop video to pristine 1920x1080 Full HD (16:9) using high-quality
+    Lanczos filtering and subtle unsharp enhancement so it renders 1:1 pixel-perfect
+    full-bleed wallpaper on desktop screens without runtime bilinear scaling blur.
     """
     try:
-        w, h = get_video_dimensions(src_video)
-        aspect = (w / h) if h > 0 else 1.77
         temp_out = dest_video + ".fhd_tmp.mp4"
-
-        if aspect >= 1.65:
-            filter_args = ['-vf', 'scale=1920:1080:flags=lanczos,unsharp=5:5:0.4:5:5:0.0']
-        else:
-            # Ambient blurred background (fast downscaled blur) + centered uncropped subject
-            vf = '[0:v]scale=320:180:force_original_aspect_ratio=increase,crop=320:180,boxblur=8:1,scale=1920:1080:flags=bilinear,eq=brightness=-0.08:saturation=1.2[bg];[0:v]scale=-2:1080:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:0'
-            filter_args = ['-filter_complex', vf]
-
         cmd = [
             'ffmpeg', '-y', '-loglevel', 'error',
-            '-i', src_video
-        ] + filter_args + [
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18',
+            '-i', src_video,
+            '-vf', 'scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,unsharp=5:5:0.5:5:5:0.0',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '17',
             '-pix_fmt', 'yuv420p',
-            '-metadata', 'comment=ambient_fhd',
             temp_out
         ]
-        res = subprocess.run(cmd, timeout=35)
+        res = subprocess.run(cmd, timeout=30)
         if res.returncode == 0 and os.path.exists(temp_out) and os.path.getsize(temp_out) > 10000:
             os.replace(temp_out, dest_video)
             return True
