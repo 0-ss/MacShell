@@ -803,6 +803,8 @@ Scope {
         property real strength: 1.0         // liquid glass strength multiplier
         property real rim: 0.45
         property real rimTint: 0            // 1 = rim + border line take a brighter shade of the glass's own local colour
+        property real shadowAmt: 1          // outer drop shadow (0 = none)
+        property real flatInner: 0          // 1 = no darker inner edge shading (needs the rebuilt liquidglass shader)
         property real ringW: 0              // width (px) of the thin border line along the edge, 0 = none
         property real grain: 0.03
         property real blur: 5               // backdrop blur radius, px (settings slider)
@@ -903,7 +905,8 @@ Scope {
                     property real saturation: 1.25
                     property real dark: g.dark ? 1 : 0
                     property real debug: g.debug ? 1 : 0
-                    property real shadowAmt: 1
+                    property real shadowAmt: g.shadowAmt
+                    property real flatInner: g.flatInner
                     property real rimTint: g.rimTint
                     property real ringW: g.ringW
                 }
@@ -946,6 +949,8 @@ Scope {
         required property var source
         property real fullW: pop.width
         property real fullH: pop.height
+        property bool fromCC: false                 // opened from the Control Center: keeps the global blur setting
+        readonly property real topBarBlur: 42       // opened from the top bar: the stronger blur of the old version
         property alias ctx: pgc
         readonly property real m: 64 * root.barPopupScale
         ShaderEffectSource {
@@ -989,7 +994,7 @@ Scope {
             borderAmount: 1
             whiteEdge: false
             grain: root.glassGrain
-            blur: root.glassBlur
+            blur: pg.fromCC ? root.glassBlur : pg.topBarBlur
             debug: root.glassDebug
             onFailed: root.glassState = "failed"
         }
@@ -1537,44 +1542,40 @@ Scope {
         border.color: t.cardBorder
         Column { id: pcol; width: parent.width }
     }
-    component PSwitch: Item {
-        id: sw
+    component PSwitch: GlassSwitch {
         required property var t
-        property bool checked: false
-        signal toggled(bool value)
-        width: 38; height: 22
-        Rectangle { anchors.fill: parent; radius: 11; color: sw.checked ? sw.t.accent : sw.t.switchOff }
-        Rectangle {
-            x: sw.checked ? 18 : 2; y: 2; width: 18; height: 18; radius: 9; color: "white"
-            Behavior on x { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-        }
-        MouseArea { anchors.fill: parent; onClicked: sw.toggled(!sw.checked) }
+        accentColor: t.accent
+        offColor: t.switchOff
+        dark: t.dark
+        baseColor: t.dark ? "#2B2B2D" : "#FFFFFF"
+        glass: root.liquidActive
+        shaderUrl: root.glassShaderUrl
+        glassLiquid: root.glassLiquid
+        glassRim: root.glassRim
+        glassGrain: root.glassGrain
+        glassTint: root.glassOpacity
+        borderTint: root.menuBorderColor
+        onGlassFailed: root.glassState = "failed"
     }
-    component PSlider: Item {
-        id: ps
+    // same slider as the Control Center (see GlassSlider.qml)
+    component PSlider: GlassSlider {
         required property var t
-        property real from: 0
-        property real to: 1
-        property real value: 0
-        signal moved(real v)
-        width: 190; height: 22
-        readonly property real pos: to > from ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0
-        Rectangle { y: 9; width: parent.width; height: 4; radius: 2; color: ps.t.track }
-        Rectangle { y: 9; width: ps.pos * (ps.width - 20) + 10; height: 4; radius: 2; color: ps.t.accent }
-        Rectangle {
-            x: ps.pos * (ps.width - 20); y: 1; width: 20; height: 20; radius: 10; color: "white"
-            border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.16)
-        }
-        MouseArea {
-            anchors.fill: parent
-            preventStealing: true
-            function setFrom(mx) {
-                var p = Math.max(0, Math.min(1, (mx - 10) / (ps.width - 20)));
-                ps.moved(Math.round((ps.from + p * (ps.to - ps.from)) * 100) / 100);
-            }
-            onPressed: mouse => setFrom(mouse.x)
-            onPositionChanged: mouse => { if (pressed) setFrom(mouse.x); }
-        }
+        decimals: 2
+        width: 190
+        fg: t.fg
+        trackColor: t.track
+        labelColor: t.fg2
+        fontFamily: t.fam
+        dark: t.dark
+        baseColor: t.dark ? "#2B2B2D" : "#FFFFFF"
+        glass: root.liquidActive
+        shaderUrl: root.glassShaderUrl
+        glassLiquid: root.glassLiquid
+        glassRim: root.glassRim
+        glassGrain: root.glassGrain
+        glassTint: root.glassOpacity
+        borderTint: root.menuBorderColor
+        onGlassFailed: root.glassState = "failed"
     }
     component PSeg: Item {
         id: sg
@@ -5174,8 +5175,8 @@ Scope {
                     }
 
                     PopGlassCtx { id: volPopGlass; pop: volPop; frame: ui; source: ui.glassSrc; fullW: volPop.fullW; fullH: volPop.fullH }
-                    GGlass { anchors.fill: parent; gx: volPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * volPop.t); thickness: 22; shadowAmt: 0.45 }
-                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * volPop.t); dark: volPopGlass.ctx.dark; tint: volPopGlass.ctx.borderTint; amount: volPopGlass.ctx.borderAmount; lineW: 0.8 }
+                    GGlass { anchors.fill: parent; gx: volPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * volPop.t); thickness: 22; shadowAmt: 0; flatInner: 1 }
+                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * volPop.t); dark: volPopGlass.ctx.dark; tint: volPopGlass.ctx.borderTint; amount: volPopGlass.ctx.borderAmount; lineW: 0.8; fade: false }
                     MouseArea { anchors.fill: parent }      // clicks inside don't close the popover
 
                     Item {
@@ -5616,7 +5617,7 @@ Scope {
                         strength: 0.8 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
-                        blur: root.notifBlur
+                        blur: 42                                // same blur as the Wi-Fi / Bluetooth / audio popovers
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
                         rimTint: 1
@@ -5628,6 +5629,16 @@ Scope {
                         cornerR: Math.min(26, 8 + 18 * notifPop.t)
                         dark: root.effDark
                         tint: root.menuBorderColor
+                    }
+                    CornerBorder {                  // same border as the Wi-Fi / Bluetooth / audio popovers: even on all four corners
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: Math.min(26, 8 + 18 * notifPop.t)
+                        dark: root.effDark
+                        tint: root.menuBorderColor
+                        amount: 1
+                        lineW: 0.8
+                        fade: false
                     }
                     MouseArea { anchors.fill: parent }      // clicks inside the panel don't close it
 
@@ -5841,6 +5852,8 @@ Scope {
                         liquid: root.liquidActive
                         dark: root.panelDarkMode
                         bx: menuPop.x; by: menuPop.y
+                        shadowAmt: 0
+                        flatInner: 1
                         rimTint: 1
                         ringW: 1.4
                         cornerR: 14
@@ -5976,6 +5989,8 @@ Scope {
                         liquid: root.liquidActive
                         dark: root.panelDarkMode
                         bx: trayPop.x; by: trayPop.y
+                        shadowAmt: 0
+                        flatInner: 1
                         rimTint: 1
                         ringW: 1.4
                         cornerR: 14
@@ -6439,9 +6454,9 @@ Scope {
                         autoPaddingEnabled: true
                     }
 
-                    PopGlassCtx { id: wifiPopGlass; pop: wifiPop; frame: ui; source: ui.glassSrc; fullW: wifiPop.fullW; fullH: wifiPop.fullH }
-                    GGlass { anchors.fill: parent; gx: wifiPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * wifiPop.t); thickness: 22; shadowAmt: 0.45 }
-                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * wifiPop.t); dark: wifiPopGlass.ctx.dark; tint: wifiPopGlass.ctx.borderTint; amount: wifiPopGlass.ctx.borderAmount; lineW: 0.8 }
+                    PopGlassCtx { id: wifiPopGlass; pop: wifiPop; fromCC: wifiPop.fromCC; frame: ui; source: ui.glassSrc; fullW: wifiPop.fullW; fullH: wifiPop.fullH }
+                    GGlass { anchors.fill: parent; gx: wifiPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * wifiPop.t); thickness: 22; shadowAmt: 0; flatInner: 1 }
+                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * wifiPop.t); dark: wifiPopGlass.ctx.dark; tint: wifiPopGlass.ctx.borderTint; amount: wifiPopGlass.ctx.borderAmount; lineW: 0.8; fade: false }
                     MouseArea { anchors.fill: parent }          // swallow clicks on empty glass so the popover doesn't close
 
                     // the content keeps its full size and is revealed by the growing glass (clipped), fading in and settling
@@ -6739,8 +6754,8 @@ Scope {
                     }
 
                     PopGlassCtx { id: btPopGlass; pop: btPop; frame: ui; source: ui.glassSrc; fullW: btPop.fullW; fullH: btPop.fullH }
-                    GGlass { anchors.fill: parent; gx: btPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * btPop.t); thickness: 22; shadowAmt: 0.45 }
-                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * btPop.t); dark: btPopGlass.ctx.dark; tint: btPopGlass.ctx.borderTint; amount: btPopGlass.ctx.borderAmount; lineW: 0.8 }
+                    GGlass { anchors.fill: parent; gx: btPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * btPop.t); thickness: 22; shadowAmt: 0; flatInner: 1 }
+                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * btPop.t); dark: btPopGlass.ctx.dark; tint: btPopGlass.ctx.borderTint; amount: btPopGlass.ctx.borderAmount; lineW: 0.8; fade: false }
                     MouseArea { anchors.fill: parent }
 
                     // the content keeps its full size and is revealed by the growing glass (clipped)
@@ -6789,6 +6804,8 @@ Scope {
                         blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                        shadowAmt: 0
+                        flatInner: 1
                         rimTint: 1
                         ringW: 1.4
                     }

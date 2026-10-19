@@ -291,109 +291,43 @@ Scope {
         font.weight: header ? Font.DemiBold : Font.Normal
     }
 
-    // macOS toggle switch
-    component SSwitch: Item {
-        id: sw
+    // macOS toggle switch: capsule knob, draggable, fluid slide, the knob turns into Liquid Glass while held (see GlassSwitch.qml)
+    component SSwitch: GlassSwitch {
         required property var t
-        property bool checked: false
-        signal toggled(bool value)
-        width: 38; height: 22
-        Rectangle {
-            anchors.fill: parent
-            radius: 11
-            color: sw.checked ? sw.t.accent : sw.t.switchOff
-            Behavior on color { ColorAnimation { duration: 160 } }
-        }
-        Rectangle {
-            x: sw.checked ? 18 : 2
-            y: 2
-            width: 18; height: 18; radius: 9
-            color: "white"
-            border.width: 1
-            border.color: Qt.rgba(0, 0, 0, 0.10)
-            Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-        }
-        MouseArea {
-            anchors.fill: parent
-            onClicked: sw.toggled(!sw.checked)
-        }
+        accentColor: t.accent
+        offColor: t.switchOff
+        knobColor: t.dark ? "#DCDDDA" : "white"
+        dark: t.dark
+        baseColor: t.dark ? "#2B2B2D" : "#FFFFFF"
+        glass: root.settingsGlass
+        shaderUrl: root.glassShaderUrl
+        glassLiquid: root.glassLiquid
+        glassRim: root.glassRim
+        glassGrain: root.glassGrain
+        glassTint: root.glassOpacity
+        borderTint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
+        onGlassFailed: root.glassState = "failed"
     }
 
-    // macOS slider (thin track, accent fill, white round knob)
-    component SSlider: Item {
-        id: s
+    // slider: identical to the Control Center sliders (thin bar, knob on hover, Liquid Glass knob while held; see GlassSlider.qml)
+    component SSlider: GlassSlider {
         required property var t
-        property real from: 0
-        property real to: 1
-        property real value: 0
-        property real stepSize: 0
-        property string leftLabel: ""
-        property string rightLabel: ""
-        signal moved(real v)
-        readonly property real pos: to > from ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0
-        width: 230
-        height: leftLabel !== "" || rightLabel !== "" ? 40 : 22
-        opacity: enabled ? 1 : 0.4
-
-        Rectangle {
-            id: track
-            y: 11 - 2
-            width: parent.width
-            height: 4
-            radius: 2
-            color: s.t.track
-        }
-        Rectangle {
-            y: track.y
-            width: knob.x + knob.width / 2
-            height: 4
-            radius: 2
-            color: s.t.accent
-        }
-        Rectangle {   // knob shadow
-            x: knob.x - 1; y: knob.y + 1
-            width: 22; height: 22; radius: 11
-            color: Qt.rgba(0, 0, 0, 0.14)
-        }
-        Rectangle {
-            id: knob
-            x: s.pos * (s.width - 20)
-            y: 1
-            width: 20; height: 20; radius: 10
-            color: "white"
-            border.width: 1
-            border.color: Qt.rgba(0, 0, 0, 0.16)
-        }
-        Text {
-            visible: s.leftLabel !== ""
-            y: 25
-            text: s.leftLabel
-            color: s.t.text2
-            font.family: s.t.fam
-            font.pixelSize: 11
-        }
-        Text {
-            visible: s.rightLabel !== ""
-            y: 25
-            x: s.width - implicitWidth
-            text: s.rightLabel
-            color: s.t.text2
-            font.family: s.t.fam
-            font.pixelSize: 11
-        }
-        MouseArea {
-            anchors.fill: parent
-            preventStealing: true
-            function setFrom(mx) {
-                var p = Math.max(0, Math.min(1, (mx - 10) / (s.width - 20)));
-                var v = s.from + p * (s.to - s.from);
-                if (s.stepSize > 0) v = Math.round(v / s.stepSize) * s.stepSize;
-                v = Math.round(v * 1000) / 1000;
-                s.moved(v);
-            }
-            onPressed: mouse => setFrom(mouse.x)
-            onPositionChanged: mouse => { if (pressed) setFrom(mouse.x); }
-        }
+        fg: t.text
+        fillColor: t.accent
+        knobColor: "white"
+        trackColor: t.track
+        labelColor: t.text2
+        fontFamily: t.fam
+        dark: t.dark
+        baseColor: t.dark ? "#2B2B2D" : "#FFFFFF"
+        glass: root.settingsGlass
+        shaderUrl: root.glassShaderUrl
+        glassLiquid: root.glassLiquid
+        glassRim: root.glassRim
+        glassGrain: root.glassGrain
+        glassTint: root.glassOpacity
+        borderTint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
+        onGlassFailed: root.glassState = "failed"
     }
 
     // macOS segmented control
@@ -594,6 +528,14 @@ Scope {
                 }
                 Rectangle { x: 2.7; y: 10.7; width: 3.1; height: 3.1; radius: 1.55; color: "white" }
             }
+            // widgets (three tiles and an empty slot)
+            Item {
+                visible: gl.kind === "widgets"; anchors.fill: parent
+                Rectangle { x: 1.5; y: 1.5; width: 5.6; height: 5.6; radius: 1.6; color: "white" }
+                Rectangle { x: 8.9; y: 1.5; width: 5.6; height: 5.6; radius: 1.6; color: "white" }
+                Rectangle { x: 1.5; y: 8.9; width: 5.6; height: 5.6; radius: 1.6; color: "white" }
+                Rectangle { x: 8.9; y: 8.9; width: 5.6; height: 5.6; radius: 1.6; color: "transparent"; border.width: 1.2; border.color: "white" }
+            }
             // applications (2×2 grid)
             Item {
                 visible: gl.kind === "apps"; anchors.fill: parent
@@ -691,27 +633,35 @@ Scope {
 
         // grouped like macOS System Settings (sec = sidebar section; a gap is drawn between sections)
         readonly property var panes: [
+            // 1 · Connectivity
             { id: "wifi",       sec: 1, name: "Wi-Fi",           wg: "wifi",       c1: "#3D9BFF", c2: "#0A6CFF", keys: "wireless network internet ssid join" },
             { id: "bluetooth",  sec: 1, name: "Bluetooth",       wg: "bluetooth",  c1: "#3D9BFF", c2: "#0A6CFF", keys: "devices pair headphones mouse keyboard" },
             { id: "network",    sec: 1, name: "Network",         wg: "ethernet",   c1: "#3D9BFF", c2: "#0A6CFF", keys: "ethernet ip address vpn tailscale connection" },
-            { id: "battery",    sec: 1, name: "Battery",         wg: "bolt",       c1: "#4CD964", c2: "#28A745", keys: "power energy charge profile performance game mode" },
-            { id: "general",    sec: 2, name: "General",         glyph: "behavior", c1: "#8E8E93", c2: "#636366", keys: "enable disable dock menu bar panel show hide off on widgets sound game" },
-            { id: "appearance", sec: 2, name: "Appearance",      glyph: "appearance", c1: "#3A3A3C", c2: "#1C1C1E", keys: "theme dark light mode accent color glass liquid apple style translucency blur corner radius font" },
-            { id: "controlcenter", sec: 2, name: "Control Center", wg: "cc",       c1: "#8E8E93", c2: "#636366", keys: "modules tiles controls" },
-            { id: "dock",       sec: 2, name: "Desktop & Dock",  glyph: "dock",     c1: "#2C2C2E", c2: "#1C1C1E", keys: "size icon magnification zoom spacing margin distance edge hide auto labels indicators bounce trash monitor preview" },
-            { id: "displays",   sec: 2, name: "Displays",        wg: "sun",        c1: "#3D9BFF", c2: "#0A6CFF", keys: "brightness night shift monitor resolution refresh scale" },
-            { id: "menubar",    sec: 2, name: "Menu Bar",        glyph: "menubar",  c1: "#3D9BFF", c2: "#0A6CFF", keys: "panel bar height clock date seconds 24 hour battery tray search spotlight week monday style liquid bluetooth widget" },
+            // 2 · System
+            { id: "general",    sec: 2, name: "General",         glyph: "behavior", c1: "#8E8E93", c2: "#636366", keys: "language shell enable disable dock menu bar panel show hide off on" },
+            { id: "appearance", sec: 2, name: "Appearance",      glyph: "appearance", c1: "#3A3A3C", c2: "#1C1C1E", keys: "theme dark light auto mode accent color glass liquid apple style translucency blur corner radius font spotlight top bar menus" },
             { id: "wallpaper",  sec: 2, name: "Wallpaper",       glyph: "wallpaper", c1: "#5AC8FA", c2: "#007AFF", keys: "wallpaper background picture image video animated live motion desktop dynamic" },
-            { id: "notifications", sec: 3, name: "Notifications", wg: "bell",      c1: "#FF5E57", c2: "#E8342A", keys: "alerts banners popups do not disturb" },
-            { id: "sound",      sec: 3, name: "Sound",           wg: "speaker",    c1: "#FF5E7E", c2: "#E8344F", keys: "volume output input microphone speakers headphones effects" },
-            { id: "focus",      sec: 3, name: "Focus",           wg: "moon",       c1: "#7D7AFF", c2: "#5856D6", keys: "do not disturb keep awake sleep" },
-            { id: "lockscreen", sec: 4, name: "Lock Screen",     wg: "lock",       c1: "#3A3A3C", c2: "#1C1C1E", keys: "lock password album lyrics media clock" },
-            { id: "users",      sec: 4, name: "Users & Groups",  wg: "smile",      c1: "#3D9BFF", c2: "#0A6CFF", keys: "account user name picture avatar" },
-            { id: "keyboard",   sec: 5, name: "Keyboard",        wg: "keyboard",   c1: "#A7A7AD", c2: "#7C7C82", keys: "repeat rate delay layout typing" },
-            { id: "mouse",      sec: 5, name: "Mouse",           wg: "mouse",      c1: "#A7A7AD", c2: "#7C7C82", keys: "tracking speed scroll natural" },
-            { id: "trackpad",   sec: 5, name: "Trackpad",        wg: "trackpad",   c1: "#A7A7AD", c2: "#7C7C82", keys: "tap click natural scroll touchpad gestures" },
-            { id: "apps",       sec: 6, name: "Applications",    glyph: "apps",     c1: "#FFB340", c2: "#FF9500", keys: "pinned apps keep remove reset dock" },
-            { id: "about",      sec: 6, name: "About",           glyph: "about",    c1: "#A7A7AD", c2: "#7C7C82", keys: "version reset config folder macdock macbar macshell" }
+            { id: "displays",   sec: 2, name: "Displays",        wg: "sun",        c1: "#3D9BFF", c2: "#0A6CFF", keys: "brightness night shift monitor resolution refresh scale" },
+            { id: "battery",    sec: 2, name: "Battery",         wg: "bolt",       c1: "#4CD964", c2: "#28A745", keys: "power energy charge profile performance game mode gaming fullscreen" },
+            // 3 · Desktop
+            { id: "dock",       sec: 3, name: "Desktop & Dock",  glyph: "dock",     c1: "#2C2C2E", c2: "#1C1C1E", keys: "size icon magnification zoom spacing margin distance edge hide auto labels indicators bounce trash monitor preview app switcher alt tab" },
+            { id: "menubar",    sec: 3, name: "Menu Bar",        glyph: "menubar",  c1: "#3D9BFF", c2: "#0A6CFF", keys: "panel bar height clock date seconds 24 hour battery tray search spotlight week monday style liquid bluetooth screenshots" },
+            { id: "controlcenter", sec: 3, name: "Control Center", wg: "cc",       c1: "#8E8E93", c2: "#636366", keys: "modules tiles controls" },
+            { id: "widgets",    sec: 3, name: "Widgets",         glyph: "widgets",  c1: "#FF9F0A", c2: "#FF7A00", keys: "desktop widgets weather clock calendar player image photo add remove arrange edit size temperature fahrenheit celsius city location" },
+            // 4 · Notifications & Sound
+            { id: "notifications", sec: 4, name: "Notifications", wg: "bell",      c1: "#FF5E57", c2: "#E8342A", keys: "alerts banners popups do not disturb screenshot" },
+            { id: "sound",      sec: 4, name: "Sound",           wg: "speaker",    c1: "#FF5E7E", c2: "#E8344F", keys: "volume output input microphone speakers headphones effects ui sounds" },
+            { id: "focus",      sec: 4, name: "Focus",           wg: "moon",       c1: "#7D7AFF", c2: "#5856D6", keys: "do not disturb keep awake sleep" },
+            // 5 · Security & Accounts
+            { id: "lockscreen", sec: 5, name: "Lock Screen",     wg: "lock",       c1: "#3A3A3C", c2: "#1C1C1E", keys: "lock password album lyrics media clock" },
+            { id: "users",      sec: 5, name: "Users & Groups",  wg: "smile",      c1: "#3D9BFF", c2: "#0A6CFF", keys: "account user name picture avatar" },
+            // 6 · Input
+            { id: "keyboard",   sec: 6, name: "Keyboard",        wg: "keyboard",   c1: "#A7A7AD", c2: "#7C7C82", keys: "repeat rate delay layout typing" },
+            { id: "mouse",      sec: 6, name: "Mouse",           wg: "mouse",      c1: "#A7A7AD", c2: "#7C7C82", keys: "tracking speed scroll natural" },
+            { id: "trackpad",   sec: 6, name: "Trackpad",        wg: "trackpad",   c1: "#A7A7AD", c2: "#7C7C82", keys: "tap click natural scroll touchpad gestures" },
+            // 7 · Apps & About
+            { id: "apps",       sec: 7, name: "Applications",    glyph: "apps",     c1: "#FFB340", c2: "#FF9500", keys: "pinned apps keep remove reset dock" },
+            { id: "about",      sec: 7, name: "About",           glyph: "about",    c1: "#A7A7AD", c2: "#7C7C82", keys: "version reset config folder macdock macbar macshell" }
         ]
 
         readonly property var filtered: {
@@ -751,7 +701,7 @@ Scope {
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: prefsWindow.visible = false }
 
         // Settings always opens as a floating, centred window (no windowrule needed in hyprland.conf)
-        onVisibleChanged: if (visible) { showNormal(); floatTries = 0; floatTimer.restart(); }
+        onVisibleChanged: if (visible) { showNormal(); floatTries = 0; floatTimer.restart(); if (root.glassState === "idle") root.startGlass(); }
         property int floatTries: 0
         readonly property int preferredWidth: 800
         readonly property int preferredHeight: 880
@@ -782,8 +732,10 @@ Scope {
             readonly property color content: glass ? (dark ? Qt.rgba(0.09, 0.09, 0.10, 0.58) : Qt.rgba(0.97, 0.97, 0.98, 0.62))
                                                    : (dark ? "#1E1E1E" : "#F5F5F7")
             readonly property color sidebar: dark ? "#292929" : "#E9E9EC"
-            readonly property color card: glass ? (dark ? Qt.rgba(1, 1, 1, 0.065) : Qt.rgba(1, 1, 1, 0.55))
-                                                : (dark ? "#2B2B2D" : "#FFFFFF")
+            // the pages are opaque (only the sidebar is translucent), so the cards are solid too
+            readonly property color contentSolid: dark ? "#1E1E1E" : "#F5F5F7"
+            readonly property color sidebarGlass: dark ? Qt.rgba(0.17, 0.17, 0.18, 0.55) : Qt.rgba(0.94, 0.94, 0.96, 0.60)
+            readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
             readonly property color cardBorder: dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.07)
             readonly property color windowBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.22)
             readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.09)
@@ -811,9 +763,18 @@ Scope {
             id: frame
             anchors.fill: parent
             radius: 12
-            color: pal.content
+            color: "transparent"        // the sidebar is translucent (blur of what is behind the window), the pages are opaque
             border.width: 1
             border.color: pal.windowBorder
+
+            // opaque page area: from the sidebar's right edge to the window edge (rounded on the right only)
+            Rectangle {
+                x: sidebar.x + sidebar.width; y: 1
+                width: parent.width - x - 1; height: parent.height - 2
+                radius: 11
+                color: pal.contentSolid
+                Rectangle { anchors.left: parent.left; width: 12; height: parent.height; color: parent.color }
+            }
 
             // Native Wayland resize handles for this frameless window.
             MouseArea { x: 12; y: 0; width: parent.width - 24; height: 6; z: 1000; cursorShape: Qt.SizeVerCursor; onPressed: prefsWindow.startSystemResize(Qt.TopEdge) }
@@ -827,6 +788,7 @@ Scope {
 
             // drag the window by its top strip
             Item {
+                z: 3        // above the page scroller (which now reaches the top), below the sidebar with the traffic lights
                 width: parent.width
                 height: 52
                 DragHandler {
@@ -838,17 +800,29 @@ Scope {
             // ───────── sidebar ─────────
             Rectangle {
                 id: sidebar
-                // Liquid Glass: a floating, inset glass sidebar like macOS Tahoe; otherwise the classic flat one
-                x: pal.glass ? 8 : 1; y: pal.glass ? 8 : 1
-                width: pal.glass ? 224 : 232
-                height: parent.height - (pal.glass ? 16 : 2)
-                radius: pal.glass ? 18 : 11
+                z: 4
+                // the sidebar is the normal flat one, attached to the window edge (set floating to true for the inset glass card)
+                readonly property bool floating: false
+                x: sidebar.floating ? 8 : 1; y: sidebar.floating ? 8 : 1
+                width: sidebar.floating ? 224 : 232
+                height: parent.height - (sidebar.floating ? 16 : 2)
+                radius: sidebar.floating ? 18 : 11
                 // frosted: a translucent pane over Hyprland's blur of what's behind the window (no Liquid Glass shader)
-                color: pal.glass ? (pal.dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(1, 1, 1, 0.35)) : pal.sidebar
-                border.width: pal.glass ? 1 : 0
+                color: sidebar.floating ? (pal.dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(1, 1, 1, 0.35)) : "transparent"
+                border.width: sidebar.floating ? 1 : 0
                 border.color: pal.dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.08)
-                Rectangle { visible: !pal.glass; anchors.right: parent.right; width: 12; height: parent.height; color: parent.color }
-                Rectangle { visible: !pal.glass; anchors.right: parent.right; width: 1; height: parent.height; color: pal.sep }
+                // translucent fill, drawn as ONE layer so the rounded body and the square right edge don't add up to a darker band:
+                // both shapes are opaque inside the layer, and the layer carries the translucency
+                Item {
+                    visible: !sidebar.floating
+                    anchors.fill: parent
+                    z: -1
+                    layer.enabled: true
+                    opacity: pal.sidebarGlass.a
+                    Rectangle { anchors.fill: parent; radius: sidebar.radius; color: Qt.rgba(pal.sidebarGlass.r, pal.sidebarGlass.g, pal.sidebarGlass.b, 1) }
+                    Rectangle { anchors.right: parent.right; width: 14; height: parent.height; color: Qt.rgba(pal.sidebarGlass.r, pal.sidebarGlass.g, pal.sidebarGlass.b, 1) }
+                }
+                Rectangle { visible: !sidebar.floating; anchors.right: parent.right; width: 1; height: parent.height; color: pal.sep }
 
                 // the glass slab: refracts the wallpaper exactly where the window sits (Hyprland's blur is xray, so
                 // that is also what the rest of the window shows, blurred)
@@ -1173,9 +1147,35 @@ Scope {
             // ───────── toolbar ─────────
             Item {
                 id: header
+                z: 6
                 x: sidebar.x + sidebar.width + 1
                 width: parent.width - sidebar.x - sidebar.width - 2
                 height: 52
+                GlassSlab {                         // Liquid Glass pill behind the back / forward buttons
+                    id: navPill
+                    x: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 66; height: 36
+                    cornerR: 18
+                    glass: root.settingsGlass
+                    shaderUrl: root.glassShaderUrl
+                    dark: pal.dark
+                    baseColor: pal.dark ? "#3C3C40" : "#FBFBFD"
+                    thickness: 14; strengthMul: 0.6        // same glass as the Control Center buttons
+                    liquid: root.glassLiquid
+                    rim: root.glassRim * 0.25
+                    grain: root.glassGrain
+                    tint: root.glassOpacity
+                    shadowAmt: 0; flatInner: 1
+                    onFailed: root.glassState = "failed"
+                    // Control Center border: thin, brighter shade of the wallpaper colour, fading at top-right / bottom-left
+                    CornerBorder {
+                        z: 2; anchors.fill: parent
+                        cornerR: 18; dark: pal.dark
+                        tint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
+                        amount: 1; lineW: 0.8
+                    }
+                }
 
                 Row {
                     x: 14
@@ -1189,16 +1189,25 @@ Scope {
                             readonly property bool ok: modelData.dir < 0 ? prefsWindow.backStack.length > 0
                                                                            : prefsWindow.fwdStack.length > 0
                             width: 26; height: 28
+                            Rectangle {         // hover: the same faint light as the Control Center pills
+                                anchors.fill: parent; radius: 13
+                                color: (navBtn.ok && navMa.containsMouse) ? (pal.dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(1, 1, 1, 0.5)) : "transparent"
+                                Behavior on color { ColorAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                            }
                             Text {
                                 anchors.centerIn: parent
                                 anchors.verticalCenterOffset: -2
                                 text: navBtn.modelData.g
                                 font.pixelSize: 28
-                                color: navBtn.ok ? pal.text2 : pal.text3
+                                color: navBtn.ok ? pal.text : pal.text3
                                 opacity: navBtn.ok ? 1 : 0.5
+                                scale: (navBtn.ok && navMa.pressed) ? 0.86 : 1
+                                Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
                             }
                             MouseArea {
+                                id: navMa
                                 anchors.fill: parent
+                                hoverEnabled: true
                                 enabled: navBtn.ok
                                 onClicked: {
                                     if (navBtn.modelData.dir < 0) prefsWindow.back();
@@ -1209,7 +1218,7 @@ Scope {
                     }
                 }
                 Text {
-                    x: 74
+                    x: 90
                     anchors.verticalCenter: parent.verticalCenter
                     text: I18n.tr(prefsWindow.panes[prefsWindow.cur].name)
                     color: pal.text
@@ -1217,32 +1226,27 @@ Scope {
                     font.pixelSize: 15
                     font.weight: Font.DemiBold
                 }
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    width: parent.width
-                    height: 1
-                    color: pal.sep
-                    opacity: flick.contentY > 4 ? 1 : 0
-                    Behavior on opacity { NumberAnimation { duration: 120 } }
-                }
             }
 
             // ───────── scrolling content ─────────
-            // feather: pages dissolve into the toolbar as they scroll under it (no hard cut at the top edge)
+            // feather: the page scrolls all the way up under the toolbar; what slides under it melts away. Same feather as the
+            // lyrics in the Player widget: one smooth alpha mask over the scroller (switched on as the page starts to scroll).
             Item {
                 id: flickFeather
                 visible: false; layer.enabled: true
                 width: flick.width; height: flick.height
-                readonly property real size: 34
-                readonly property real topFade: Math.max(0, Math.min(1, flick.contentY / 24))
-                readonly property real bottomFade: 0
+                readonly property real fp: Math.min(0.32, 46 / Math.max(1, height))     // feather depth: 46 px
+                readonly property real amt: Math.max(0, Math.min(1, flick.contentY / 18))
+                function a(base) { return 1 - amt * (1 - base); }
                 Rectangle {
                     anchors.fill: parent
                     gradient: Gradient {
-                        GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 1 - flickFeather.topFade) }
-                        GradientStop { position: Math.min(0.49, flickFeather.size / Math.max(1, flickFeather.height)); color: "black" }
-                        GradientStop { position: Math.max(0.51, 1 - flickFeather.size / Math.max(1, flickFeather.height)); color: "black" }
-                        GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 1 - flickFeather.bottomFade) }
+                        GradientStop { position: 0.0;                    color: Qt.rgba(0, 0, 0, flickFeather.a(0.0)) }
+                        GradientStop { position: flickFeather.fp * 0.25; color: Qt.rgba(0, 0, 0, flickFeather.a(0.04)) }
+                        GradientStop { position: flickFeather.fp * 0.50; color: Qt.rgba(0, 0, 0, flickFeather.a(0.30)) }
+                        GradientStop { position: flickFeather.fp * 0.75; color: Qt.rgba(0, 0, 0, flickFeather.a(0.72)) }
+                        GradientStop { position: flickFeather.fp;        color: "black" }
+                        GradientStop { position: 1.0;                    color: "black" }
                     }
                 }
             }
@@ -1251,11 +1255,11 @@ Scope {
                 layer.enabled: true
                 layer.effect: MultiEffect { maskEnabled: true; maskSource: flickFeather }
                 x: sidebar.x + sidebar.width + 1
-                y: 52
+                y: 1
                 width: parent.width - sidebar.x - sidebar.width - 2
-                height: parent.height - 52 - 1
+                height: parent.height - 2
                 contentWidth: width
-                contentHeight: paneLoader.height + 36
+                contentHeight: paneLoader.height + 36 + 52
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
@@ -1265,14 +1269,14 @@ Scope {
                     // nothing of Settings stays built while the window is closed
                     active: prefsWindow.visible
                     x: 22
-                    y: 6
+                    y: 58
                     width: flick.width - 44
                     sourceComponent: ({
                         wifi: paneWifi, bluetooth: paneBt, network: paneNetwork, battery: paneBattery,
                         general: paneGeneral, appearance: paneAppearance, controlcenter: paneCC, dock: paneDesktopDock,
                         displays: paneDisplays, menubar: paneMenuBar, wallpaper: paneWallpaper,
                         notifications: paneNotif, sound: paneSound, focus: paneFocus,
-                        lockscreen: paneLock, users: paneUsers, keyboard: paneKeyboard, mouse: paneMouse, trackpad: paneTrackpad,
+                        widgets: paneWidgets, lockscreen: paneLock, users: paneUsers, keyboard: paneKeyboard, mouse: paneMouse, trackpad: paneTrackpad,
                         apps: paneApps, about: paneAbout
                     })[prefsWindow.panes[prefsWindow.cur].id]
                     onLoaded: fadeIn.restart()
@@ -1281,9 +1285,9 @@ Scope {
             Rectangle {   // thin overlay scrollbar
                 visible: flick.contentHeight > flick.height + 1
                 x: frame.width - 8
-                y: 52 + flick.visibleArea.yPosition * flick.height
+                y: 52 + flick.visibleArea.yPosition * (flick.height - 52)
                 width: 4
-                height: Math.max(28, flick.visibleArea.heightRatio * flick.height)
+                height: Math.max(28, flick.visibleArea.heightRatio * (flick.height - 52))
                 radius: 2
                 color: pal.text3
                 opacity: flick.moving ? 1 : 0
@@ -1336,201 +1340,11 @@ Scope {
                         }
                     }
                 }
-                SCard {
-                    t: pal
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Spotlight & top bar menus")
-                        subtitle: I18n.tr("Set Light or Dark appearance for Spotlight and dropdown menus only")
-                        SSegmented {
-                            t: pal
-                            model: ["Light", "Dark"]
-                            segWidth: 72
-                            current: root.bar && root.bar.panelDarkMode ? 1 : 0
-                            onPicked: i => { if (root.bar) root.bar.panelDarkMode = (i === 1); }
-                        }
-                    }
-                }
                 SLabel {
                     t: pal
-                    text: I18n.tr("If you turn both off, reopen this window with:  qs -c macbar ipc call settings open")
+                    text: I18n.tr("If you turn both off, reopen this window with:  qs -c MacShell ipc call settings open")
                 }
 
-                SLabel { t: pal; header: true; text: I18n.tr("Desktop Widgets") }
-                SCard {
-                    t: pal
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Arrange widgets")
-                        subtitle: (root.hub && root.hub.widgets && root.hub.widgets.editing)
-                                  ? I18n.tr("Editing is on: drag a widget to move it, use the \u2212 badge to remove it, then click Stop Editing.")
-                                  : I18n.tr("Drag a widget to move it (it snaps to the grid). Use the \u2212 badge on a widget to remove it.")
-                        SButton {
-                            t: pal
-                            text: (root.hub && root.hub.widgets && root.hub.widgets.editing) ? I18n.tr("Stop Editing") : I18n.tr("Edit on Desktop")
-                            onClicked: { if (root.hub && root.hub.widgets) root.hub.widgets.editing = !root.hub.widgets.editing; }
-                        }
-                    }
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Widget size")
-                        subtitle: I18n.tr("Makes every desktop widget smaller or larger (") + Math.round((root.hub && root.hub.widgets ? root.hub.widgets.widgetScale : 1) * 100) + "%)"
-                        SSlider {
-                            t: pal
-                            from: 0.6; to: 1.5; stepSize: 0.05
-                            value: root.hub && root.hub.widgets ? root.hub.widgets.widgetScale : 1
-                            leftLabel: I18n.tr("Small"); rightLabel: I18n.tr("Large")
-                            onMoved: v => { if (root.hub && root.hub.widgets) root.hub.widgets.widgetScale = Math.round(v * 100) / 100; }
-                        }
-                    }
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Temperature unit")
-                        subtitle: I18n.tr("Used by the Weather widget")
-                        SSegmented {
-                            t: pal
-                            model: ["\u00B0C", "\u00B0F"]
-                            segWidth: 56
-                            current: root.hub && root.hub.widgets && root.hub.widgets.tempUnit === "F" ? 1 : 0
-                            onPicked: i => { if (root.hub && root.hub.widgets) root.hub.widgets.tempUnit = (i === 1 ? "F" : "C"); }
-                        }
-                    }
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Weather location")
-                        subtitle: I18n.tr("Automatic uses your IP address; or type a city name")
-                        SSegmented {
-                            t: pal
-                            model: ["Automatic", "City"]
-                            segWidth: 80
-                            current: root.hub && root.hub.widgets && root.hub.widgets.locMode === "city" ? 1 : 0
-                            onPicked: i => { if (root.hub && root.hub.widgets) root.hub.widgets.locMode = (i === 1 ? "city" : "auto"); }
-                        }
-                    }
-                    SRow {
-                        t: pal
-                        visible: root.hub && root.hub.widgets && root.hub.widgets.locMode === "city"
-                        title: I18n.tr("City")
-                        subtitle: I18n.tr("For example: Riyadh, Dubai, London")
-                        Rectangle {
-                            width: 210; height: 26; radius: 6
-                            color: pal.ctrl
-                            border.width: 1
-                            border.color: pal.cardBorder
-                            TextInput {
-                                id: wxCityInput
-                                anchors.fill: parent
-                                anchors.leftMargin: 8; anchors.rightMargin: 8
-                                verticalAlignment: TextInput.AlignVCenter
-                                clip: true
-                                selectByMouse: true
-                                color: pal.text
-                                selectionColor: pal.accent
-                                font.family: pal.fam
-                                font.pixelSize: 12
-                                text: root.hub && root.hub.widgets ? root.hub.widgets.cityName : ""
-                                onEditingFinished: { if (root.hub && root.hub.widgets) root.hub.widgets.cityName = text; }
-                            }
-                        }
-                    }
-                }
-
-                SLabel { t: pal; header: true; text: I18n.tr("Add a Widget") }
-                SCard {
-                    t: pal
-                    Repeater {
-                        model: [
-                            { type: "weather",  name: I18n.tr("Weather"),  hint: I18n.tr("Current conditions, hourly and daily forecast"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
-                            { type: "calendar", name: I18n.tr("Calendar"), hint: I18n.tr("Today's date and the month"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
-                            { type: "clock",    name: I18n.tr("Clock"),    hint: I18n.tr("Analog clock face"), styles: [["liquid", I18n.tr("Liquid Glass")], ["light", I18n.tr("Light")], ["dark", I18n.tr("Dark")]] },
-                            { type: "player",   name: I18n.tr("Player"),   hint: I18n.tr("Now Playing with controls and lyrics"), styles: [["liquid", I18n.tr("Liquid Glass")], ["light", I18n.tr("Light")], ["dark", I18n.tr("Dark")]] },
-                            { type: "image",    name: I18n.tr("Image"),    hint: I18n.tr("Your own picture (you choose the file)"), styles: [["normal", I18n.tr("Photo")]] }
-                        ]
-                        delegate: SRow {
-                            id: addRow
-                            required property var modelData
-                            property int styleIdx: 0
-                            readonly property var wdg: root.hub ? root.hub.widgets : null
-                            t: pal
-                            title: I18n.tr(modelData.name)
-                            subtitle: modelData.hint + (wdg ? "  \u00B7  " + (wdg.rev >= 0 ? wdg.count(modelData.type) : 0) + I18n.tr(" on desktop") : "")
-                            Row {
-                                spacing: 8
-                                SSegmented {
-                                    t: pal
-                                    visible: addRow.modelData.styles.length > 1
-                                    model: addRow.modelData.styles.map(function (s) { return s[1]; })
-                                    segWidth: 84
-                                    current: addRow.styleIdx
-                                    onPicked: i => addRow.styleIdx = i
-                                }
-                                Repeater {
-                                    model: ["small", "medium", "large"]
-                                    delegate: SButton {
-                                        required property string modelData
-                                        t: pal
-                                        text: "+ " + ({ small: "S", medium: "M", large: "L" })[modelData]
-                                        onClicked: {
-                                            if (!addRow.wdg) return;
-                                            if (addRow.modelData.type === "image") addRow.wdg.pickImage("", modelData);
-                                            else addRow.wdg.addWidget(addRow.modelData.type, addRow.modelData.styles[addRow.styleIdx][0], modelData);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SLabel {
-                    t: pal
-                    visible: root.hub && root.hub.widgets && root.hub.widgets.pickError !== ""
-                    text: root.hub && root.hub.widgets ? root.hub.widgets.pickError : ""
-                    color: pal.danger
-                }
-                SLabel {
-                    t: pal
-                    text: I18n.tr("Image widgets: pick a picture with + S / M / L (needs zenity, kdialog or yad). To change it later, use Edit on Desktop and press Choose Image on the widget.")
-                }
-
-                SLabel { t: pal; header: true; text: I18n.tr("Sound") }
-                SCard {
-                    t: pal
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Play user interface sound effects")
-                        subtitle: I18n.tr("Volume pop, notifications, screenshots, charger, emptying the Trash and the lock screen")
-                        SSwitch { t: pal; checked: root.bar ? root.bar.uiSounds : true; onToggled: v => { if (root.bar) root.bar.uiSounds = v; } }
-                    }
-                }
-
-                SLabel { t: pal; header: true; text: I18n.tr("Lock Screen") }
-                SCard {
-                    t: pal
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Album background when the cover is enlarged")
-                        subtitle: I18n.tr("Tap the album cover on the lock screen: the background turns into a blurred version of the artwork")
-                        SSwitch { t: pal; checked: root.bar ? root.bar.lockArtBackground : true; onToggled: v => { if (root.bar) root.bar.lockArtBackground = v; } }
-                    }
-                }
-
-                SLabel { t: pal; header: true; text: I18n.tr("Game Mode") }
-                SCard {
-                    t: pal
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Game Mode")
-                        subtitle: I18n.tr("Turns off blur, shadows, animations and Liquid Glass, pauses an animated wallpaper and uses the performance power profile. Everything comes back when it turns off.")
-                        SSwitch { t: pal; checked: root.bar ? root.bar.gamingMode : false; onToggled: v => { if (root.bar) root.bar.gamingMode = v; } }
-                    }
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Turn on automatically for fullscreen games")
-                        subtitle: root.bar && root.bar.gamingAutoActive ? I18n.tr("On now: a game is fullscreen") : I18n.tr("Steam, Sober (Roblox), Minecraft, Lutris, Heroic and Windows games")
-                        SSwitch { t: pal; checked: root.bar ? root.bar.gamingAuto : true; onToggled: v => { if (root.bar) root.bar.gamingAuto = v; } }
-                    }
-                }
             }
         }
 
@@ -2143,7 +1957,7 @@ Scope {
                     SRow {
                         t: pal
                         title: I18n.tr("Appearance")
-                        subtitle: I18n.tr("Light, Dark, or Auto for the Dock, Menu Bar and Settings. Spotlight and top bar menus use General → Spotlight & top bar menus.")
+                        subtitle: I18n.tr("Light, Dark, or Auto for the Dock, Menu Bar and Settings. Spotlight and the top bar menus have their own switch below.")
                         Row {
                             spacing: 14
                             SThemeTile {
@@ -2169,6 +1983,22 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
+                        title: I18n.tr("Spotlight & top bar menus")
+                        subtitle: I18n.tr("Light or Dark appearance for Spotlight and the top bar dropdown menus only")
+                        SSegmented {
+                            t: pal
+                            model: ["Light", "Dark"]
+                            segWidth: 72
+                            current: root.bar && root.bar.panelDarkMode ? 1 : 0
+                            onPicked: i => { if (root.bar) root.bar.panelDarkMode = (i === 1); }
+                        }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
                         title: I18n.tr("Accent color")
                         subtitle: I18n.tr("Highlights in the Dock menu and this window")
                         Row {
@@ -2181,16 +2011,16 @@ Scope {
                                     readonly property bool sel: String(root.accent).toLowerCase() === modelData.c.toLowerCase()
                                     width: 26; height: 26
                                     Rectangle {
-                                        anchors.centerIn: parent
+                                        x: 4; y: 4
                                         width: 18; height: 18; radius: 9
                                         color: sw.modelData.c
                                         border.width: 1
                                         border.color: Qt.rgba(0, 0, 0, 0.18)
                                     }
-                                    Rectangle {
-                                        anchors.centerIn: parent
+                                    Rectangle {         // selection ring: same centre as the dot, whole pixels only
+                                        x: 0; y: 0
                                         visible: sw.sel
-                                        width: 25; height: 25; radius: 12.5
+                                        width: 26; height: 26; radius: 13
                                         color: "transparent"
                                         border.width: 2
                                         border.color: pal.text3
@@ -2665,11 +2495,12 @@ Scope {
                     t: pal
                     SRow {
                         t: pal; title: I18n.tr("Game Mode")
-                        subtitle: I18n.tr("Turns off blur, shadows, animations and Liquid Glass, pauses an animated wallpaper and uses High Power")
+                        subtitle: I18n.tr("Turns off blur, shadows, animations and Liquid Glass, pauses an animated wallpaper and uses the performance power profile. Everything comes back when it turns off.")
                         SSwitch { t: pal; checked: root.bar ? root.bar.gamingMode : false; onToggled: v => { if (root.bar) root.bar.gamingMode = v; } }
                     }
                     SRow {
                         t: pal; title: I18n.tr("Turn on automatically for fullscreen games")
+                        subtitle: root.bar && root.bar.gamingAutoActive ? I18n.tr("On now: a game is fullscreen") : I18n.tr("Steam, Sober (Roblox), Minecraft, Lutris, Heroic and Windows games")
                         SSwitch { t: pal; checked: root.bar ? root.bar.gamingAuto : true; onToggled: v => { if (root.bar) root.bar.gamingAuto = v; } }
                     }
                 }
@@ -2730,6 +2561,209 @@ Scope {
                 }
                 SLabel { t: pal; header: true; text: I18n.tr("Behavior") }
                 Loader { width: parent.width; sourceComponent: paneBehavior }
+            }
+        }
+
+        // ── Widgets ──
+        Component {
+            id: paneWidgets
+            Column {
+                id: wgPane
+                spacing: 10
+                readonly property var wdg: root.hub ? root.hub.widgets : null
+                readonly property int total: (wdg && wdg.rev >= 0) ? wdg.widgetCount : 0
+                readonly property bool editing: wdg ? wdg.editing : false
+                function removeAll() {
+                    if (!wdg) return;
+                    var ids = [];
+                    for (var i = 0; i < wdg.model.count; i++) ids.push(wdg.model.get(i).wid);
+                    for (var k = 0; k < ids.length; k++) wdg.removeWidget(ids[k]);
+                }
+                function removeOne(type) {
+                    if (!wdg) return;
+                    for (var i = wdg.model.count - 1; i >= 0; i--)
+                        if (wdg.model.get(i).wtype === type) { wdg.removeWidget(wdg.model.get(i).wid); return; }
+                }
+
+                // ── Layout ──
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Arrange widgets")
+                        subtitle: wgPane.editing
+                                  ? I18n.tr("Editing is on: drag a widget to move it, use the \u2212 badge to remove it, then click Stop Editing.")
+                                  : I18n.tr("Drag a widget to move it (it snaps to the grid). Use the \u2212 badge on a widget to remove it.")
+                        SButton {
+                            t: pal
+                            text: wgPane.editing ? I18n.tr("Stop Editing") : I18n.tr("Edit on Desktop")
+                            onClicked: { if (wgPane.wdg) wgPane.wdg.editing = !wgPane.wdg.editing; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Widget size")
+                        subtitle: I18n.tr("Makes every desktop widget smaller or larger (") + Math.round((wgPane.wdg ? wgPane.wdg.widgetScale : 1) * 100) + "%)"
+                        SSlider {
+                            t: pal
+                            from: 0.6; to: 1.5; stepSize: 0.05
+                            value: wgPane.wdg ? wgPane.wdg.widgetScale : 1
+                            leftLabel: I18n.tr("Small"); rightLabel: I18n.tr("Large")
+                            onMoved: v => { if (wgPane.wdg) wgPane.wdg.widgetScale = Math.round(v * 100) / 100; }
+                        }
+                    }
+                }
+
+                // ── Add ──
+                SLabel { t: pal; header: true; text: I18n.tr("Add a Widget") }
+                SCard {
+                    t: pal
+                    Repeater {
+                        model: [
+                            { type: "weather",  name: I18n.tr("Weather"),  hint: I18n.tr("Current conditions, hourly and daily forecast"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "calendar", name: I18n.tr("Calendar"), hint: I18n.tr("Today's date and the month"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "clock",    name: I18n.tr("Clock"),    hint: I18n.tr("Analog clock face"), styles: [["liquid", I18n.tr("Liquid Glass")], ["light", I18n.tr("Light")], ["dark", I18n.tr("Dark")]] },
+                            { type: "player",   name: I18n.tr("Player"),   hint: I18n.tr("Now Playing with controls and lyrics"), styles: [["liquid", I18n.tr("Liquid Glass")], ["light", I18n.tr("Light")], ["dark", I18n.tr("Dark")]] },
+                            { type: "image",    name: I18n.tr("Image"),    hint: I18n.tr("Your own picture (you choose the file)"), styles: [["normal", I18n.tr("Photo")]] }
+                        ]
+                        delegate: SRow {
+                            id: addRow
+                            required property var modelData
+                            property int styleIdx: 0
+                            readonly property int onDesktop: (wgPane.wdg && wgPane.wdg.rev >= 0) ? wgPane.wdg.count(modelData.type) : 0
+                            t: pal
+                            title: modelData.name
+                            subtitle: modelData.hint + (onDesktop > 0 ? "  \u00B7  " + onDesktop + I18n.tr(" on desktop") : "")
+                            Row {
+                                spacing: 8
+                                SSegmented {
+                                    t: pal
+                                    visible: addRow.modelData.styles.length > 1
+                                    model: addRow.modelData.styles.map(function (s) { return s[1]; })
+                                    segWidth: 84
+                                    current: addRow.styleIdx
+                                    onPicked: i => addRow.styleIdx = i
+                                }
+                                Repeater {
+                                    model: ["small", "medium", "large"]
+                                    delegate: SButton {
+                                        required property string modelData
+                                        t: pal
+                                        text: "+ " + ({ small: "S", medium: "M", large: "L" })[modelData]
+                                        onClicked: {
+                                            if (!wgPane.wdg) return;
+                                            if (addRow.modelData.type === "image") wgPane.wdg.pickImage("", modelData);
+                                            else wgPane.wdg.addWidget(addRow.modelData.type, addRow.modelData.styles[addRow.styleIdx][0], modelData);
+                                        }
+                                    }
+                                }
+                                SButton {
+                                    t: pal
+                                    visible: addRow.onDesktop > 0
+                                    text: "\u2212"
+                                    onClicked: wgPane.removeOne(addRow.modelData.type)
+                                }
+                            }
+                        }
+                    }
+                }
+                SLabel {
+                    t: pal
+                    visible: wgPane.wdg && wgPane.wdg.pickError !== ""
+                    text: wgPane.wdg ? wgPane.wdg.pickError : ""
+                    color: pal.danger
+                }
+                SLabel {
+                    t: pal
+                    text: I18n.tr("S / M / L = small, medium, large. Image widgets: the + button opens a file picker (needs zenity, kdialog or yad); to change the picture later, use Edit on Desktop and press Choose Image on the widget.")
+                }
+
+                // ── On the desktop now ──
+                SLabel { t: pal; header: true; text: I18n.tr("On Your Desktop") }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        visible: wgPane.total === 0
+                        title: I18n.tr("No widgets yet")
+                        subtitle: I18n.tr("Add one above and it appears on the desktop.")
+                    }
+                    Repeater {
+                        model: wgPane.wdg ? wgPane.wdg.model : null
+                        delegate: SRow {
+                            id: placedRow
+                            required property string wid
+                            required property string wtype
+                            required property string wstyle
+                            required property string wsize
+                            t: pal
+                            title: (wgPane.wdg ? (wgPane.wdg.typeNames[wtype] || wtype) : wtype)
+                            subtitle: (wgPane.wdg ? (wgPane.wdg.sizeNames[wsize] || wsize) : wsize) + "  \u00B7  " + (wgPane.wdg ? (wgPane.wdg.styleNames[wstyle] || wstyle) : wstyle)
+                            SButton { t: pal; text: I18n.tr("Remove"); onClicked: { if (wgPane.wdg) wgPane.wdg.removeWidget(placedRow.wid); } }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: wgPane.total > 1
+                        title: I18n.tr("Remove all widgets")
+                        SButton { t: pal; text: I18n.tr("Remove All"); onClicked: wgPane.removeAll() }
+                    }
+                }
+
+                // ── Weather ──
+                SLabel { t: pal; header: true; text: I18n.tr("Weather") }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Temperature unit")
+                        subtitle: I18n.tr("Used by the Weather widget")
+                        SSegmented {
+                            t: pal
+                            model: ["\u00B0C", "\u00B0F"]
+                            segWidth: 56
+                            current: wgPane.wdg && wgPane.wdg.tempUnit === "F" ? 1 : 0
+                            onPicked: i => { if (wgPane.wdg) wgPane.wdg.tempUnit = (i === 1 ? "F" : "C"); }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Location")
+                        subtitle: I18n.tr("Automatic uses your IP address; or type a city name")
+                        SSegmented {
+                            t: pal
+                            model: ["Automatic", "City"]
+                            segWidth: 80
+                            current: wgPane.wdg && wgPane.wdg.locMode === "city" ? 1 : 0
+                            onPicked: i => { if (wgPane.wdg) wgPane.wdg.locMode = (i === 1 ? "city" : "auto"); }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: wgPane.wdg && wgPane.wdg.locMode === "city"
+                        title: I18n.tr("City")
+                        subtitle: I18n.tr("For example: Riyadh, Dubai, London")
+                        Rectangle {
+                            width: 210; height: 26; radius: 6
+                            color: pal.ctrl
+                            border.width: 1
+                            border.color: pal.cardBorder
+                            TextInput {
+                                anchors.fill: parent
+                                anchors.leftMargin: 8; anchors.rightMargin: 8
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                selectByMouse: true
+                                color: pal.text
+                                selectionColor: pal.accent
+                                font.family: pal.fam
+                                font.pixelSize: 12
+                                text: wgPane.wdg ? wgPane.wdg.cityName : ""
+                                onEditingFinished: { if (wgPane.wdg) wgPane.wdg.cityName = text; }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -3639,7 +3673,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.1.9 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.2.0 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: pal.fam
                             font.pixelSize: 12
@@ -4291,6 +4325,9 @@ Scope {
     // glassState: "idle" → "building" (qsb running) → "ready" | "failed". "failed" falls back to Normal Blur.
     property string glassState: "idle"
     readonly property bool liquidActive: dockStyle === "liquid" && glassState === "ready" && !(bar && bar.gaming)
+    // Settings' own glass (back / forward pill, knobs of switches and sliders): available whenever the shader is built,
+    // whatever the Dock style is
+    readonly property bool settingsGlass: glassState === "ready" && !(bar && bar.gaming)
     readonly property string glassShaderSrc: decodeURIComponent(Qt.resolvedUrl("liquidglass.frag").toString().replace("file://", ""))
     readonly property string glassShaderOut: configDir + "/liquidglass.frag.qsb"
     readonly property url glassShaderUrl: "file://" + glassShaderOut
@@ -5000,7 +5037,7 @@ Scope {
                                 property real dispersion: 0.06 * root.glassLiquid
                                 property real magnify: 0.08 * root.glassLiquid
                                 property real rim: root.glassRim
-                                property real grain: root.glassGrain
+                                property real grain: root.glassGrain * 0.3     // quieter noise on the Dock glass
                                 property real blurPx: 1.5            // tiny residual smoothing; the real blur is the MultiEffect pre-pass
                                 property real tintMix: root.glassOpacity * 0.55
                                 property real saturation: 1.25
@@ -5030,6 +5067,17 @@ Scope {
                             border.width: 1
                             border.color: root.dockDark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.45)
                         }
+                    }
+
+                    // Control Center style border (same colour logic, follows the wallpaper), but even on all four corners and subtler
+                    CornerBorder {
+                        anchors.fill: parent
+                        cornerR: root.cornerRadius
+                        dark: root.dockDark
+                        tint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
+                        amount: 0.5
+                        lineW: 0.8
+                        fade: false
                     }
 
                     Row {

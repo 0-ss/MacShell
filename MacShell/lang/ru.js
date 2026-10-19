@@ -2,6 +2,15 @@
 
 // Russian interface strings. Keys are the English texts exactly as written in the QML files.
 var strings = {
+    "On Your Desktop": "На рабочем столе",
+    "No widgets yet": "Виджетов пока нет",
+    "Add one above and it appears on the desktop.": "Добавьте виджет выше, и он появится на рабочем столе.",
+    "Remove All": "Убрать все",
+    "Remove all widgets": "Убрать все виджеты",
+    "Location": "Местоположение",
+    "Light or Dark appearance for Spotlight and the top bar dropdown menus only": "Светлое или тёмное оформление только для Spotlight и выпадающих меню верхней панели",
+    "Light, Dark, or Auto for the Dock, Menu Bar and Settings. Spotlight and the top bar menus have their own switch below.": "Светлое, тёмное или автоматическое оформление для Dock, строки меню и настроек. Для Spotlight и меню верхней панели есть отдельный переключатель ниже.",
+    "S / M / L = small, medium, large. Image widgets: the + button opens a file picker (needs zenity, kdialog or yad); to change the picture later, use Edit on Desktop and press Choose Image on the widget.": "S / M / L — маленький, средний, большой. Виджет «Изображение»: кнопка + открывает выбор файла (нужен zenity, kdialog или yad); чтобы сменить картинку позже, нажмите «Править на рабочем столе» и «Выбрать изображение» на виджете.",
     // fragments joined with numbers or names in the code
     " Connected": " подключено",
     " Hz · Scale ": " Гц · Масштаб ",

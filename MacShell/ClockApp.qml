@@ -954,22 +954,22 @@ Scope {
     // ═════════════ small parts ═════════════
     function range(n, padded) { var a = []; for (var i = 0; i < n; i++) a.push(padded ? pad(i) : String(i)); return a; }
 
-    component CSwitch: Rectangle {
+    component CSwitch: GlassSwitch {
         id: csw
         property bool on: false
-        signal toggled(bool v)
-        width: 38; height: 22; radius: 11
-        color: on ? "#30D158" : (root.darkMode ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.14))
-        Behavior on color { ColorAnimation { duration: 200 } }
-        Rectangle {
-            width: 18; height: 18; radius: 9; y: 2
-            x: csw.on ? csw.width - width - 2 : 2
-            Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutQuint } }
-            color: "white"
-            layer.enabled: true
-            layer.effect: MultiEffect { shadowEnabled: true; shadowBlur: 0.3; shadowOpacity: 0.3; shadowVerticalOffset: 1 }
-        }
-        MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: csw.toggled(!csw.on) }
+        checked: on
+        accentColor: "#30D158"
+        offColor: root.darkMode ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.14)
+        dark: root.darkMode
+        baseColor: root.darkMode ? "#2C2C2E" : "#FFFFFF"
+        glass: root.dock ? root.dock.settingsGlass : false
+        shaderUrl: root.dock ? root.dock.glassShaderUrl : ""
+        glassLiquid: root.dock ? root.dock.glassLiquid : 1
+        glassRim: root.dock ? root.dock.glassRim : 0.45
+        glassGrain: root.dock ? root.dock.glassGrain : 0.03
+        glassTint: root.dock ? root.dock.glassOpacity : 0.42
+        borderTint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
+        Component.onCompleted: if (root.dock && root.dock.glassState === "idle") root.dock.startGlass()
     }
     component RoundBtn: Item {
         id: rb
