@@ -16,16 +16,18 @@ import Quickshell.Hyprland
 Scope {
     id: root
     property var hub: null
-    property bool appEnabled: true
     readonly property var dock: hub ? hub.dock : null
     readonly property var bar: hub ? hub.bar : null
     readonly property bool darkMode: dock ? dock.darkMode : true
     readonly property string fam: dock ? dock.fontFamily : "Inter Variable"
-    readonly property color accent: dock ? dock.accent : "#0A84FF"
+    property color accent: dock ? dock.accent : "#0A84FF"
+    Behavior on accent { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
     readonly property bool use24h: bar ? bar.use24h : true
+    readonly property bool appEnabled: bar ? bar.clockAppEnabled : true
     readonly property string home: Quickshell.env("HOME")
     readonly property string soundDir: home + "/.local/share/sounds/macshell"
-    readonly property color orange: "#FF9F0A"
+    property color orange: "#FF9F0A"
+    Behavior on orange { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
 
     // ═════════════ STATE (saved) ═════════════
     property var alarms: []        // { id, h, m, label, on, days: [0..6] (0 = Sunday; empty = once) }
@@ -94,11 +96,6 @@ Scope {
             root.refreshTz();
         }
         onLoadFailed: { root.loaded = true; root.refreshTz(); }
-    }
-    FileView {
-        path: root.home + "/.config/macshell/components.json"
-        printErrors: false
-        onLoaded: { try { var o = JSON.parse(text()); if (o.clockEnabled !== undefined) root.appEnabled = !!o.clockEnabled; } catch (e) {} }
     }
     Timer { id: saveLater; interval: 150; onTriggered: root.saveNow() }
     function save() { if (loaded) saveLater.restart(); }
@@ -213,7 +210,7 @@ Scope {
     }
     property string lastMinute: ""
     function check() {
-        if (!loaded) return;
+        if (!loaded || !appEnabled) return;
         var d = new Date(nowMs);
         if (timer.state === "running" && nowMs >= timer.endAt) {
             var t = Object.assign({}, timer); t.state = "idle"; t.left = t.total; timer = t;
@@ -279,7 +276,7 @@ Scope {
             for (var i = 0; i < Quickshell.screens.length; i++) if (Quickshell.screens[i].name === n) return Quickshell.screens[i];
             return Quickshell.screens[0];
         }
-        visible: root.appEnabled && (root.ringing !== null || bannerCard.opacity > 0.01)
+        visible: root.ringing !== null || bannerCard.opacity > 0.01
         anchors { top: true; right: true }
         margins { top: 38; right: 12 }
         implicitWidth: 372; implicitHeight: 96
@@ -299,8 +296,10 @@ Scope {
             border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.10)
             layer.enabled: true
             layer.effect: MultiEffect { shadowEnabled: true; shadowBlur: 0.8; shadowOpacity: 0.35; shadowVerticalOffset: 6 }
-            readonly property color fg: root.darkMode ? "white" : "#1D1D1F"
-            readonly property color fg2: root.darkMode ? Qt.rgba(1, 1, 1, 0.6) : Qt.rgba(0, 0, 0, 0.55)
+            property color fg: root.darkMode ? "white" : "#1D1D1F"
+            Behavior on fg { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color fg2: root.darkMode ? Qt.rgba(1, 1, 1, 0.6) : Qt.rgba(0, 0, 0, 0.55)
+            Behavior on fg2 { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
             ClockFace { x: 14; anchors.verticalCenter: parent.verticalCenter; width: 40; height: 40; night: true; date: new Date(root.nowMs); seconds: false }
             Column {
                 x: 66; anchors.verticalCenter: parent.verticalCenter
@@ -350,17 +349,28 @@ Scope {
         QtObject {
             id: pal
             readonly property bool dark: root.darkMode
-            readonly property color bg: dark ? "#1C1C1E" : "#F2F2F7"
-            readonly property color bar: dark ? "#2A2A2C" : "#E8E8ED"
-            readonly property color card: dark ? "#2C2C2E" : "#FFFFFF"
-            readonly property color text: dark ? "#F5F5F7" : "#1D1D1F"
-            readonly property color text2: dark ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.5)
-            readonly property color text3: dark ? Qt.rgba(1, 1, 1, 0.3) : Qt.rgba(0, 0, 0, 0.28)
-            readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.09)
-            readonly property color ctrl: dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06)
-            readonly property color ctrlSel: dark ? "#636366" : "#FFFFFF"
-            readonly property color border: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.2)
-            readonly property color lightOff: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(0, 0, 0, 0.15)
+            property color bg: dark ? "#1C1C1E" : "#F2F2F7"
+            Behavior on bg { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color bar: dark ? "#2A2A2C" : "#E8E8ED"
+            Behavior on bar { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color card: dark ? "#2C2C2E" : "#FFFFFF"
+            Behavior on card { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color text: dark ? "#F5F5F7" : "#1D1D1F"
+            Behavior on text { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color text2: dark ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.5)
+            Behavior on text2 { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color text3: dark ? Qt.rgba(1, 1, 1, 0.3) : Qt.rgba(0, 0, 0, 0.28)
+            Behavior on text3 { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color sep: dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.09)
+            Behavior on sep { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color ctrl: dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06)
+            Behavior on ctrl { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color ctrlSel: dark ? "#636366" : "#FFFFFF"
+            Behavior on ctrlSel { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color border: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.2)
+            Behavior on border { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            property color lightOff: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(0, 0, 0, 0.15)
+            Behavior on lightOff { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
         }
 
         Rectangle {
@@ -394,9 +404,17 @@ Scope {
                             delegate: Rectangle {
                                 required property var modelData
                                 width: 14; height: 14; radius: 7
-                                color: (win.active || tlMa.containsMouse) ? modelData.c : pal.lightOff
+                                color: ((root.bar && root.bar.tlColorOnHover) ? tlMa.containsMouse : (win.active || tlMa.containsMouse)) ? modelData.c : pal.lightOff
+                                Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutCubic } }
                                 border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.14)
-                                Text { anchors.centerIn: parent; visible: tlMa.containsMouse; text: parent.modelData.g; font.pixelSize: 11; font.bold: true; color: Qt.rgba(0, 0, 0, 0.55) }
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: parent.modelData.g
+                                    font.pixelSize: 11; font.bold: true
+                                    color: Qt.rgba(0, 0, 0, 0.55)
+                                    opacity: (tlMa.containsMouse || (root.bar && root.bar.tlAlwaysSymbols)) ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                }
                             }
                         }
                     }
@@ -404,7 +422,7 @@ Scope {
                         id: tlMa; anchors.fill: parent; hoverEnabled: true
                         onClicked: mouse => {
                             if (mouse.x < 22) win.visible = false;
-                            else if (mouse.x < 44) win.showMinimized();
+                            else if (mouse.x < 44) root.hub && root.hub.minimizeWindow ? root.hub.minimizeWindow(win.title) : win.showMinimized();
                             else win.visibility === Window.FullScreen ? win.showNormal() : win.showFullScreen();
                         }
                     }
@@ -674,7 +692,8 @@ Scope {
                         required property int index
                         width: laps.width; height: 40
                         readonly property real t: laps.lapTimes[index] || 0
-                        readonly property color c: (index > 0 || !root.swActive) && t === laps.best ? "#30D158" : ((index > 0 || !root.swActive) && t === laps.worst ? "#FF453A" : pal.text)
+                        property color c: (index > 0 || !root.swActive) && t === laps.best ? "#30D158" : ((index > 0 || !root.swActive) && t === laps.worst ? "#FF453A" : pal.text)
+                        Behavior on c { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
                         Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: pal.sep }
                         Text { anchors.verticalCenter: parent.verticalCenter; text: "Lap " + (laps.count - parent.index); color: parent.c; font.family: root.fam; font.pixelSize: 15 }
                         Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: root.fmtSw(parent.t); color: parent.c; font.family: root.fam; font.pixelSize: 15; font.features: { "tnum": 1 } }
@@ -1017,8 +1036,10 @@ Scope {
         property var date: new Date()
         property bool night: false
         property bool seconds: true
-        readonly property color face: night ? "#1C1C1E" : "#F5F5F7"
-        readonly property color ink: night ? "white" : "black"
+        property color face: night ? "#1C1C1E" : "#F5F5F7"
+        Behavior on face { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+        property color ink: night ? "white" : "black"
+        Behavior on ink { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
         Rectangle { anchors.fill: parent; radius: width / 2; color: cf.face; border.width: cf.night ? 1 : 0; border.color: Qt.rgba(1, 1, 1, 0.12) }
         Repeater {
             model: cf.width >= 100 ? 0 : 12

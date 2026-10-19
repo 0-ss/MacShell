@@ -171,7 +171,11 @@ Item {
         }
     }
     onArtSrcChanged: sampler.load(String(artSrc))
-    Component.onCompleted: sampler.load(String(artSrc))
+    Component.onCompleted: {
+        sampler.load(String(artSrc));
+        colCur = topCol;
+        colPrev = topCol;
+    }
 
     // card colours
     readonly property color topCol: style === "light" ? mix(ac, Qt.rgba(1, 1, 1, 1), 0.70) : mix(ac, Qt.rgba(0, 0, 0, 1), 0.42)
@@ -190,16 +194,52 @@ Item {
         return Qt.rgba(c.r, c.g, c.b, 0.9);
     }
 
+    // ───────────────────────── album colour spread ─────────────────────────
+    property color colPrev: topCol
+    property color colCur: topCol
+    property real spreadProg: 1.0
+
+    NumberAnimation {
+        id: spreadAnim
+        target: w
+        property: "spreadProg"
+        from: 0
+        to: 1
+        duration: 1000
+        easing.type: Easing.InOutCubic
+        onFinished: w.colPrev = w.colCur
+    }
+
+    function triggerSpread() {
+        colPrev = spreadProg > 0.5 ? colCur : colPrev;
+        colCur = w.topCol;
+        spreadAnim.restart();
+    }
+
     // ───────────────────────── background ─────────────────────────
-    // Light / Dark: card tinted with the artwork colour
+    // Light / Dark: card tinted with the artwork colour spreading out from cover
+    ShaderEffect {
+        anchors.fill: parent
+        visible: w.style !== "liquid"
+        fragmentShader: Qt.resolvedUrl("tintcard.frag.qsb")
+        property vector2d itemSize: Qt.vector2d(width, height)
+        property real radius: w.radiusPx
+        property vector2d center: Qt.vector2d(w.artX * w.k + (w.artS * w.k) / 2, w.artY * w.k + (w.artS * w.k) / 2)
+        property real soft: 70
+        property real spreadR: w.spreadProg * (Math.sqrt(width * width + height * height) + 2 * soft)
+        property color colOld: w.colPrev
+        property color colNew: w.colCur
+        property real alpha: 0.94
+    }
+
     Rectangle {
         anchors.fill: parent
         visible: w.style !== "liquid"
         radius: w.radiusPx
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: w.topCol }
-            GradientStop { position: 1.0; color: w.botCol }
-        }
+        color: "transparent"
+        border.width: 1
+        border.color: w.borderCol
+
         Rectangle {   // soft top sheen
             anchors.fill: parent
             radius: parent.radius

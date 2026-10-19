@@ -31,7 +31,7 @@ ShellRoot {
             if (lock.wasSecure) return lock.secure ? "busy" : "stopping";
             return root.lockRequested ? "busy" : "ready";
         }
-        function lock(): void { root.requestLock(); }
+        function lock() { root.requestLock(); }
     }
 
     // the monitor that was focused when the lock started gets the full layout

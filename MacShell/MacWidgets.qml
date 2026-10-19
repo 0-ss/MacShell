@@ -51,7 +51,7 @@ Scope {
     property int rev: 0                    // bumped on every change to the list, so Settings bindings can re-evaluate count()
 
     readonly property var styleNames: ({ liquid: "Liquid Glass", normal: "Normal", light: "Light", dark: "Dark" })
-    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image", gif: "GIF", battery: "Battery", sysmon: "System Monitor", stocks: "Stocks" })
+    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image", gif: "GIF", battery: "Battery", sysmon: "System Monitor", stocks: "Stocks", reminders: "Reminders" })
     readonly property var sizeNames: ({ small: "Small", medium: "Medium", large: "Large" })
     function dims(size) {
         var b = size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]);
@@ -471,6 +471,81 @@ Scope {
                 root.applyLyrics(text);
             }
         }
+    }
+
+    // ───────────── reminders (~/.config/macshell/reminders.md) ─────────────
+    FileView {
+        id: remFile
+        path: Quickshell.env("HOME") + "/.config/macshell/reminders.md"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoadFailed: setText("- [ ] Try the new widgets\n- [x] Install MacShell\n- [ ] Click a circle to tick it off\n")
+    }
+    readonly property var reminders: {
+        var t = remFile.loaded ? remFile.text() : "", out = [], l = t.split("\n");
+        for (var i = 0; i < l.length; i++) {
+            var m = /^\s*[-*]\s*\[( |x|X)\]\s*(.*)$/.exec(l[i]);
+            if (m) out.push({ line: i, done: m[1] !== " ", text: m[2] });
+        }
+        return out;
+    }
+    readonly property int remOpenCount: {
+        var a = reminders, n = 0;
+        for (var i = 0; i < a.length; i++) if (!a[i].done) n++;
+        return n;
+    }
+    ListModel { id: remModel }
+    property bool remReady: false
+    function syncReminders() {
+        var r = root.reminders, i, j;
+        for (i = remModel.count - 1; i >= 0; i--) {
+            var gone = true;
+            for (j = 0; j < r.length; j++) if (r[j].text === remModel.get(i).text) { gone = false; break; }
+            if (gone) remModel.remove(i);
+        }
+        for (var k = 0; k < r.length; k++) {
+            if (k >= remModel.count || remModel.get(k).text !== r[k].text) {
+                remModel.insert(k, { line: r[k].line, done: r[k].done, text: r[k].text, fresh: root.remReady });
+            } else {
+                if (remModel.get(k).done !== r[k].done) remModel.setProperty(k, "done", r[k].done);
+                if (remModel.get(k).line !== r[k].line) remModel.setProperty(k, "line", r[k].line);
+            }
+        }
+        while (remModel.count > r.length) remModel.remove(remModel.count - 1);
+        if (r.length > 0) root.remReady = true;
+    }
+    onRemindersChanged: syncReminders()
+    Component.onCompleted: syncReminders()
+    function toggleReminder(lineNo) {
+        var l = remFile.text().split("\n");
+        if (lineNo < 0 || lineNo >= l.length) return;
+        l[lineNo] = /\[ \]/.test(l[lineNo]) ? l[lineNo].replace("[ ]", "[x]") : l[lineNo].replace(/\[(x|X)\]/, "[ ]");
+        remFile.setText(l.join("\n"));
+        if (hub && hub.bar) hub.bar.playSound("tink", 0.6);
+    }
+    function addReminder(text) {
+        var t = String(text || "").trim();
+        if (t === "") return;
+        var cur = remFile.loaded ? remFile.text() : "";
+        if (cur !== "" && cur.charAt(cur.length - 1) !== "\n") cur += "\n";
+        remFile.setText(cur + "- [ ] " + t + "\n");
+        if (hub && hub.bar) hub.bar.playSound("pop", 0.5);
+    }
+    function setReminderText(lineNo, text) {
+        var l = remFile.text().split("\n");
+        if (lineNo < 0 || lineNo >= l.length) return;
+        var t = String(text || "").trim();
+        if (t === "") { deleteReminder(lineNo); return; }
+        l[lineNo] = l[lineNo].replace(/^(\s*[-*]\s*\[( |x|X)\]\s*).*$/, "$1" + t.replace(/\$/g, "$$$$"));
+        remFile.setText(l.join("\n"));
+    }
+    function deleteReminder(lineNo) {
+        var l = remFile.text().split("\n");
+        if (lineNo < 0 || lineNo >= l.length) return;
+        l.splice(lineNo, 1);
+        remFile.setText(l.join("\n"));
+        if (hub && hub.bar) hub.bar.playSound("tink", 0.4);
     }
 
     // ───────────── weather data (Open-Meteo) ─────────────

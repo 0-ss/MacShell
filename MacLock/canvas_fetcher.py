@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-canvas_fetcher.py - Official Spotify Canvas / Custom Video Fetcher
-Sources:
+canvas_fetcher.py - Official Spotify Canvas & Apple Music Motion Artwork Fetcher
+Tiered Sources:
 1. Local cache (~/.cache/macshell/canvas/<id_or_name>.mp4)
-2. Spotify Canvas (spclient canvaz-cache via Firefox sp_dc cookie)
-3. Public Spotify Canvas fallback
+2. Spotify Canvas (spclient canvaz-cache via Firefox sp_dc cookie or public proxy)
+3. Apple Music Motion Artwork (iTunes Search -> Apple Music album -> H.264 AVC1 SDR)
+4. Fallback: Returns success=False so LockScreen cleanly displays blurred album art.
+
 Features:
 - Automatic LRU cache pruning (max 20 videos / 100MB) to prevent disk bloat.
-- If no canvas video is found, returns success=False so LockScreen
-  falls back cleanly to the blurred album artwork.
+- Stream remuxing via ffmpeg to guarantee instantaneous 0-timestamp playback and looping.
 """
 
 import sys
@@ -61,6 +62,8 @@ def mark_used(filepath):
 
 def sanitize(name):
     return re.sub(r'[^\w\-_\. ]', '_', name or "").strip()
+
+# ═══════════════════════ SPOTIFY CANVAS ═══════════════════════
 
 def get_firefox_sp_dc():
     patterns = [
@@ -160,6 +163,22 @@ def fetch_public_canvas_url(track_id):
         pass
     return None
 
+def get_spotify_track_id():
+    """Detect current Spotify track ID from playerctl if available."""
+    try:
+        out = subprocess.run(
+            ["playerctl", "-p", "spotify", "metadata", "mpris:trackid"],
+            capture_output=True, text=True, timeout=1.5
+        )
+        if out.returncode == 0 and out.stdout:
+            tid = out.stdout.strip()
+            m = re.search(r'[a-zA-Z0-9]{22}', tid)
+            if m:
+                return m.group(0)
+    except Exception:
+        pass
+    return ""
+
 def download_video(url, target_path):
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -175,22 +194,130 @@ def download_video(url, target_path):
         pass
     return False
 
-def get_spotify_track_id():
-    """Detect current Spotify track ID from playerctl if available."""
+# ═══════════════════════ APPLE MUSIC MOTION ARTWORK ═══════════════════════
+
+def fetch_apple_music_motion(artist, title, album, target_path):
+    """
+    Search Apple Music via iTunes Search API and scrape the album page
+    for official motion artwork (tall portrait 3:4 or square 1:1 HLS stream).
+    Downloads H.264 AVC1 SDR video and normalizes timestamps with ffmpeg.
+    """
+    queries = []
+    if artist and album:
+        queries.append(f"{artist} {album}")
+    if artist and title:
+        queries.append(f"{artist} {title}")
+    if title:
+        queries.append(title)
+
+    checked_urls = set()
+    candidate_urls = []
+
+    for q in queries:
+        try:
+            search_url = f"https://itunes.apple.com/search?term={urllib.parse.quote_plus(q)}&entity=song&limit=5"
+            req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                res = json.loads(r.read().decode())
+            for item in res.get('results', []):
+                cu = item.get('collectionViewUrl')
+                if cu and cu not in checked_urls:
+                    checked_urls.add(cu)
+                    exact = (item.get('trackName', '').strip().lower() == title.strip().lower())
+                    candidate_urls.append((exact, cu))
+        except Exception:
+            continue
+        if candidate_urls:
+            break
+
+    candidate_urls.sort(key=lambda x: x[0], reverse=True)
+
+    master_m3u8 = None
+    for _, cu in candidate_urls[:3]:
+        try:
+            req_page = urllib.request.Request(cu, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+            })
+            with urllib.request.urlopen(req_page, timeout=6) as r:
+                html = r.read().decode('utf-8', errors='ignore')
+
+            # Look for tall portrait video artwork first (perfect for lockscreen / canvas)
+            tall = re.findall(r'\"tallVideoArtwork\":\s*\{[^\}]*?\"video\":\s*\"(https://mvod\.itunes\.apple\.com/[^\"]+\.m3u8)\"', html)
+            square = re.findall(r'\"videoArtwork\":\s*\{[^\}]*?\"video\":\s*\"(https://mvod\.itunes\.apple\.com/[^\"]+\.m3u8)\"', html)
+            if tall:
+                master_m3u8 = tall[0]
+                break
+            if square:
+                master_m3u8 = square[0]
+                break
+            all_m = re.findall(r'https://mvod\.itunes\.apple\.com/[^\"\'\s]+\.m3u8', html)
+            if all_m:
+                master_m3u8 = all_m[0]
+                break
+        except Exception:
+            continue
+
+    if not master_m3u8:
+        return False
+
     try:
-        out = subprocess.run(
-            ["playerctl", "-p", "spotify", "metadata", "mpris:trackid"],
-            capture_output=True, text=True, timeout=1.5
-        )
-        if out.returncode == 0 and out.stdout:
-            tid = out.stdout.strip()
-            # e.g. /com/spotify/track/3mECPHiXfJOcY9s5JTvLrW or spotify:track:...
-            m = re.search(r'[a-zA-Z0-9]{22}', tid)
-            if m:
-                return m.group(0)
+        req_master = urllib.request.Request(master_m3u8, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req_master, timeout=5) as r:
+            master_content = r.read().decode('utf-8')
+
+        candidates = []
+        for m in re.finditer(r'#EXT-X-STREAM-INF:([^\n]+)\n([^\n]+)', master_content):
+            info, stream_url = m.group(1), m.group(2)
+            if 'avc1' in info:  # Prefer standard H.264 SDR
+                res_m = re.search(r'RESOLUTION=([0-9]+)x([0-9]+)', info)
+                w, h = (int(res_m.group(1)), int(res_m.group(2))) if res_m else (0, 0)
+                bw_m = re.search(r'AVERAGE-BANDWIDTH=([0-9]+)', info)
+                bw = int(bw_m.group(1)) if bw_m else 0
+                candidates.append((w, h, bw, stream_url))
+
+        if not candidates:
+            stream_matches = re.findall(r'https://[^\n\s]+\.m3u8', master_content)
+            chosen_stream = stream_matches[0] if stream_matches else master_m3u8
+        else:
+            # Pick a stream with height close to ~1000px for crystal clarity & low bandwidth
+            candidates.sort(key=lambda c: abs(c[1] - 1000))
+            chosen_stream = candidates[0][3]
+
+        req_var = urllib.request.Request(chosen_stream, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req_var, timeout=5) as r:
+            var_content = r.read().decode('utf-8')
+
+        map_m = re.search(r'#EXT-X-MAP:URI=\"([^\"]+)\"', var_content)
+        temp_direct = target_path + ".dl.mp4"
+
+        if map_m:
+            mp4_url = urllib.parse.urljoin(chosen_stream, map_m.group(1))
+            req_dl = urllib.request.Request(mp4_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_dl, timeout=12) as resp:
+                data = resp.read()
+            if len(data) > 10000:
+                with open(temp_direct, 'wb') as f:
+                    f.write(data)
+                # Remux with ffmpeg to ensure timestamps start at 0 and fast looping
+                subprocess.run([
+                    'ffmpeg', '-y', '-loglevel', 'error',
+                    '-i', temp_direct, '-c', 'copy', target_path
+                ], timeout=10)
+                if os.path.exists(temp_direct):
+                    os.remove(temp_direct)
+                return os.path.exists(target_path) and os.path.getsize(target_path) > 10000
+
+        # Fallback to ffmpeg stream capture
+        subprocess.run([
+            'ffmpeg', '-y', '-loglevel', 'error',
+            '-i', chosen_stream, '-c', 'copy', '-t', '30', target_path
+        ], timeout=15)
+        return os.path.exists(target_path) and os.path.getsize(target_path) > 10000
+
     except Exception:
-        pass
-    return ""
+        return False
+
+# ═══════════════════════════ MAIN ═══════════════════════════
 
 def main():
     # Args: title, artist, album, artUrl, optional_track_id
@@ -205,32 +332,32 @@ def main():
 
     key_base = f"{artist} - {title}".strip(" -")
     if not key_base and not track_id:
-        print(json.dumps({"success": False, "videoPath": "", "isOfficial": False}))
+        print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none"}))
         return
 
-    # 1. Check local cache files
+    # 1. Check local cache files first
     if track_id:
         id_path = os.path.join(CACHE_DIR, f"{track_id}.mp4")
-        if os.path.exists(id_path) and os.path.getsize(id_path) > 1000:
+        if os.path.exists(id_path) and os.path.getsize(id_path) > 10000:
             mark_used(id_path)
-            print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True}))
+            print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True, "source": "cache"}))
             return
 
     sanitized_name = sanitize(key_base)
     name_path = os.path.join(CACHE_DIR, f"{sanitized_name}.mp4")
-    if os.path.exists(name_path) and os.path.getsize(name_path) > 1000:
+    if os.path.exists(name_path) and os.path.getsize(name_path) > 10000:
         mark_used(name_path)
-        print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True}))
+        print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "cache"}))
         return
 
     if title:
         title_path = os.path.join(CACHE_DIR, f"{sanitize(title)}.mp4")
-        if os.path.exists(title_path) and os.path.getsize(title_path) > 1000:
+        if os.path.exists(title_path) and os.path.getsize(title_path) > 10000:
             mark_used(title_path)
-            print(json.dumps({"success": True, "videoPath": title_path, "isOfficial": True}))
+            print(json.dumps({"success": True, "videoPath": title_path, "isOfficial": True, "source": "cache"}))
             return
 
-    # 2. Try Spotify Canvas API if track_id exists
+    # 2. Try Spotify Canvas API
     canvas_mp4_url = None
     if track_id:
         sp_dc = get_firefox_sp_dc()
@@ -251,10 +378,24 @@ def main():
                         os.symlink(save_path, name_path)
                 except Exception:
                     pass
-            print(json.dumps({"success": True, "videoPath": save_path, "isOfficial": True}))
+            print(json.dumps({"success": True, "videoPath": save_path, "isOfficial": True, "source": "spotify"}))
             return
 
-    print(json.dumps({"success": False, "videoPath": "", "isOfficial": False}))
+    # 3. Fallback to Apple Music Motion Artwork
+    target_apple_path = os.path.join(CACHE_DIR, f"{sanitized_name or (track_id or 'apple_motion')}.mp4")
+    if fetch_apple_music_motion(artist, title, album, target_apple_path):
+        mark_used(target_apple_path)
+        prune_cache()
+        if track_id and not os.path.exists(os.path.join(CACHE_DIR, f"{track_id}.mp4")):
+            try:
+                os.symlink(target_apple_path, os.path.join(CACHE_DIR, f"{track_id}.mp4"))
+            except Exception:
+                pass
+        print(json.dumps({"success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic"}))
+        return
+
+    # 4. Neither exists -> Fall back cleanly to blurred album art background
+    print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none"}))
 
 if __name__ == "__main__":
     main()

@@ -34,6 +34,8 @@ ShellRoot {
         property var dock: macDock
         property var widgets: macWidgets
         property var clock: clockApp
+        property var airdrop: airDrop
+        property var reminders: remindersApp
         function openSettings(pane) { macDock.openPrefs(pane); }
 
         // set by MacBar / MacDock (Binding elements) when their glass needs live data
@@ -269,6 +271,8 @@ ShellRoot {
     MacDock { id: macDock; hub: sharedHub }
     MacWidgets { id: macWidgets; hub: sharedHub }
     ClockApp { id: clockApp; hub: sharedHub }
+    AirDrop { id: airDrop; hub: sharedHub }
+    Reminders { id: remindersApp; hub: sharedHub }
 
     // reopen settings even when both the Dock and the Menu Bar are disabled:
     //   qs -c macbar ipc call settings open
@@ -285,6 +289,12 @@ ShellRoot {
         function tab(name: string) { clockApp.open(name); }
         function stop() { clockApp.stopRing(); }
         function snooze() { clockApp.snooze(); }
+    }
+    IpcHandler {
+        target: "airdrop"
+        function open() { airDrop.open(); }
+        function stage(path: string) { airDrop.stagePaths(airDrop.pending.concat([path])); }
+        function clear() { airDrop.pending = []; }
     }
     IpcHandler {
         target: "notifications"

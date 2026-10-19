@@ -248,6 +248,38 @@ Item {
                 desktopCovered: host.dock && host.dock.busyMonitors ? (host.dock.busyMonitors[v.sname] === true) : false
             }
         }
+        Component {
+            id: remindersVisual
+            RemindersWidget {
+                host: v.host
+                size: wsize
+                style: wstyle
+                scaleF: host.widgetScale
+                fam: host.fontFamily
+                screenX: v.sx; screenY: v.sy
+                remindersModel: host.remModel
+                openCount: host.remOpenCount
+                editing: host.editing
+                glassReady: host.glassState === "ready"
+                shaderUrl: "file://" + host.glassShaderOut
+                wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
+                screenW: v.sw
+                screenH: v.sh
+                glassOpacity: host.glassOpacity
+                glassBlur: host.glassBlur
+                glassLiquid: host.glassLiquid
+                glassRim: host.glassRim
+                glassGrain: host.glassGrain
+                darkGlass: host.darkGlass
+                onOpenRemindersApp: {
+                    if (host.hub && host.hub.reminders) host.hub.reminders.open();
+                    else Quickshell.execDetached(["xdg-open", host.configDir + "/reminders.md"]);
+                }
+                onAddReminder: text => host.addReminder(text)
+                onToggleReminder: line => host.toggleReminder(line)
+                onDeleteReminder: line => host.deleteReminder(line)
+            }
+        }
         Loader {
             id: visual
             anchors.fill: parent
@@ -258,6 +290,7 @@ Item {
                            : (wtype === "gif" ? gifVisual
                            : (wtype === "battery" ? batteryVisual
                            : (wtype === "sysmon" ? sysmonVisual
-                           : (wtype === "stocks" ? stocksVisual : weatherVisual)))))))
+                           : (wtype === "stocks" ? stocksVisual
+                           : (wtype === "reminders" ? remindersVisual : weatherVisual))))))))
         }
 }
