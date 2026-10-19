@@ -15,6 +15,9 @@ import Quickshell.Hyprland
 import Quickshell.Services.Pam
 
 ShellRoot {
+    // the UI font ("Open Runde") ships with MacLock: registered first, so every Text below can use it
+    FontLoader { id: uiFontLoader; source: Qt.resolvedUrl("fonts/OpenRunde-Regular.otf") }
+
     // never hot-reload while holding the session lock: a half-edited config must not touch a live lock
     settings.watchFiles: false
     id: root

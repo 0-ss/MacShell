@@ -123,6 +123,12 @@ Scope {
     readonly property bool captureHold: hub ? hub.captureHold : false     // windows opening / closing: the dock PREVIEW capture stops (source released 0.5 s later); the glass is not affected
     // appearance values shared by Dock and Menu Bar
     function setLook(k, v) { root[k] = v; if (bar) bar[k] = v; }
+    // Appearance: the Menu Bar resolves "auto" (light by day, dark by night) and keeps both windows in step
+    function setAppearance(mode) {
+        if (bar && bar.setAppearance) { bar.setAppearance(mode); return; }
+        appearanceMode = mode;
+        if (mode === "auto") { var h = new Date().getHours(); darkMode = (h < 7 || h >= 19); } else darkMode = (mode === "dark");
+    }
 
     // ───────────── CONFIG ───────────── Lachowski
     property string monitor: ""          // "" = every monitor, or e.g. "DP-1"
@@ -135,6 +141,7 @@ Scope {
     property int cornerRadius: 18
     property int margin: 6
     property bool darkMode: true
+    property string appearanceMode: "dark"      // light | dark | auto (kept in step with the Menu Bar, see setAppearance)
     property string dockStyle: "blur"   // "blur" = Normal Blur, "liquid" = Apple Liquid Glass
     // Liquid Glass tuning (settings.json): rim = edge highlight, grain = noise, liquid = refraction depth
     property real glassRim: 0.45
@@ -149,8 +156,8 @@ Scope {
     // "always" = always auto-hide, "never" = always visible and reserves space
     property string hideMode: "smart"
     property bool showTrash: true
-    property string fontFamily: "Inter Variable"  // "Inter" (one variable font file; falls back to the system font if missing)
-    onFontFamilyChanged: if (fontFamily === "Inter" || fontFamily === "Inter Display") fontFamily = "Inter Variable"
+    property string fontFamily: "Open Runde"  // bundled in assets/fonts (shell.qml loads it); falls back to the system font if missing
+    onFontFamilyChanged: if (fontFamily.indexOf("Inter") === 0) fontFamily = "Open Runde"
     property bool magnificationEnabled: true
     property bool showLabels: true       // hover tooltips
     property bool showIndicators: true   // dots under running apps
@@ -165,6 +172,16 @@ Scope {
         { name: "Green",    c: "#30d158" }, { name: "Graphite", c: "#8e8e93" }
     ]
     property color accent: "#0A84FF"     // menu highlight (macOS blue)
+    // Dock icon tint: every icon is re-coloured with one colour (works with any icon pack)
+    property bool iconTint: false
+    property string iconTintColor: "#0a84ff"
+    property real iconTintStrength: 1.0
+    readonly property var tintChoices: [
+        { name: "Blue",     c: "#0a84ff" }, { name: "Purple", c: "#bf5af2" }, { name: "Pink",  c: "#ff375f" },
+        { name: "Red",      c: "#ff453a" }, { name: "Orange", c: "#ff9f0a" }, { name: "Yellow", c: "#ffd60a" },
+        { name: "Green",    c: "#30d158" }, { name: "Teal",   c: "#40c8e0" }, { name: "Graphite", c: "#8e8e93" },
+        { name: "White",    c: "#ffffff" }, { name: "Black",  c: "#1c1c1e" }
+    ]
     readonly property var defaultPinned: [
         "org.gnome.Nautilus", "org.kde.dolphin", "thunar",
         "firefox", "zen", "chromium", "google-chrome",
@@ -451,32 +468,65 @@ Scope {
         id: tile
         required property var t
         property bool dark: false
+        property bool split: false            // Auto: left half light, right half dark
         property bool selected: false
         property string label: ""
         signal clicked()
         width: 84; height: 78
-        Rectangle {
+        readonly property bool leftDark: split ? false : dark
+        // the little desktop picture (left half, or the whole tile)
+        Item {
             width: 84; height: 56
-            radius: 8
-            color: tile.dark ? "#141416" : "#D9DDE6"
-            border.width: tile.selected ? 3 : 1
-            border.color: tile.selected ? tile.t.accent : tile.t.sep
+            Rectangle { width: 84; height: 56; radius: 8; color: tile.leftDark ? "#141416" : "#D9DDE6" }
             Rectangle {   // mini window
                 x: 14; y: 9
                 width: 56; height: 32
                 radius: 4
-                color: tile.dark ? "#2C2C2E" : "#FFFFFF"
-                Rectangle { x: 0; y: 0; width: 15; height: parent.height; radius: 4; color: tile.dark ? "#3A3A3C" : "#E9E9EE" }
-                Rectangle { x: 20; y: 7;  width: 28; height: 3; radius: 1.5; color: tile.dark ? "#5A5A5E" : "#C8C8CE" }
-                Rectangle { x: 20; y: 14; width: 20; height: 3; radius: 1.5; color: tile.dark ? "#48484A" : "#DADADF" }
-                Rectangle { x: 20; y: 21; width: 24; height: 3; radius: 1.5; color: tile.dark ? "#48484A" : "#DADADF" }
+                color: tile.leftDark ? "#2C2C2E" : "#FFFFFF"
+                Rectangle { x: 0; y: 0; width: 15; height: parent.height; radius: 4; color: tile.leftDark ? "#3A3A3C" : "#E9E9EE" }
+                Rectangle { x: 20; y: 7;  width: 28; height: 3; radius: 1.5; color: tile.leftDark ? "#5A5A5E" : "#C8C8CE" }
+                Rectangle { x: 20; y: 14; width: 20; height: 3; radius: 1.5; color: tile.leftDark ? "#48484A" : "#DADADF" }
+                Rectangle { x: 20; y: 21; width: 24; height: 3; radius: 1.5; color: tile.leftDark ? "#48484A" : "#DADADF" }
             }
             Rectangle {   // mini dock
                 x: 26; y: 46
                 width: 32; height: 6
                 radius: 3
-                color: tile.dark ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.75)
+                color: tile.leftDark ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.75)
             }
+        }
+        // Auto: the right half is the dark picture
+        Item {
+            visible: tile.split
+            x: 42; width: 42; height: 56
+            clip: true
+            Item {
+                x: -42; width: 84; height: 56
+                Rectangle { width: 84; height: 56; radius: 8; color: true ? "#141416" : "#D9DDE6" }
+                Rectangle {   // mini window
+                    x: 14; y: 9
+                    width: 56; height: 32
+                    radius: 4
+                    color: true ? "#2C2C2E" : "#FFFFFF"
+                    Rectangle { x: 0; y: 0; width: 15; height: parent.height; radius: 4; color: true ? "#3A3A3C" : "#E9E9EE" }
+                    Rectangle { x: 20; y: 7;  width: 28; height: 3; radius: 1.5; color: true ? "#5A5A5E" : "#C8C8CE" }
+                    Rectangle { x: 20; y: 14; width: 20; height: 3; radius: 1.5; color: true ? "#48484A" : "#DADADF" }
+                    Rectangle { x: 20; y: 21; width: 24; height: 3; radius: 1.5; color: true ? "#48484A" : "#DADADF" }
+                }
+                Rectangle {   // mini dock
+                    x: 26; y: 46
+                    width: 32; height: 6
+                    radius: 3
+                    color: true ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.75)
+                }
+            }
+        }
+        Rectangle {   // selection / outline ring
+            width: 84; height: 56
+            radius: 8
+            color: "transparent"
+            border.width: tile.selected ? 3 : 1
+            border.color: tile.selected ? tile.t.accent : tile.t.sep
         }
         Text {
             y: 60
@@ -1860,12 +1910,23 @@ Scope {
                                 readonly property int d: Math.abs(index - mid)
                                 readonly property real f: d === 0 ? 1 : (d === 1 ? 0.5 : (d === 2 ? 0.12 : 0))
                                 Image {
+                                    id: pimg
                                     anchors.fill: parent
+                                    visible: false
                                     source: root.iconSrc(pi.modelData.icon)
                                     sourceSize: Qt.size(96, 96)
                                     fillMode: Image.PreserveAspectFit
                                     smooth: true
                                     mipmap: true
+                                }
+                                MultiEffect {
+                                    anchors.fill: pimg
+                                    source: pimg
+                                    saturation: root.iconTint ? -0.75 * root.iconTintStrength : 0.0
+                                    colorization: root.iconTint ? 1.0 * root.iconTintStrength : 0.0
+                                    brightness: root.iconTint ? 0.14 * root.iconTintStrength : 0.0
+                                    contrast: root.iconTint ? 0.04 * root.iconTintStrength : 0.0
+                                    colorizationColor: root.iconTintColor
                                     transformOrigin: Item.Bottom
                                     scale: root.magnificationEnabled ? 1 + (root.magnification - 1) * pi.f : 1
                                     Behavior on scale { NumberAnimation { duration: 120 } }
@@ -1913,6 +1974,71 @@ Scope {
                     }
                 }
 
+                SLabel { t: pal; header: true; text: "Icon Tint" }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Tint Dock icons"
+                        subtitle: "Re-colours every icon with one colour. Works with any icon pack."
+                        SSwitch { t: pal; checked: root.iconTint; onToggled: v => root.iconTint = v }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Colour"
+                        opacity: root.iconTint ? 1 : 0.45
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: root.tintChoices
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    width: 18; height: 18; radius: 9
+                                    color: modelData.c
+                                    border.width: String(root.iconTintColor).toLowerCase() === modelData.c ? 2 : 1
+                                    border.color: String(root.iconTintColor).toLowerCase() === modelData.c ? pal.text : pal.cardBorder
+                                    MouseArea { anchors.fill: parent; enabled: root.iconTint; onClicked: root.iconTintColor = parent.modelData.c }
+                                }
+                            }
+                            Rectangle {
+                                width: 74; height: 22; radius: 6
+                                color: pal.ctrl
+                                border.width: 1
+                                border.color: pal.cardBorder
+                                TextInput {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 7; anchors.rightMargin: 7
+                                    verticalAlignment: TextInput.AlignVCenter
+                                    clip: true
+                                    selectByMouse: true
+                                    enabled: root.iconTint
+                                    maximumLength: 7
+                                    color: pal.text
+                                    selectionColor: pal.accent
+                                    font.family: pal.fam
+                                    font.pixelSize: 12
+                                    text: root.iconTintColor
+                                    onEditingFinished: { if (/^#[0-9a-fA-F]{6}$/.test(text)) root.iconTintColor = text.toLowerCase(); else text = root.iconTintColor; }
+                                }
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: "Strength"
+                        subtitle: "Lower values keep some of the original icon colours"
+                        opacity: root.iconTint ? 1 : 0.45
+                        SSlider {
+                            t: pal
+                            enabled: root.iconTint
+                            from: 0.1; to: 1.0; stepSize: 0.05
+                            value: root.iconTintStrength
+                            leftLabel: "Subtle"; rightLabel: "Full"
+                            onMoved: v => root.iconTintStrength = Math.round(v * 100) / 100
+                        }
+                    }
+                }
+
                 SCard {
                     t: pal
                     SRow {
@@ -1953,18 +2079,23 @@ Scope {
                     SRow {
                         t: pal
                         title: "Appearance"
-                        subtitle: "Applies to the Dock, the Menu Bar and this window"
+                        subtitle: "Light, Dark, or Auto for the Dock, Menu Bar and Settings. Spotlight and top bar menus use General → Spotlight & top bar menus."
                         Row {
                             spacing: 14
                             SThemeTile {
                                 t: pal; label: "Light"; dark: false
-                                selected: !root.darkMode
-                                onClicked: root.setLook("darkMode", false)
+                                selected: root.appearanceMode === "light"
+                                onClicked: root.setAppearance("light")
                             }
                             SThemeTile {
                                 t: pal; label: "Dark"; dark: true
-                                selected: root.darkMode
-                                onClicked: root.setLook("darkMode", true)
+                                selected: root.appearanceMode === "dark"
+                                onClicked: root.setAppearance("dark")
+                            }
+                            SThemeTile {
+                                t: pal; label: "Auto"; split: true
+                                selected: root.appearanceMode === "auto"
+                                onClicked: root.setAppearance("auto")
                             }
                         }
                     }
@@ -2092,10 +2223,10 @@ Scope {
                         subtitle: "Used for labels and menus"
                         SSegmented {
                             t: pal
-                            model: ["Inter", "Noto Sans", "System"]
-                            segWidth: 76
-                            current: root.fontFamily.indexOf("Inter") === 0 ? 0 : (root.fontFamily === "Noto Sans" ? 1 : 2)
-                            onPicked: i => root.setLook("fontFamily", ["Inter Variable", "Noto Sans", "sans-serif"][i])
+                            model: ["Open Runde", "Noto Sans", "System"]
+                            segWidth: 88
+                            current: root.fontFamily.indexOf("Open Runde") === 0 ? 0 : (root.fontFamily === "Noto Sans" ? 1 : 2)
+                            onPicked: i => root.setLook("fontFamily", ["Open Runde", "Noto Sans", "sans-serif"][i])
                         }
                     }
                 }
@@ -3093,12 +3224,16 @@ Scope {
             Column {
                 id: wpPane
                 spacing: 10
-                property int filter: 0          // 0 all, 1 pictures, 2 animated
+                property int filter: 0          // 0 all, 1 pictures, 2 animated, 3 favourites
+                property string searchText: ""
                 readonly property var files: root.bar ? root.bar.wpFiles : []
                 readonly property var shown: {
-                    var out = [], f = files;
-                    for (var i = 0; i < f.length; i++)
-                        if (filter === 0 || (filter === 1 && !f[i].video) || (filter === 2 && f[i].video)) out.push(f[i]);
+                    var out = [], f = files, q = searchText.trim().toLowerCase();
+                    for (var i = 0; i < f.length; i++) {
+                        var typeMatch = filter === 0 || (filter === 1 && !f[i].video) || (filter === 2 && f[i].video) || (filter === 3 && f[i].fav);
+                        var textMatch = q === "" || f[i].name.toLowerCase().indexOf(q) >= 0;
+                        if (typeMatch && textMatch) out.push(f[i]);
+                    }
                     return out;
                 }
                 readonly property string curVideo: root.bar ? root.bar.wallpaperVideo : ""
@@ -3208,30 +3343,105 @@ Scope {
                     SSegmented {
                         t: pal
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        model: ["All", "Pictures", "Animated"]
-                        segWidth: 80
+                        model: ["All", "Pictures", "Animated", "★ Favourites"]
+                        segWidth: 88
                         current: wpPane.filter
                         onPicked: i => wpPane.filter = i
                     }
                 }
 
-                Flow {
+                Rectangle {
+                    width: parent.width
+                    height: 36
+                    radius: 10
+                    color: pal.ctrl
+                    border.width: 1
+                    border.color: wpSearchInput.activeFocus ? pal.accent : pal.cardBorder
+                    Row {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 8
+                        spacing: 8
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "⌕"
+                            color: pal.text3
+                            font.pixelSize: 19
+                        }
+                        Item {
+                            width: parent.width - 52
+                            height: parent.height
+                            TextInput {
+                                id: wpSearchInput
+                                anchors.fill: parent
+                                verticalAlignment: TextInput.AlignVCenter
+                                color: pal.text
+                                selectionColor: pal.accent
+                                font.family: pal.fam
+                                font.pixelSize: 12
+                                clip: true
+                                selectByMouse: true
+                                onTextChanged: wpPane.searchText = text
+                            }
+                            Text {
+                                anchors.fill: parent
+                                verticalAlignment: Text.AlignVCenter
+                                text: "Search wallpapers"
+                                color: pal.text3
+                                font.family: pal.fam
+                                font.pixelSize: 12
+                                visible: wpSearchInput.text === "" && !wpSearchInput.activeFocus
+                                MouseArea { anchors.fill: parent; onClicked: wpSearchInput.forceActiveFocus() }
+                            }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: wpSearchInput.text !== ""
+                            text: "×"
+                            color: pal.text2
+                            font.pixelSize: 18
+                            MouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                onClicked: { wpSearchInput.clear(); wpSearchInput.forceActiveFocus(); }
+                            }
+                        }
+                    }
+                }
+
+                GridView {
                     id: wpFlow
                     width: parent.width
-                    spacing: 10
-                    readonly property real tileW: Math.floor((width - 2 * spacing) / 3)
-                    Repeater {
-                        model: wpPane.shown
-                        delegate: Item {
+                    cellWidth: Math.floor((width - 20) / 3)
+                    cellHeight: Math.round(cellWidth * 0.625) + 32
+                    height: Math.min(contentHeight, cellHeight * 3)
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: wpPane.shown
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        width: 6
+                        background: Rectangle {
+                            color: pal.cardBorder
+                            radius: 3
+                            opacity: 0.45
+                        }
+                        contentItem: Rectangle {
+                            color: pal.text3
+                            radius: 3
+                        }
+                    }
+                    delegate: Item {
                             id: wt
                             required property var modelData
-                            width: wpFlow.tileW
-                            height: Math.round(width * 0.625) + 22
+                            width: wpFlow.cellWidth
+                            height: wpFlow.cellHeight
                             readonly property bool cur: modelData.video ? wpPane.curVideo === modelData.path
                                                                         : (wpPane.curVideo === "" && wpPane.curStill === modelData.path)
                             Item {
                                 id: wtBox
-                                width: parent.width; height: parent.height - 22
+                                x: 5; y: 5
+                                width: parent.width - 10; height: parent.height - 32
                                 scale: wtMa.pressed ? 0.98 : 1
                                 Item {
                                     id: wtMask
@@ -3247,7 +3457,7 @@ Scope {
                                     Image {
                                         anchors.fill: parent
                                         source: "file://" + (wt.modelData.video ? wt.modelData.thumb : wt.modelData.path)
-                                        sourceSize.width: 360
+                                        sourceSize.width: 260
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true; smooth: true
                                         opacity: status === Image.Ready ? 1 : 0
@@ -3289,23 +3499,43 @@ Scope {
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: if (root.bar) root.bar.wpApply(wt.modelData.path)
                                 }
+                                    Rectangle {
+                                        anchors.right: parent.right; anchors.top: parent.top
+                                        anchors.margins: 7
+                                        width: 26; height: 26; radius: 13
+                                        visible: wt.modelData.fav || wtMa.containsMouse || wtFavMa.containsMouse
+                                        color: Qt.rgba(0, 0, 0, wtFavMa.containsMouse ? 0.72 : 0.52)
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: wt.modelData.fav ? "★" : "☆"
+                                            color: wt.modelData.fav ? "#ffd60a" : "white"
+                                            font.pixelSize: 16
+                                        }
+                                        MouseArea {
+                                            id: wtFavMa
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            onClicked: if (root.bar) root.bar.wpToggleFav(wt.modelData.path)
+                                        }
+                                    }
                             }
                             Text {
                                 anchors.bottom: parent.bottom
-                                width: parent.width
+                                x: 5
+                                width: parent.width - 10
                                 horizontalAlignment: Text.AlignHCenter
                                 elide: Text.ElideMiddle
                                 text: wt.modelData.name
                                 color: wt.cur ? pal.text : pal.text2
                                 font.family: pal.fam; font.pixelSize: 11
                             }
-                        }
                     }
                 }
                 SLabel {
                     t: pal
                     visible: wpPane.shown.length === 0
-                    text: wpPane.filter === 2 ? "No animated wallpapers yet. Drop .mp4 / .webm videos into " + (root.bar ? root.bar.wpDirEff : "~/Pictures/Wallpapers") + "."
+                    text: wpPane.searchText.trim() !== "" ? "No wallpapers match “" + wpPane.searchText + "”."
+                        : wpPane.filter === 2 ? "No animated wallpapers yet. Drop .mp4 / .webm videos into " + (root.bar ? root.bar.wpDirEff : "~/Pictures/Wallpapers") + "."
                                               : "Nothing here yet."
                 }
                 SLabel { t: pal; text: "Tip: Ctrl+Alt+W opens the quick wallpaper picker, which shows animated wallpapers too." }
@@ -3578,15 +3808,16 @@ Scope {
         Quickshell.execDetached(["sh", "-c", "rm -f \"$HOME/.config/maclock/settings.json\""]);
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
-        darkMode = true; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Inter Variable";
+        darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Open Runde";
         hideMode = "smart"; hideDelay = 450; monitor = "";
         showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true;
+        iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, settingsEnabled, iconSize, magnification, magnificationEnabled, spacing, margin,
-        cornerRadius, darkMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
-        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture].join("|")
+        cornerRadius, darkMode, appearanceMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
+        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, iconTint, iconTintColor, iconTintStrength].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
     onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
@@ -3597,12 +3828,13 @@ Scope {
         var o = {
             dockEnabled: dockEnabled, settingsEnabled: settingsEnabled, iconSize: iconSize, magnification: magnification, magnificationEnabled: magnificationEnabled,
             spacing: spacing, margin: margin, cornerRadius: cornerRadius,
-            darkMode: darkMode, glassOpacity: glassOpacity, dockStyle: dockStyle, wallpaperPath: wallpaperPath, glassDebug: glassDebug,
+            darkMode: darkMode, appearanceMode: appearanceMode, glassOpacity: glassOpacity, dockStyle: dockStyle, wallpaperPath: wallpaperPath, glassDebug: glassDebug,
             glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid, glassBlur: glassBlur,
             accent: String(accent), fontFamily: fontFamily,
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
             showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators,
-            bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture
+            bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture,
+            iconTint: iconTint, iconTintColor: iconTintColor, iconTintStrength: iconTintStrength
         };
         settingsStore.setText(JSON.stringify(o, null, 2));
     }
@@ -3610,8 +3842,8 @@ Scope {
     function applySettings(o) {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "settingsEnabled", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
-                    "darkMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
-                    "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture"];
+                    "darkMode", "appearanceMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
+                    "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture", "iconTint", "iconTintColor", "iconTintStrength"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
             try { root[keys[i]] = o[keys[i]]; } catch (err) { }
@@ -4816,7 +5048,7 @@ Scope {
                                 readonly property bool leavingCell: modelData.leaving === true
                                 property real appear: modelData.fresh ? 0 : 1
                                 Behavior on appear { NumberAnimation { duration: cell.leavingCell ? root.leaveMs : 320; easing.type: cell.leavingCell ? Easing.InOutCubic : Easing.OutCubic } }
-                                Component.onCompleted: { heldTl = thumbWin; Qt.callLater(function () { cell.appear = cell.leavingCell ? 0 : 1; }); }
+                                Component.onCompleted: { heldTl = thumbWin; Qt.callLater(function () { cell.appear = cell.leavingCell ? 0 : 1; cell.bounceStep(); }); }
                                 onLeavingCellChanged: appear = leavingCell ? 0 : 1
                                 enabled: !leavingCell
 
@@ -4868,7 +5100,12 @@ Scope {
                                     shadowOpacity: 0.32
                                     shadowBlur: 0.55
                                     shadowVerticalOffset: 3
-                                    brightness: ma.pressed ? -0.3 : 0.0
+                                    // icon tint: desaturate, then colourise (no shader build needed)
+                                    saturation: root.iconTint ? -0.75 * root.iconTintStrength : 0.0
+                                    colorization: root.iconTint ? 1.0 * root.iconTintStrength : 0.0
+                                    brightness: (ma.pressed ? -0.3 : 0.0) + (root.iconTint ? 0.14 * root.iconTintStrength : 0.0)
+                                    contrast: root.iconTint ? 0.04 * root.iconTintStrength : 0.0
+                                    colorizationColor: root.iconTintColor
                                 }
 
                                 // ── window thumbnail (same box as the icon, so magnification just works) ──
@@ -4936,14 +5173,44 @@ Scope {
                                     y: cell.height + 3
                                 }
 
+                                // ── launch bounce ──
+                                // Bounces while the app launches. When the app opens, the bounce in progress finishes its landing, then a
+                                // couple of smaller bounces settle it back onto the Dock. Nothing plays while the Dock is tucked away.
+                                readonly property bool wantBounce: !cell.isSep && root.bounceOnLaunch && root.launching[cell.modelData.key] !== undefined
+                                property bool bounceShown: false          // a bounce was actually visible, so it deserves a settle
+                                function bounceStep() {
+                                    if (ui.tucked) return;
+                                    if (cell.wantBounce) { cell.bounceShown = true; if (!bounceAnim.running && !settleAnim.running) bounceAnim.start(); }
+                                    else if (cell.bounceShown && !bounceAnim.running && !settleAnim.running) { cell.bounceShown = false; settleAnim.start(); }
+                                }
+                                onWantBounceChanged: bounceStep()
+                                Connections {
+                                    target: ui
+                                    function onTuckedChanged() {
+                                        if (ui.tucked) {                       // dock slid away: drop the bounce, it must not poke out
+                                            bounceAnim.stop(); settleAnim.stop(); img.lift = 0; cell.bounceShown = false;
+                                        } else cell.bounceStep();
+                                    }
+                                }
                                 SequentialAnimation {
-                                    running: !cell.isSep && root.bounceOnLaunch && root.launching[cell.modelData.key] !== undefined
-                                    loops: Animation.Infinite
-                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.4
-                                                      duration: 260; easing.type: Easing.OutQuad }
+                                    id: bounceAnim
+                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.42
+                                                      duration: 280; easing.type: Easing.OutCubic }
                                     NumberAnimation { target: img; property: "lift"; to: 0
-                                                      duration: 260; easing.type: Easing.InQuad }
-                                    onRunningChanged: if (!running) img.lift = 0
+                                                      duration: 280; easing.type: Easing.InCubic }
+                                    onFinished: cell.bounceStep()              // goes again while still launching, otherwise settles
+                                }
+                                SequentialAnimation {
+                                    id: settleAnim
+                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.16
+                                                      duration: 170; easing.type: Easing.OutQuad }
+                                    NumberAnimation { target: img; property: "lift"; to: 0
+                                                      duration: 170; easing.type: Easing.InQuad }
+                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.06
+                                                      duration: 120; easing.type: Easing.OutQuad }
+                                    NumberAnimation { target: img; property: "lift"; to: 0
+                                                      duration: 120; easing.type: Easing.InQuad }
+                                    onFinished: cell.bounceStep()              // relaunched while settling: bounce again
                                 }
 
                                 Rectangle {

@@ -22,6 +22,10 @@ import Quickshell.Io
 import Quickshell.Hyprland
 
 ShellRoot {
+    // The UI font ("Open Runde") ships with MacShell: registered here, first, so every Text below can use it
+    // without installing anything. (The installer also copies it to ~/.local/share/fonts.)
+    FontLoader { id: uiFontLoader; source: Qt.resolvedUrl("assets/fonts/OpenRunde-Regular.otf") }
+
     Scope {
         id: sharedHub
 

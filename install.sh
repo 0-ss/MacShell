@@ -1018,14 +1018,20 @@ install_extras() {
     while IFS= read -r f; do
         mkdir -p "$SCRIPTS_DIR"
         cp -f "$f" "$SCRIPTS_DIR/$(basename "$f")"; chmod +x "$SCRIPTS_DIR/$(basename "$f")"; n=$((n+1))
-    done < <(find "$root" -type f -name 'macshell-*.sh' -not -path '*/.git/*' 2>/dev/null)
-    [ "$n" -gt 0 ] && ok "$n helper script(s) -> $SCRIPTS_DIR"
+    done < <(find "$root" -type f \( -name 'macshell-*.sh' -o -name 'macshell-*.py' \) -not -path '*/.git/*' 2>/dev/null)
+    if [ "$n" -gt 0 ]; then ok "$n helper script(s) -> $SCRIPTS_DIR"; else warn "no helper scripts (macshell-*.sh) in the source: Game Mode and video wallpapers will not work"; fi
     # sounds
     n=0
     while IFS= read -r f; do
         mkdir -p "$SOUNDS_DIR"; cp -f "$f" "$SOUNDS_DIR/"; n=$((n+1))
     done < <(find "$root" -type f -name '*.wav' -path '*sounds*' -not -path '*/.git/*' 2>/dev/null)
     [ "$n" -gt 0 ] && ok "$n sound(s) -> $SOUNDS_DIR"
+    # synthesize the UI sounds that are still missing (existing files are never replaced)
+    if [ -f "$SCRIPTS_DIR/macshell-make-sounds.py" ] && have python3; then
+        python3 "$SCRIPTS_DIR/macshell-make-sounds.py" "$SOUNDS_DIR" >/dev/null 2>&1 && ok "UI sounds ready in $SOUNDS_DIR" || warn "could not generate the UI sounds"
+    elif [ "$n" -eq 0 ]; then
+        warn "no UI sounds installed (the repo ships none and python3 / macshell-make-sounds.py is missing)"
+    fi
     # the update tool
     f=$(find "$root" -maxdepth 3 -type f -name macshell-update -not -path '*/.git/*' 2>/dev/null | head -n1)
     if [ -n "$f" ]; then
