@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-canvas_fetcher.py - Official Spotify Canvas & Apple Music Motion Artwork Fetcher
+canvas_fetcher.py - Apple Music Motion Artwork & Spotify Canvas Fetcher
 Tiered Sources:
 1. Local cache (~/.cache/macshell/canvas/<id_or_name>.mp4)
-2. Spotify Canvas (spclient canvaz-cache via Firefox sp_dc cookie or public proxy)
-3. Apple Music Motion Artwork (iTunes Search -> Apple Music album -> H.264 AVC1 SDR)
+2. Apple Music Motion Artwork (Priority 1: High fidelity desktop-optimized 1080p AVC1 SDR)
+3. Spotify Canvas (Priority 2 fallback: Spclient canvaz-cache via Firefox sp_dc or public proxy)
 4. Fallback: Returns success=False so LockScreen cleanly displays blurred album art.
 
 Features:
@@ -163,9 +163,19 @@ def fetch_public_canvas_url(track_id):
         pass
     return None
 
-def get_spotify_track_id():
-    """Detect current Spotify track ID from playerctl if available."""
+def get_spotify_track_id(expected_title=None):
+    """Detect current Spotify track ID from playerctl if available and matching."""
     try:
+        if expected_title:
+            out_title = subprocess.run(
+                ["playerctl", "-p", "spotify", "metadata", "xesam:title"],
+                capture_output=True, text=True, timeout=1.0
+            )
+            if out_title.returncode == 0 and out_title.stdout:
+                sp_title = out_title.stdout.strip().lower()
+                exp = expected_title.strip().lower()
+                if exp and exp not in sp_title and sp_title not in exp:
+                    return ""
         out = subprocess.run(
             ["playerctl", "-p", "spotify", "metadata", "mpris:trackid"],
             capture_output=True, text=True, timeout=1.5
@@ -328,24 +338,18 @@ def main():
     track_id = sys.argv[5] if len(sys.argv) > 5 else ""
 
     if not track_id:
-        track_id = get_spotify_track_id()
+        track_id = get_spotify_track_id(title)
 
     key_base = f"{artist} - {title}".strip(" -")
     if not key_base and not track_id:
         print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none"}))
         return
 
-    # 1. Check local cache files first
-    if track_id:
-        id_path = os.path.join(CACHE_DIR, f"{track_id}.mp4")
-        if os.path.exists(id_path) and os.path.getsize(id_path) > 10000:
-            mark_used(id_path)
-            print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True, "source": "cache"}))
-            return
-
     sanitized_name = sanitize(key_base)
-    name_path = os.path.join(CACHE_DIR, f"{sanitized_name}.mp4")
-    if os.path.exists(name_path) and os.path.getsize(name_path) > 10000:
+    name_path = os.path.join(CACHE_DIR, f"{sanitized_name}.mp4") if sanitized_name else ""
+
+    # 1. Check local cache files first (prefer name_path which stores high-fidelity Apple Music artwork)
+    if name_path and os.path.exists(name_path) and os.path.getsize(name_path) > 10000:
         mark_used(name_path)
         print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "cache"}))
         return
@@ -357,7 +361,27 @@ def main():
             print(json.dumps({"success": True, "videoPath": title_path, "isOfficial": True, "source": "cache"}))
             return
 
-    # 2. Try Spotify Canvas API
+    if track_id:
+        id_path = os.path.join(CACHE_DIR, f"{track_id}.mp4")
+        if os.path.exists(id_path) and os.path.getsize(id_path) > 10000:
+            mark_used(id_path)
+            print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True, "source": "cache"}))
+            return
+
+    # 2. Priority 1: Apple Music Motion Artwork (high resolution, optimal desktop aspect ratio)
+    target_apple_path = os.path.join(CACHE_DIR, f"{sanitized_name or (track_id or 'apple_motion')}.mp4")
+    if fetch_apple_music_motion(artist, title, album, target_apple_path):
+        mark_used(target_apple_path)
+        prune_cache()
+        if track_id and not os.path.exists(os.path.join(CACHE_DIR, f"{track_id}.mp4")):
+            try:
+                os.symlink(target_apple_path, os.path.join(CACHE_DIR, f"{track_id}.mp4"))
+            except Exception:
+                pass
+        print(json.dumps({"success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic"}))
+        return
+
+    # 3. Priority 2: Spotify Canvas (fallback if Apple Music motion artwork is not available)
     canvas_mp4_url = None
     if track_id:
         sp_dc = get_firefox_sp_dc()
@@ -380,19 +404,6 @@ def main():
                     pass
             print(json.dumps({"success": True, "videoPath": save_path, "isOfficial": True, "source": "spotify"}))
             return
-
-    # 3. Fallback to Apple Music Motion Artwork
-    target_apple_path = os.path.join(CACHE_DIR, f"{sanitized_name or (track_id or 'apple_motion')}.mp4")
-    if fetch_apple_music_motion(artist, title, album, target_apple_path):
-        mark_used(target_apple_path)
-        prune_cache()
-        if track_id and not os.path.exists(os.path.join(CACHE_DIR, f"{track_id}.mp4")):
-            try:
-                os.symlink(target_apple_path, os.path.join(CACHE_DIR, f"{track_id}.mp4"))
-            except Exception:
-                pass
-        print(json.dumps({"success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic"}))
-        return
 
     # 4. Neither exists -> Fall back cleanly to blurred album art background
     print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none"}))

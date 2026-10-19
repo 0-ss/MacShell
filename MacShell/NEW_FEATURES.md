@@ -40,8 +40,8 @@ This document details all new widgets, visual effects, and performance optimizat
 
 ### 1. Animated Album Canvas for MacLock (`MacLock/canvas_fetcher.py`)
 - **Tiered video artwork retrieval**:
-  1. **Spotify Canvas**: Automatically retrieves official animated canvas videos for playing tracks via Spotify API / sp_dc cookie or public proxy.
-  2. **Apple Music Motion Artwork Fallback**: If Spotify has no canvas video, queries the Apple Music / iTunes directory for official motion artwork (portrait 3:4 tall or square 1:1 HLS stream), selecting the lightweight H.264 AVC1 SDR variant and remuxing via ffmpeg.
+  1. **Apple Music Motion Artwork (Priority 1)**: Queries the Apple Music / iTunes directory for official motion artwork (portrait 3:4 tall or square 1:1 HLS stream), selecting the lightweight H.264 AVC1 SDR variant and remuxing via ffmpeg. Better aspect ratio and scaling for desktop screens.
+  2. **Spotify Canvas (Priority 2 Fallback)**: If Apple Music has no motion artwork, retrieves official animated canvas videos for playing tracks via Spotify API / sp_dc cookie or public proxy.
   3. **Blurred Album Art Fallback**: If neither source has animated artwork, falls back cleanly to high-resolution blurred album art with smooth cross-fade transitions.
 - Seamlessly loops behind the MacLock screen or player surfaces.
 - Built-in LRU cache pruner (max 20 videos / 100MB) to maintain lean disk usage.
