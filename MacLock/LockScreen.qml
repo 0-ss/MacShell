@@ -173,6 +173,14 @@ Item {
                         anchors.fill: parent
                         color: Qt.rgba(0, 0, 0, 0.32)
                     }
+                    TapHandler {
+                        onTapped: {
+                            if (ls.st.npMode === "art") {
+                                ls.st.npMode = "";
+                                ls.st.poke();
+                            }
+                        }
+                    }
                 }
             }
 
@@ -941,8 +949,10 @@ Item {
             // the cover leaves the glass bubble: it is drawn on the screen itself, above the bubble
             parent: ls
             z: media.z + 1
-            visible: media.visible
-            opacity: media.opacity
+            readonly property bool hideCenterArt: ls.canvasVideo !== "" && (ls.canvasSource === "applemusic" || ls.canvasOfficial)
+            visible: media.visible && opacity > 0.001
+            opacity: media.opacity * (hideCenterArt ? (1 - ls.artT) : 1)
+            Behavior on opacity { NumberAnimation { duration: 400; easing.type: Easing.OutQuint } }
             readonly property real r: (11 * ls.u) + ((28 * ls.u) - (11 * ls.u)) * ls.artT
             x: (media.x + 16 * ls.u) + ((media.x) - (media.x + 16 * ls.u)) * ls.artT
             y: (media.y + 16 * ls.u) + ((media.y - media.bigArt - 24 * ls.u) - (media.y + 16 * ls.u)) * ls.artT
@@ -1210,10 +1220,12 @@ Item {
     // ═════════════ CANVAS VIDEO (Animated Album / Spotify Canvas / Apple Music Motion) ═════════════
     property string canvasVideo: ""
     property bool canvasOfficial: false
+    property string canvasSource: ""
     readonly property string canvasScript: decodeURIComponent(Qt.resolvedUrl("canvas_fetcher.py").toString().replace(/^file:\/\//, ""))
     function fetchCanvas() {
         if (!ls.isPrimary || !media.pl || !(media.pl.trackTitle || "")) {
             canvasVideo = "";
+            canvasSource = "";
             return;
         }
         var art = ls.coverUrl || "";
@@ -1232,12 +1244,15 @@ Item {
                     if (o && o.success && o.videoPath) {
                         ls.canvasVideo = o.videoPath;
                         ls.canvasOfficial = !!o.isOfficial;
+                        ls.canvasSource = o.source || "";
                     } else {
                         ls.canvasVideo = "";
                         ls.canvasOfficial = false;
+                        ls.canvasSource = "";
                     }
                 } catch (e) {
                     ls.canvasVideo = "";
+                    ls.canvasSource = "";
                 }
             }
         }

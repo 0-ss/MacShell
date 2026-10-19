@@ -251,14 +251,14 @@ def fetch_apple_music_motion(artist, title, album, target_path):
             with urllib.request.urlopen(req_page, timeout=6) as r:
                 html = r.read().decode('utf-8', errors='ignore')
 
-            # Look for tall portrait video artwork first (perfect for lockscreen / canvas)
-            tall = re.findall(r'\"tallVideoArtwork\":\s*\{[^\}]*?\"video\":\s*\"(https://mvod\.itunes\.apple\.com/[^\"]+\.m3u8)\"', html)
-            square = re.findall(r'\"videoArtwork\":\s*\{[^\}]*?\"video\":\s*\"(https://mvod\.itunes\.apple\.com/[^\"]+\.m3u8)\"', html)
+            # Prefer iPad tall motion artwork (3:4 ratio, 1080x1440 or 2048x2732 - wider & optimal for desktop)
+            tall = re.search(r'\"motionDetailTall\":\s*\{.*?\"video\":\s*\"(https://mvod\.itunes\.apple\.com/[^\"]+\.m3u8)\"', html, re.DOTALL)
+            square = re.search(r'\"motionDetailSquare\":\s*\{.*?\"video\":\s*\"(https://mvod\.itunes\.apple\.com/[^\"]+\.m3u8)\"', html, re.DOTALL)
             if tall:
-                master_m3u8 = tall[0]
+                master_m3u8 = tall.group(1)
                 break
             if square:
-                master_m3u8 = square[0]
+                master_m3u8 = square.group(1)
                 break
             all_m = re.findall(r'https://mvod\.itunes\.apple\.com/[^\"\'\s]+\.m3u8', html)
             if all_m:
@@ -289,8 +289,8 @@ def fetch_apple_music_motion(artist, title, album, target_path):
             stream_matches = re.findall(r'https://[^\n\s]+\.m3u8', master_content)
             chosen_stream = stream_matches[0] if stream_matches else master_m3u8
         else:
-            # Pick a stream with height close to ~1000px for crystal clarity & low bandwidth
-            candidates.sort(key=lambda c: abs(c[1] - 1000))
+            # Pick a stream close to iPad Full HD (~1440 height for 3:4 or ~1080 for 1:1)
+            candidates.sort(key=lambda c: abs(c[1] - 1440))
             chosen_stream = candidates[0][3]
 
         req_var = urllib.request.Request(chosen_stream, headers={'User-Agent': 'Mozilla/5.0'})
