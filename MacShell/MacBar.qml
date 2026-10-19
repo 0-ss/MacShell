@@ -322,8 +322,23 @@ Scope {
                 }
             }
         }
-        return { items: out, rows: rows };
+        // pixel layout: tiles sit ccGap apart; the two slider tiles (Display, Sound) keep the wider ccSliderGap around them
+        var sliderRow = [], ys = [];
+        for (var k = 0; k < out.length; k++) {
+            if (out[k].id === "display" || out[k].id === "sound")
+                for (var rr = out[k].row; rr < out[k].row + out[k].h; rr++) sliderRow[rr] = true;
+        }
+        for (var r2 = 0; r2 < rows; r2++)
+            ys[r2] = r2 === 0 ? 0 : ys[r2 - 1] + ccCellH + ((sliderRow[r2] || sliderRow[r2 - 1]) ? ccSliderGap : ccGap);
+        for (var m = 0; m < out.length; m++) {
+            out[m].y = ys[out[m].row];
+            out[m].hpx = ys[out[m].row + out[m].h - 1] + ccCellH - ys[out[m].row];
+        }
+        return { items: out, rows: rows, total: rows > 0 ? ys[rows - 1] + ccCellH : 0 };
     }
+    readonly property real ccCellH: 66
+    readonly property real ccGap: 6
+    readonly property real ccSliderGap: 10
     readonly property var ccPlan: ccLayout(ccControls)
     function ccAdd(id) {
         if (ccControls.indexOf(id) < 0) ccControls = ccControls.concat([id]);
@@ -339,12 +354,12 @@ Scope {
         for (var i = 0; i < it.length; i++) {
             if (it[i].id === id) continue;
             var o = it[i];
-            var cx = o.col * (cw + 10) + (o.w * cw + (o.w - 1) * 10) / 2;
-            var cy = o.row * (ch + 10) + (o.h * ch + (o.h - 1) * 10) / 2;
+            var cx = o.col * (cw + ccGap) + (o.w * cw + (o.w - 1) * ccGap) / 2;
+            var cy = o.y + o.hpx / 2;
             var dd = (cx - px) * (cx - px) + (cy - py) * (cy - py);
             if (dd < best) { best = dd; to = order.indexOf(o.id); }
         }
-        if (py > gridH + 10) to = order.length - 1;
+        if (py > gridH + ccSliderGap) to = order.length - 1;
         if (to < 0 || to === from) return;
         order.splice(from, 1);
         order.splice(to, 0, id);
@@ -919,6 +934,64 @@ Scope {
         signal failed()
     }
 
+    // Glass context for a bar popover, built the way the Control Center builds its own (blurred copy of the backdrop around the
+    // popover + a GlassCtx), so the popover's background is drawn by the same GGlass / CornerBorder as the Control Center pages.
+    component PopGlassCtx: Item {
+        id: pg
+        required property Item pop
+        required property Item frame
+        required property var source
+        property real fullW: pop.width
+        property real fullH: pop.height
+        property alias ctx: pgc
+        readonly property real m: 64 * root.barPopupScale
+        ShaderEffectSource {
+            id: pgSrc
+            sourceItem: pg.source
+            hideSource: true
+            live: pg.pop.visible
+            visible: false
+            sourceRect: Qt.rect(pg.pop.x - pg.m, pg.pop.y - pg.m, pg.fullW * root.barPopupScale + 2 * pg.m, pg.fullH * root.barPopupScale + 2 * pg.m)
+        }
+        MultiEffect {
+            id: pgFx
+            source: pgSrc
+            width: pgSrc.sourceRect.width; height: pgSrc.sourceRect.height
+            blurEnabled: true
+            blurMax: 64
+            blur: Math.min(1.0, (pgc.blur * pgc.blurMul) * 1.4 / 64.0)
+            autoPaddingEnabled: false
+            visible: false
+        }
+        ShaderEffectSource {
+            id: pgBlur
+            sourceItem: pgFx
+            live: pg.pop.visible
+            visible: false
+        }
+        GlassCtx {
+            id: pgc
+            src: pgBlur
+            srcRect: pgSrc.sourceRect
+            frame: pg.frame
+            liquid: root.liquidActive
+            shaderUrl: root.glassShaderUrl
+            dark: root.effDark
+            tint: root.glassOpacity
+            strength: root.glassLiquid
+            rim: root.glassRim * 0.25
+            rimTint: 1
+            ringW: 0
+            borderTint: root.menuBorderColor
+            borderAmount: 1
+            whiteEdge: false
+            grain: root.glassGrain
+            blur: root.glassBlur
+            debug: root.glassDebug
+            onFailed: root.glassState = "failed"
+        }
+    }
+
     // One Liquid Glass slab (tile, button, pill, panel) sampling the shared backdrop of its GlassCtx
     component GGlass: Item {
         id: gg
@@ -928,6 +1001,7 @@ Scope {
         property real strengthMul: 1.0
         property real tintMul: 1.0
         property real shadowAmt: 0.5
+        property real flatInner: 0          // 1 = drop the darker inner edge shading (needs the rebuilt liquidglass shader)
         readonly property real pad: 10
 
         // position inside the popover layer; reads every ancestor's x/y so it re-evaluates when anything moves
@@ -987,6 +1061,7 @@ Scope {
                     property real dark: gg.gx.dark ? 1 : 0
                     property real debug: gg.gx.debug ? 1 : 0
                     property real shadowAmt: gg.shadowAmt
+                    property real flatInner: gg.flatInner
                     property real rimTint: gg.gx.rimTint
                     property real ringW: gg.gx.ringW
                 }
@@ -1012,7 +1087,7 @@ Scope {
         signal clicked()
         scale: (clickable && tma.pressed) ? 0.97 : 1
         Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: 2.4 } }
-        GGlass { anchors.fill: parent; gx: tile.gx; cornerR: tile.radius; thickness: 22; shadowAmt: 0.45 }
+        GGlass { anchors.fill: parent; gx: tile.gx; cornerR: tile.radius; thickness: 22; shadowAmt: 0; flatInner: 1 }
         Rectangle {     // enabled (small tiles only): the whole tile background is solid white
             anchors.fill: parent
             radius: tile.radius
@@ -1039,7 +1114,7 @@ Scope {
         property bool strong: false
         signal clicked()
         width: plText.implicitWidth + 32; height: 28
-        GGlass { anchors.fill: parent; gx: pl.gx; cornerR: 14; thickness: 14; strengthMul: 0.6; shadowAmt: 0.4 }
+        GGlass { anchors.fill: parent; gx: pl.gx; cornerR: 14; thickness: 14; strengthMul: 0.6; shadowAmt: 0; flatInner: 1 }
         CornerBorder { z: 2; anchors.fill: parent; cornerR: 14; dark: pl.gx.dark; tint: pl.gx.borderTint; amount: pl.gx.borderAmount; lineW: 0.8 }
         Rectangle {
             anchors.fill: parent; radius: 14
@@ -1098,7 +1173,7 @@ Scope {
         width: circleBtn ? 21 : d; height: width
         scale: (bounce && bma.pressed) ? 0.88 : 1
         Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
-        GGlass { visible: !b.plain && b.glass; anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: b.shadow }
+        GGlass { visible: !b.plain && b.glass; anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: 0; flatInner: 1 }
         CornerBorder { visible: !b.plain && b.glass; z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: b.gx.dark; tint: b.gx.borderTint; amount: b.gx.borderAmount; lineW: 0.8 }
         Rectangle {
             anchors.fill: parent
@@ -5095,82 +5170,11 @@ Scope {
                         autoPaddingEnabled: true
                     }
 
-                    LGlass {
-                        anchors.fill: parent
-                        backdrop: ui.glassSrc
-                        shaderUrl: root.glassShaderUrl
-                        liquid: root.liquidActive
-                        dark: root.effDark
-                        bx: volPop.x; by: volPop.y
-                        cornerR: Math.min(26, 8 + 18 * volPop.t)
-                        tint: root.glassOpacity
-                        thickness: 22
-                        strength: 0.55 * root.glassLiquid
-                        rim: root.glassRim
-                        grain: root.glassGrain
-                        blur: 42
-                        debug: root.glassDebug
-                        onShaderError: root.glassState = "failed"
-                        rimTint: 1
-                        ringW: 1.4
-                    }
-                    MenuBorder {
-                        z: 2
-                        anchors.fill: parent
-                        cornerR: Math.min(26, 8 + 18 * volPop.t)
-                        dark: root.effDark
-                        tint: root.menuBorderColor
-                    }
+                    PopGlassCtx { id: volPopGlass; pop: volPop; frame: ui; source: ui.glassSrc; fullW: volPop.fullW; fullH: volPop.fullH }
+                    GGlass { anchors.fill: parent; gx: volPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * volPop.t); thickness: 22; shadowAmt: 0.45 }
+                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * volPop.t); dark: volPopGlass.ctx.dark; tint: volPopGlass.ctx.borderTint; amount: volPopGlass.ctx.borderAmount; lineW: 0.8 }
                     MouseArea { anchors.fill: parent }      // clicks inside don't close the popover
 
-                    // glass context for the slider knobs (they turn into Liquid Glass while held, like the Control Center's):
-                    // a blurred copy of the backdrop around this popover, refracted by the knob's shader
-                    ShaderEffectSource {
-                        id: volSrc
-                        sourceItem: ui.glassSrc
-                        hideSource: true
-                        live: volPop.visible
-                        visible: false
-                        sourceRect: Qt.rect(volPop.x - 64 * root.barPopupScale, volPop.y - 64 * root.barPopupScale,
-                                            volPop.fullW * root.barPopupScale + 128 * root.barPopupScale, volPop.fullH * root.barPopupScale + 128 * root.barPopupScale)
-                    }
-                    MultiEffect {
-                        id: volBlurFx
-                        source: volSrc
-                        width: volSrc.sourceRect.width; height: volSrc.sourceRect.height
-                        blurEnabled: true
-                        blurMax: 64
-                        blur: Math.min(1.0, (volg.blur * volg.blurMul) * 1.4 / 64.0)
-                        autoPaddingEnabled: false
-                        visible: false
-                    }
-                    ShaderEffectSource {
-                        id: volBlur
-                        sourceItem: volBlurFx
-                        live: volPop.visible
-                        visible: false
-                    }
-                    GlassCtx {
-                        id: volg
-                        src: volBlur
-                        srcRect: volSrc.sourceRect
-                        frame: ui
-                        liquid: root.liquidActive
-                        shaderUrl: root.glassShaderUrl
-                        dark: root.effDark
-                        tint: root.glassOpacity
-                        strength: root.glassLiquid
-                        rim: root.glassRim * 0.25
-                        rimTint: 1
-                        ringW: 0
-                        borderTint: root.menuBorderColor
-                        borderAmount: 1
-                        whiteEdge: false
-                        grain: root.glassGrain
-                        blur: root.glassBlur
-                        debug: root.glassDebug
-                        onFailed: root.glassState = "failed"
-                    }
                     Item {
                         anchors.fill: parent
                         anchors.margins: 1
@@ -5200,7 +5204,7 @@ Scope {
                             Item {
                                 width: parent.width; height: 32
                                 CCSlider {
-                                    t: pal; gx: volg
+                                    t: pal; gx: volPopGlass.ctx
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: parent.width
                                     value: root.muted ? 0 : root.volume
@@ -5246,7 +5250,7 @@ Scope {
                                         font.family: pal.fam; font.pixelSize: 12
                                     }
                                     CCSlider {
-                                        t: pal; gx: volg; x: 0; y: 20; width: parent.width
+                                        t: pal; gx: volPopGlass.ctx; x: 0; y: 20; width: parent.width
                                         value: appRow.vol
                                         leftKind: "speaker"; leftLevel: appRow.vol < 0.34 ? 1 : (appRow.vol < 0.67 ? 2 : 3)
                                         rightKind: "speaker"; rightLevel: 3
@@ -5277,7 +5281,7 @@ Scope {
                             Item {
                                 width: parent.width; height: 32
                                 CCSlider {
-                                    t: pal; gx: volg
+                                    t: pal; gx: volPopGlass.ctx
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: parent.width
                                     value: root.micMuted ? 0 : root.micVolume
@@ -6432,32 +6436,9 @@ Scope {
                         autoPaddingEnabled: true
                     }
 
-                    LGlass {
-                        anchors.fill: parent
-                        backdrop: ui.glassSrc
-                        shaderUrl: root.glassShaderUrl
-                        liquid: root.liquidActive
-                        dark: root.effDark
-                        bx: wifiPop.x; by: wifiPop.y
-                        cornerR: Math.min(22, 8 + 14 * wifiPop.t)
-                        tint: root.glassOpacity
-                        thickness: 22
-                        strength: 0.55 * root.glassLiquid
-                        rim: root.glassRim
-                        grain: root.glassGrain
-                        blur: 42
-                        debug: root.glassDebug
-                        onShaderError: root.glassState = "failed"
-                        rimTint: 1
-                        ringW: 1.4
-                    }
-                    MenuBorder {
-                        z: 2
-                        anchors.fill: parent
-                        cornerR: Math.min(22, 8 + 14 * wifiPop.t)
-                        dark: root.effDark
-                        tint: root.menuBorderColor
-                    }
+                    PopGlassCtx { id: wifiPopGlass; pop: wifiPop; frame: ui; source: ui.glassSrc; fullW: wifiPop.fullW; fullH: wifiPop.fullH }
+                    GGlass { anchors.fill: parent; gx: wifiPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * wifiPop.t); thickness: 22; shadowAmt: 0.45 }
+                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * wifiPop.t); dark: wifiPopGlass.ctx.dark; tint: wifiPopGlass.ctx.borderTint; amount: wifiPopGlass.ctx.borderAmount; lineW: 0.8 }
                     MouseArea { anchors.fill: parent }          // swallow clicks on empty glass so the popover doesn't close
 
                     // the content keeps its full size and is revealed by the growing glass (clipped), fading in and settling
@@ -6754,32 +6735,9 @@ Scope {
                         autoPaddingEnabled: true
                     }
 
-                    LGlass {
-                        anchors.fill: parent
-                        backdrop: ui.glassSrc
-                        shaderUrl: root.glassShaderUrl
-                        liquid: root.liquidActive
-                        dark: root.effDark
-                        bx: btPop.x; by: btPop.y
-                        cornerR: Math.min(22, 8 + 14 * btPop.t)
-                        tint: root.glassOpacity
-                        thickness: 22
-                        strength: 0.55 * root.glassLiquid
-                        rim: root.glassRim
-                        grain: root.glassGrain
-                        blur: 42
-                        debug: root.glassDebug
-                        onShaderError: root.glassState = "failed"
-                        rimTint: 1
-                        ringW: 1.4
-                    }
-                    MenuBorder {
-                        z: 2
-                        anchors.fill: parent
-                        cornerR: Math.min(22, 8 + 14 * btPop.t)
-                        dark: root.effDark
-                        tint: root.menuBorderColor
-                    }
+                    PopGlassCtx { id: btPopGlass; pop: btPop; frame: ui; source: ui.glassSrc; fullW: btPop.fullW; fullH: btPop.fullH }
+                    GGlass { anchors.fill: parent; gx: btPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * btPop.t); thickness: 22; shadowAmt: 0.45 }
+                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * btPop.t); dark: btPopGlass.ctx.dark; tint: btPopGlass.ctx.borderTint; amount: btPopGlass.ctx.borderAmount; lineW: 0.8 }
                     MouseArea { anchors.fill: parent }
 
                     // the content keeps its full size and is revealed by the growing glass (clipped)
@@ -7544,9 +7502,9 @@ Scope {
                         Item {
                             id: ccGrid
                             width: parent.width
-                            height: Math.max(66, root.ccPlan.rows * 76 - 10)
-                            readonly property real cw: (width - 30) / 4
-                            readonly property real chh: 66
+                            height: Math.max(66, root.ccPlan.total)
+                            readonly property real cw: (width - 3 * root.ccGap) / 4
+                            readonly property real chh: root.ccCellH
 
                             Text {
                                 visible: root.ccPlan.items.length === 0
@@ -7570,10 +7528,10 @@ Scope {
                                     property bool dragging: false
 
                                     visible: slot !== null
-                                    x: (slot ? slot.col * (ccGrid.cw + 10) : 0) + dx
-                                    y: (slot ? slot.row * (ccGrid.chh + 10) : 0) + dy
-                                    width: slot ? slot.w * ccGrid.cw + (slot.w - 1) * 10 : 0
-                                    height: slot ? slot.h * ccGrid.chh + (slot.h - 1) * 10 : 0
+                                    x: (slot ? slot.col * (ccGrid.cw + root.ccGap) : 0) + dx
+                                    y: (slot ? slot.y : 0) + dy
+                                    width: slot ? slot.w * ccGrid.cw + (slot.w - 1) * root.ccGap : 0
+                                    height: slot ? slot.hpx : 0
                                     z: dragging ? 100 : 0
                                     // stretch-and-settle, a touch later for each row / column (ColorOS 17)
                                     property real ap: 1
