@@ -81,6 +81,7 @@ Scope {
 
     // shared helpers from shell.qml (window geometry poller, wallpaper lookup)
     property var hub: null
+    property var aboutGlassContext: null
     // true while a screen recording / screen share runs: the glass's live window captures sit out (see shell.qml: hub.captureQuiet)
     readonly property bool captureQuiet: hub ? hub.captureQuiet : recording
     // windows opening / closing: the glass's live captures pause (it keeps its last frame; the source stays attached) - see shell.qml: hub.glassHold
@@ -2859,10 +2860,10 @@ Scope {
         return out.slice(0,8);
     }
 
-    function menuModelFor(name) {
+    function menuModelFor(name, glassContext) {
         var m = [], i;
         if (name === "apple") {
-            m.push(mi("About This Linux", "", function () { sh(terminal + " -e sh -c 'fastfetch || neofetch; echo; read -p \"Press Enter\" _'"); }));
+            m.push(mi("About This Linux", "", function () { root.openAboutLinux(glassContext ? glassContext() : null); }));
             m.push(msep());
             m.push(mi("System Settings\u2026", "", function () { root.openSettings(); }));
             m.push(msep());
@@ -3011,6 +3012,265 @@ Scope {
             }
         }
         return m;
+    }
+
+    function openAboutLinux(glassContext) { aboutLinuxActions.open(glassContext); }
+    function closeAboutLinux() { aboutLinuxActions.close(); }
+
+    AboutLinuxController {
+        id: aboutLinuxActions
+        targetWindow: aboutLinuxWindow
+        defaultGlassContext: root.aboutGlassContext
+    }
+
+    Window {
+        id: aboutLinuxWindow
+        title: "About This Linux"
+        width: 320
+        height: 530
+        visible: false
+        color: "transparent"
+        flags: Qt.Window | Qt.FramelessWindowHint
+        property int floatTries: 0
+        property var glassBackdrop: null
+        property real glassOriginX: 0
+        property real glassOriginY: 0
+        property string glassMonitor: ""
+        onVisibleChanged: if (visible) {
+            showNormal();
+            floatTries = 0;
+            aboutLinuxFloatTimer.restart();
+            aboutLinuxActions.refresh();
+        }
+
+        Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: aboutLinuxActions.close() }
+
+        Timer {
+            id: aboutLinuxFloatTimer
+            interval: 140
+            repeat: true
+            onTriggered: {
+                var sel = 'window = "title:^(About This Linux)$"';
+                Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
+                if (aboutLinuxWindow.floatTries >= 1) {
+                    Hyprland.dispatch('hl.dsp.window.resize({ x = 320, y = 530, "exact", ' + sel + ' })');
+                    Hyprland.dispatch('hl.dsp.window.center({ ' + sel + ' })');
+                }
+                if (++aboutLinuxWindow.floatTries >= 4) stop();
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: 12
+            color: "transparent"
+            clip: true
+
+            LGlass {
+                anchors.fill: parent
+                backdrop: aboutLinuxWindow.glassBackdrop
+                shaderUrl: root.glassShaderUrl
+                liquid: root.liquidActive && aboutLinuxWindow.visible && aboutLinuxWindow.glassBackdrop !== null
+                dark: root.effDark
+                bx: aboutLinuxWindow.x - aboutLinuxWindow.glassOriginX
+                by: aboutLinuxWindow.y - aboutLinuxWindow.glassOriginY
+                cornerR: 12
+                tint: root.glassOpacity
+                thickness: 24
+                strength: root.glassLiquid
+                rim: root.glassRim
+                grain: root.glassGrain
+                blur: root.glassBlur
+                onShaderError: root.glassState = "failed"
+                rimTint: 1
+                ringW: 1.4
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 12
+                color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, root.effDark ? 0.10 : 0.06)
+            }
+
+            MenuBorder {
+                anchors.fill: parent
+                z: 1
+                cornerR: 12
+                dark: root.effDark
+                tint: root.menuBorderColor
+                amount: 0.8
+            }
+
+            Row {
+                x: 12
+                y: 11
+                spacing: 10
+                Repeater {
+                    model: ["#FF6058", "#FEBC2E", "#28C840"]
+                    delegate: Rectangle {
+                        required property string modelData
+                        required property int index
+                        width: 16
+                        height: 16
+                        radius: 8
+                        color: modelData
+                        border.width: 1
+                        border.color: Qt.darker(modelData, 1.15)
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: if (index === 0) aboutLinuxActions.close()
+                        }
+                    }
+                }
+            }
+            Item {
+                x: 56
+                y: 0
+                width: parent.width - 56
+                height: 38
+                DragHandler {
+                    target: null
+                    onActiveChanged: if (active) aboutLinuxWindow.startSystemMove()
+                }
+            }
+
+            Column {
+                width: 280
+                anchors.centerIn: parent
+                spacing: 0
+
+                Item {
+                    width: 250
+                    height: 132
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    Rectangle {
+                        x: 39
+                        y: 4
+                        width: 172
+                        height: 106
+                        radius: 7
+                        color: "#151515"
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: 5
+                            radius: 2
+                            color: "#4BA4E3"
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 2
+                                color: Qt.rgba(1, 1, 1, 0.08)
+                            }
+                        }
+                    }
+                    Rectangle {
+                        x: 17
+                        y: 111
+                        width: 216
+                        height: 9
+                        radius: 4
+                        color: "#B8A59F"
+                        border.width: 1
+                        border.color: "#9C8B86"
+                    }
+                    Rectangle {
+                        x: 90
+                        y: 111
+                        width: 70
+                        height: 3
+                        radius: 2
+                        color: "#887B77"
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    text: aboutLinuxActions.info.distro
+                    color: root.effDark ? "#F5F5F7" : "#333333"
+                    font.family: root.fontFamily
+                    font.pixelSize: 23
+                    font.weight: Font.DemiBold
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Linux system"
+                    color: root.effDark ? Qt.rgba(1, 1, 1, 0.62) : "#77777A"
+                    font.family: root.fontFamily
+                    font.pixelSize: 13
+                }
+
+                Item { width: 1; height: 20 }
+
+                Column {
+                    width: parent.width
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 6
+                    Repeater {
+                        model: [
+                            ["Processor", aboutLinuxActions.info.processor],
+                            ["Memory", aboutLinuxActions.info.memory],
+                            ["Kernel", aboutLinuxActions.info.kernel],
+                            ["Architecture", aboutLinuxActions.info.architecture],
+                            ["Desktop", aboutLinuxActions.info.desktop],
+                            ["Hostname", aboutLinuxActions.info.hostname]
+                        ]
+                        delegate: Row {
+                            required property var modelData
+                            width: 280
+                            height: Math.max(infoName.implicitHeight, infoValue.implicitHeight) + 2
+                            spacing: 8
+                            Text {
+                                id: infoName
+                                width: 76
+                                text: modelData[0]
+                                horizontalAlignment: Text.AlignRight
+                                color: root.effDark ? Qt.rgba(1, 1, 1, 0.66) : "#555555"
+                                font.family: root.fontFamily
+                                font.pixelSize: 12
+                            }
+                            Text {
+                                id: infoValue
+                                width: 196
+                                text: modelData[1]
+                                wrapMode: Text.Wrap
+                                color: root.effDark ? Qt.rgba(1, 1, 1, 0.9) : "#444448"
+                                font.family: root.fontFamily
+                                font.pixelSize: 12
+                            }
+                        }
+                    }
+                }
+
+                Item { width: 1; height: 14 }
+
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 124
+                    height: 28
+                    radius: 7
+                    color: root.effDark
+                           ? (moreInfoMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.13))
+                           : (moreInfoMouse.containsMouse ? "#D2D2D2" : "#D8D8D8")
+                    border.width: 1
+                    border.color: root.effDark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.08)
+                    Text {
+                        anchors.centerIn: parent
+                        text: "More Info..."
+                        color: root.effDark ? "#F5F5F7" : "#444444"
+                        font.family: root.fontFamily
+                        font.pixelSize: 13
+                    }
+                    MouseArea {
+                        id: moreInfoMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: { aboutLinuxActions.close(); root.openSettings("about"); }
+                    }
+                }
+            }
+        }
     }
 
     // ═════════════ SCREENSHOT (Print key) ═════════════
@@ -4327,9 +4587,18 @@ Scope {
                         any = true;
                         x0 = Math.min(x0, it.x); y0 = Math.min(y0, it.y); x1 = Math.max(x1, it.x + it.width); y1 = Math.max(y1, it.y + it.height);
                     }
+                    if (aboutLinuxWindow.visible && aboutLinuxWindow.glassMonitor === win.modelData.name) {
+                        var ax = aboutLinuxWindow.x - win.modelData.x, ay = aboutLinuxWindow.y - win.modelData.y;
+                        x0 = Math.min(x0, ax); y0 = Math.min(y0, ay);
+                        x1 = Math.max(x1, ax + aboutLinuxWindow.width); y1 = Math.max(y1, ay + aboutLinuxWindow.height);
+                        any = true;
+                    }
                     return any ? Qt.rect(x0 - 64, y0 - 64, x1 - x0 + 128, y1 - y0 + 128) : Qt.rect(0, 0, 0, 0);
                 }
                 readonly property bool isMenu: ["apple", "app", "file", "edit", "view", "window", "help"].indexOf(pop) >= 0
+                function aboutContext() {
+                    return { backdrop: ui.glassSrc, originX: win.modelData.x, originY: win.modelData.y, monitor: win.modelData.name };
+                }
                 readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || btPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible
                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
                 onPopChanged: {
@@ -4378,15 +4647,16 @@ Scope {
                     if (pop === name) { pop = ""; return; }
                     if (name === "spot") { spCalm = spReqCalm; spReqCalm = false; }
                     menuX = x;
+                    if (name === "apple") root.aboutGlassContext = aboutContext();
                     if (["apple", "app", "file", "edit", "view", "window", "help"].indexOf(name) >= 0) root.refreshActive();
-                    if (["apple", "app", "file", "edit", "view", "window", "help"].indexOf(name) >= 0) menuModel = root.menuModelFor(name);
+                    if (["apple", "app", "file", "edit", "view", "window", "help"].indexOf(name) >= 0) menuModel = root.menuModelFor(name, aboutContext);
                     if (name === "cal") { var d = new Date(); calYear = d.getFullYear(); calMonth = d.getMonth(); }
                     pop = name;
                 }
                 function hoverPop(name, x) {
                     if (!isMenu || name === pop) return;
                     menuX = x;
-                    menuModel = root.menuModelFor(name);
+                    menuModel = root.menuModelFor(name, aboutContext);
                     pop = name;
                 }
                 function calCells() {
@@ -4444,6 +4714,8 @@ Scope {
                 // The live backdrop (wallpaper + desktop widgets + live window captures) is always the source, so a window dragged
                 // under an open menu keeps moving. The one-shot screen snapshot is only a fallback while the backdrop is not up.
                 readonly property Item glassSrc: glassBackdrop.item ? glassBackdrop.item : ((snapFresh && screenSnap.hasContent) ? screenSnap : null)
+                Component.onCompleted: root.aboutGlassContext = aboutContext()
+                onGlassSrcChanged: root.aboutGlassContext = aboutContext()
                 HoverHandler {
                     id: barHover
                     onHoveredChanged: if (hovered && ui.pop === "") screenSnap.grab()
