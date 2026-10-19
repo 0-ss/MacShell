@@ -3082,15 +3082,6 @@ Scope {
                         }
                     }
                     SRow {
-                        t: pal; title: "Desktop Now Playing Canvas"
-                        subtitle: "Show animated album canvas in desktop Now Playing widget"
-                        SSwitch {
-                            t: pal
-                            checked: root.bar ? (root.bar.desktopCanvas !== false) : true
-                            onToggled: v => { if (root.bar) root.bar.desktopCanvas = v; }
-                        }
-                    }
-                    SRow {
                         t: pal; title: "Album background when the cover is enlarged"
                         SSwitch { t: pal; checked: root.bar ? root.bar.lockArtBackground : true; onToggled: v => { if (root.bar) root.bar.lockArtBackground = v; } }
                     }

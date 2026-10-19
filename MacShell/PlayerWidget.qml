@@ -26,54 +26,6 @@ Item {
     property string size: "small"
     property real scaleF: 1.0
     property real contentScale: 1.0          // scales art / text / buttons; the card itself keeps the widget's full size
-    // ── animated canvas ──
-    property bool desktopCanvas: true
-    property string canvasVideo: ""
-    property string canvasSource: ""
-    readonly property string canvasScript: decodeURIComponent(Qt.resolvedUrl("canvas_fetcher.py").toString().replace(/^file:\/\//, ""))
-
-    function fetchCanvas() {
-        if (!w.hasPlayer || !(w.title || "")) {
-            w.canvasVideo = "";
-            w.canvasSource = "";
-            return;
-        }
-        if (w.desktopCanvas === false) {
-            w.canvasVideo = "";
-            w.canvasSource = "";
-            return;
-        }
-        canvasProc.running = false;
-        canvasProc.command = ["python3", w.canvasScript, w.title || "", w.artist || "", w.album || "", w.artUrl || ""];
-        canvasProc.running = true;
-    }
-
-    onTitleChanged: fetchCanvas()
-    onArtistChanged: fetchCanvas()
-    onDesktopCanvasChanged: if (desktopCanvas) fetchCanvas(); else canvasVideo = "";
-
-    Process {
-        id: canvasProc
-        stdout: SplitParser {
-            onRead: line => {
-                var s = line.trim();
-                if (s === "") return;
-                try {
-                    var b1 = s.indexOf("{"), b2 = s.lastIndexOf("}");
-                    var o = (b1 >= 0 && b2 > b1) ? JSON.parse(s.substring(b1, b2 + 1)) : JSON.parse(s);
-                    if (o && (o.type === "video" || o.videoPath !== undefined)) {
-                        if (o.success && o.videoPath) {
-                            w.canvasVideo = o.videoPath;
-                            w.canvasSource = o.source || "";
-                        } else {
-                            w.canvasVideo = "";
-                            w.canvasSource = "";
-                        }
-                    }
-                } catch (e) {}
-            }
-        }
-    }
     property string fam: "Open Runde"
     property real screenX: x
     property real screenY: y
@@ -113,7 +65,7 @@ Item {
             }
         }
     }
-    readonly property real evalPos: (w.playing && (w.lyricsOn || w.canvasVideo !== "")) ? w.livePos : w.position
+    readonly property real evalPos: (w.playing && w.lyricsOn) ? w.livePos : w.position
 
     onOccludedChanged: {
         if (!occluded) {
