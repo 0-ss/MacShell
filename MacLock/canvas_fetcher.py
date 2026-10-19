@@ -437,6 +437,35 @@ def fetch_apple_music_motion(artist, title, album, target_path):
 
 # ═══════════════════════════ MAIN ═══════════════════════════
 
+ART_CACHE_DIR = os.path.expanduser("~/.cache/macshell/art")
+os.makedirs(ART_CACHE_DIR, exist_ok=True)
+
+def fetch_local_art(art_url, artist, title):
+    """
+    Safely download album art locally using Python so Qt Quick's Image
+    never invokes QNetworkAccessManager/OpenSSL on background threads,
+    completely eliminating SIGSEGV in X509_STORE_add_cert / libcrypto.
+    """
+    if not art_url:
+        return ""
+    if art_url.startswith("file://"):
+        return art_url.replace("file://", "")
+    try:
+        h = hashlib.md5((art_url or f"{artist}_{title}").encode()).hexdigest()
+        dest = os.path.join(ART_CACHE_DIR, f"{h}.jpg")
+        if os.path.exists(dest) and os.path.getsize(dest) > 1000:
+            return dest
+        req = urllib.request.Request(art_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=4) as r:
+            data = r.read()
+        if len(data) > 1000:
+            with open(dest, "wb") as f:
+                f.write(data)
+            return dest
+    except Exception:
+        pass
+    return ""
+
 def main():
     # Args: title, artist, album, artUrl, optional_track_id
     title = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -445,12 +474,14 @@ def main():
     art_url = sys.argv[4] if len(sys.argv) > 4 else ""
     track_id = sys.argv[5] if len(sys.argv) > 5 else ""
 
+    local_art = fetch_local_art(art_url, artist, title)
+
     if not track_id:
         track_id = get_spotify_track_id(title)
 
     key_base = f"{artist} - {title}".strip(" -")
     if not key_base and not track_id:
-        print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none"}))
+        print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none", "localArt": local_art}))
         return
 
     sanitized_name = sanitize(key_base)
@@ -460,7 +491,7 @@ def main():
     if name_path and os.path.exists(name_path) and not os.path.islink(name_path) and os.path.getsize(name_path) > 10000:
         ensure_full_hd(name_path)
         mark_used(name_path)
-        print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "cache"}))
+        print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "cache", "localArt": local_art}))
         return
 
     # 2. Priority 1: Apple Music Motion Artwork (high resolution, optimal desktop aspect ratio)
@@ -478,14 +509,14 @@ def main():
                 os.symlink(target_apple_path, os.path.join(CACHE_DIR, f"{track_id}.mp4"))
             except Exception:
                 pass
-        print(json.dumps({"success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic"}))
+        print(json.dumps({"success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic", "localArt": local_art}))
         return
 
     # 3. Priority 2: Apple Music not found -> Check existing Spotify cache
     if name_path and os.path.exists(name_path) and os.path.getsize(name_path) > 10000:
         ensure_full_hd(name_path)
         mark_used(name_path)
-        print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "spotify"}))
+        print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "spotify", "localArt": local_art}))
         return
 
     if track_id:
@@ -493,7 +524,7 @@ def main():
         if os.path.exists(id_path) and os.path.getsize(id_path) > 10000:
             ensure_full_hd(id_path)
             mark_used(id_path)
-            print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True, "source": "spotify"}))
+            print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True, "source": "spotify", "localArt": local_art}))
             return
 
     # 3. Priority 2: Spotify Canvas (fallback if Apple Music motion artwork is not available)
@@ -517,11 +548,11 @@ def main():
                         os.symlink(save_path, name_path)
                 except Exception:
                     pass
-            print(json.dumps({"success": True, "videoPath": save_path, "isOfficial": True, "source": "spotify"}))
+            print(json.dumps({"success": True, "videoPath": save_path, "isOfficial": True, "source": "spotify", "localArt": local_art}))
             return
 
     # 4. Neither exists -> Fall back cleanly to blurred album art background
-    print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none"}))
+    print(json.dumps({"success": False, "videoPath": "", "isOfficial": False, "source": "none", "localArt": local_art}))
 
 if __name__ == "__main__":
     main()

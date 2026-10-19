@@ -154,15 +154,6 @@ Item {
                             }
                         }
                     }
-                    Connections {
-                        target: ls
-                        function onCanvasVideoChanged() {
-                            if (ls.canvasVideo !== "") {
-                                bgMp.source = "file://" + ls.canvasVideo;
-                                bgMp.play();
-                            }
-                        }
-                    }
                     VideoOutput {
                         id: bgVo
                         anchors.fill: parent
@@ -716,16 +707,22 @@ Item {
     // Two picture slots. A new cover loads into the back slot; once it's there (or after 1.5 s) the bubble's cover
     // "burns" over to it (burn.frag) and the blurred album background cross-fades, both in step.
     readonly property string coverUrl: media.pl && media.pl.trackArtUrl ? media.pl.trackArtUrl : ""
+    property string localCoverUrl: ""
+    readonly property string effectiveCoverUrl: {
+        if (localCoverUrl !== "") return localCoverUrl;
+        if (coverUrl.startsWith("file://") || coverUrl.startsWith("/")) return coverUrl;
+        return "";
+    }
     property int coverIdx: 0
     property real coverProg: 1
     property real coverSeed: 0
     property bool coverPending: false
-    onCoverUrlChanged: {
-        if (coverUrl === "" || !ls.isPrimary) return;
+    onEffectiveCoverUrlChanged: {
+        if (effectiveCoverUrl === "" || !ls.isPrimary) return;
         var cur = coverIdx === 0 ? coverA : coverB;
-        if (cur.source.toString() === coverUrl) return;
-        if (cur.source.toString() === "") { cur.source = coverUrl; return; }     // first cover: just show it
-        (coverIdx === 0 ? coverB : coverA).source = coverUrl;
+        if (cur.source.toString() === effectiveCoverUrl) return;
+        if (cur.source.toString() === "") { cur.source = effectiveCoverUrl; return; }     // first cover: just show it
+        (coverIdx === 0 ? coverB : coverA).source = effectiveCoverUrl;
         coverPending = true;
         coverWait.restart();
         coverTry();
@@ -746,8 +743,8 @@ Item {
     // the blurred album background: its own, quicker hand-over (0.65 s ease-out)
     property real bgProg: 1
     NumberAnimation { id: bgAnim; target: ls; property: "bgProg"; from: 0; to: 1; duration: 650; easing.type: Easing.OutCubic }
-    Image { id: coverA; visible: false; width: 600; height: 600; fillMode: Image.PreserveAspectCrop; asynchronous: true; mipmap: true; sourceSize: Qt.size(600, 600); onStatusChanged: ls.coverTry() }
-    Image { id: coverB; visible: false; width: 600; height: 600; fillMode: Image.PreserveAspectCrop; asynchronous: true; mipmap: true; sourceSize: Qt.size(600, 600); onStatusChanged: ls.coverTry() }
+    Image { id: coverA; visible: false; width: 600; height: 600; fillMode: Image.PreserveAspectCrop; asynchronous: false; mipmap: true; sourceSize: Qt.size(600, 600); onStatusChanged: ls.coverTry() }
+    Image { id: coverB; visible: false; width: 600; height: 600; fillMode: Image.PreserveAspectCrop; asynchronous: false; mipmap: true; sourceSize: Qt.size(600, 600); onStatusChanged: ls.coverTry() }
     readonly property Item coverNew: coverIdx === 0 ? coverA : coverB
     readonly property Item coverOld: coverIdx === 0 ? coverB : coverA
 
@@ -1241,6 +1238,9 @@ Item {
                     var s = String(text || "{}").trim();
                     var b1 = s.indexOf("{"), b2 = s.lastIndexOf("}");
                     var o = (b1 >= 0 && b2 > b1) ? JSON.parse(s.substring(b1, b2 + 1)) : JSON.parse(s);
+                    if (o && o.localArt) {
+                        ls.localCoverUrl = "file://" + o.localArt;
+                    }
                     if (o && o.success && o.videoPath) {
                         ls.canvasVideo = o.videoPath;
                         ls.canvasOfficial = !!o.isOfficial;
@@ -1263,11 +1263,12 @@ Item {
     property string lyrStatus: "idle"      // idle | loading | synced | plain | none
     readonly property string trackKey: (media.pl ? (media.pl.trackArtist || "") + "\u0001" + (media.pl.trackTitle || "") : "") + "\u0001" + ls.coverUrl
     onTrackKeyChanged: {
+        ls.localCoverUrl = "";
         lyrFetchDelay.restart();
         canvasFetchDelay.restart();
     }
     Timer { id: lyrFetchDelay; interval: 400; onTriggered: { ls.lyrTries = 0; ls.fetchLyrics(); } }
-    Timer { id: canvasFetchDelay; interval: 150; onTriggered: ls.fetchCanvas() }
+    Timer { id: canvasFetchDelay; interval: 50; onTriggered: ls.fetchCanvas() }
     property int lyrTries: 0
     Timer { id: lyrRetry; interval: 12000; onTriggered: ls.fetchLyrics() }
     readonly property string lyricsScript: decodeURIComponent(Qt.resolvedUrl("lyrics_fetcher.py").toString().replace(/^file:\/\//, ""))
