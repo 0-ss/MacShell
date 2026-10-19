@@ -16,6 +16,7 @@ Item {
     property url source: ""
     property bool editing: false
     property bool darkGlass: true
+    property color borderTint: "#8A9AB5"      // Control Center border colour
 
     readonly property bool isSmall: size === "small"
     readonly property bool isMedium: size === "medium"
@@ -76,12 +77,13 @@ Item {
         }
     }
 
-    // thin rim, like the other cards
-    Rectangle {
+    // Control Center border, like the other cards
+    CornerBorder {
+        z: 2
         anchors.fill: parent
-        radius: w.radiusPx
-        color: "transparent"
-        border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.14)
+        cornerR: w.radiusPx
+        dark: w.darkGlass
+        tint: w.borderTint
+        lineW: 0.8
     }
 }

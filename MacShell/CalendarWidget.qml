@@ -39,6 +39,7 @@ Item {
     property real glassBlur: 5          // Blur
     property real glassLiquid: 1.0      // Liquid strength
     property real glassRim: 0.45
+    property color borderTint: "#8A9AB5"      // Control Center border colour
     property real glassGrain: 0.03
     property bool darkGlass: true       // the shell's Dark / Light setting (used by mode "auto")
     property bool preview: false        // inside the Settings gallery: no wallpaper, simplified glass
@@ -206,21 +207,22 @@ Item {
                 property real saturation: 1.25
                 property real dark: w.dark ? 1 : 0   // this widget's own light / dark mode, not the shell's
                 property real debug: 0
-                property real shadowAmt: 1
+                property real shadowAmt: 0           // no drop shadow
+                property real flatInner: 1           // no darker inner edge (needs the rebuilt liquidglass shader)
                 property real rimTint: 1             // rim + border follow the glass's own colour
-                property real ringW: 1               // thin 1 px border
+                property real ringW: 0               // the border is the Control Center CornerBorder below
             }
         }
     }
 
-    // thin border (Normal style and the frosted fallback). The Liquid Glass border is drawn by the shader itself.
-    Rectangle {
+    // Control Center border (all styles)
+    CornerBorder {
+        z: 2
         anchors.fill: parent
-        visible: !w.glassOn
-        radius: w.radiusPx
-        color: "transparent"
-        border.width: 1
-        border.color: w.dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.09)
+        cornerR: w.radiusPx
+        dark: w.dark
+        tint: w.borderTint
+        lineW: 0.8
     }
 
     // ───────────────────────── content ─────────────────────────

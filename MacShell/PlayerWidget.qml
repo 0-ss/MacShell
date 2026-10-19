@@ -71,6 +71,7 @@ Item {
     property real glassBlur: 5
     property real glassLiquid: 1.0
     property real glassRim: 0.45
+    property color borderTint: "#8A9AB5"      // Control Center border colour
     property real glassGrain: 0.03
     property bool darkGlass: true
 
@@ -294,9 +295,10 @@ Item {
                 property real saturation: 1.25
                 property real dark: w.dark ? 1 : 0
                 property real debug: 0
-                property real shadowAmt: 1
+                property real shadowAmt: 0           // no drop shadow
+                property real flatInner: 1           // no darker inner edge (needs the rebuilt liquidglass shader)
                 property real rimTint: 1
-                property real ringW: 1
+                property real ringW: 0
             }
         }
     }
@@ -310,14 +312,14 @@ Item {
         color: Qt.rgba(w.ac.r, w.ac.g, w.ac.b, w.dark ? 0.46 : 0.34)
     }
 
-    // thin border (Light / Dark and the frosted fallback). The Liquid Glass border is drawn by the shader itself.
-    Rectangle {
+    // Control Center border (all styles)
+    CornerBorder {
+        z: 2
         anchors.fill: parent
-        visible: !w.glassOn
-        radius: w.radiusPx
-        color: "transparent"
-        border.width: 1
-        border.color: w.borderCol
+        cornerR: w.radiusPx
+        dark: w.dark
+        tint: w.borderTint
+        lineW: 0.8
     }
 
     // ───────────────────────── content ─────────────────────────

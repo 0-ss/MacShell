@@ -44,6 +44,7 @@ Item {
                 glassBlur: host.glassBlur
                 glassLiquid: host.glassLiquid
                 glassRim: host.glassRim
+                borderTint: host.borderTint
                 glassGrain: host.glassGrain
                 darkGlass: host.darkGlass
                 editing: host.editing
@@ -69,6 +70,7 @@ Item {
                 glassBlur: host.glassBlur
                 glassLiquid: host.glassLiquid
                 glassRim: host.glassRim
+                borderTint: host.borderTint
                 glassGrain: host.glassGrain
                 darkGlass: host.darkGlass
                 editing: host.editing
@@ -92,6 +94,7 @@ Item {
                 glassBlur: host.glassBlur
                 glassLiquid: host.glassLiquid
                 glassRim: host.glassRim
+                borderTint: host.borderTint
                 glassGrain: host.glassGrain
                 darkGlass: host.darkGlass
                 preview: false
@@ -135,6 +138,7 @@ Item {
                 glassBlur: host.glassBlur
                 glassLiquid: host.glassLiquid
                 glassRim: host.glassRim
+                borderTint: host.borderTint
                 glassGrain: host.glassGrain
                 darkGlass: host.darkGlass
                 editing: host.editing
@@ -157,6 +161,7 @@ Item {
             id: imageVisual
             ImageWidget {
                 size: wsize
+                borderTint: host.borderTint
                 scaleF: host.widgetScale
                 fam: host.fontFamily
                 screenX: v.sx; screenY: v.sy

@@ -42,6 +42,8 @@ Scope {
     readonly property real glassRim: dock ? dock.glassRim : 0.45
     readonly property real glassGrain: dock ? dock.glassGrain : 0.03
     readonly property bool darkGlass: dock ? dock.darkMode : true
+    // Control Center border colour (follows the wallpaper's dominant colour)
+    readonly property color borderTint: (hub && hub.bar) ? hub.bar.menuBorderColor : "#8A9AB5"
 
     // placed widgets: roles wid, wtype (weather | calendar | clock | player), wstyle, wsize, wmode (calendar: auto | light | dark), wx, wy
     property alias model: wmodel

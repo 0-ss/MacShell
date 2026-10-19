@@ -3621,7 +3621,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: "Version 0.1.7 \u2022 Hyprland \u2022 Quickshell"
+                            text: "Version 0.1.8 \u2022 Hyprland \u2022 Quickshell"
                             color: pal.text2
                             font.family: pal.fam
                             font.pixelSize: 12
