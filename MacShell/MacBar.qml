@@ -365,6 +365,10 @@ Scope {
 
     function sh(cmd) { Quickshell.execDetached(["sh", "-c", cmd]); }
     // Log out of Hyprland. 0.55+ (Lua) takes a Lua expression; UWSM sessions are stopped through uwsm so the session ends cleanly.
+    // Lock Screen: starts MacLock (qs -c MacLock); does nothing if it is already running
+    function lockScreen() {
+        sh('pgrep -f -- "-c [M]acLock" >/dev/null 2>&1 || qs -c MacLock');
+    }
     function logOut() {
         sh('if command -v uwsm >/dev/null 2>&1 && uwsm check is-active >/dev/null 2>&1; then uwsm stop; '
            + 'else hyprctl dispatch "hl.dsp.exit()" || hyprctl dispatch exit; fi');
@@ -375,13 +379,14 @@ Scope {
     // switches to dark text / light glass on bright backgrounds and the reverse on dark ones; colours cross-fade.
     property bool autoContrast: true
     property int bgTone: 0
-    // System look (Settings → Appearance: Light / Dark / Auto): every panel follows it, like a normal OS. Only the Control Center
-    // keeps the adaptive look below (it measures what is behind it): ccDark / ccPal.
+    // System look (Settings → Appearance: Light / Dark / Auto): every panel follows it, like a normal OS, the Control Center
+    // included (ccDark / ccPal are now just aliases of it, no longer measured from what is behind the panel).
     readonly property bool effDark: darkMode
     property real dk: effDark ? 1 : 0
     Behavior on dk { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
     function mixc(l, d) { return Qt.rgba(l.r + (d.r - l.r) * dk, l.g + (d.g - l.g) * dk, l.b + (d.b - l.b) * dk, l.a + (d.a - l.a) * dk); }
-    readonly property bool ccDark: (autoContrast && bgTone !== 0) ? bgTone < 0 : darkMode
+    // Control Center keeps one fixed look (dark): switching the system between Light and Dark does not change its colours
+    readonly property bool ccDark: true
     property real ccDk: ccDark ? 1 : 0
     Behavior on ccDk { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
     function ccMix(l, d) { return Qt.rgba(l.r + (d.r - l.r) * ccDk, l.g + (d.g - l.g) * ccDk, l.b + (d.b - l.b) * ccDk, l.a + (d.a - l.a) * ccDk); }
@@ -1060,19 +1065,29 @@ Scope {
         property bool on: false
         property string onTint: ""
         property bool clickable: false
-        readonly property color fg: t.fg
-        readonly property color fg2: t.fg2
+        // small icon-only tiles (the "circle buttons"): when on, the whole tile turns white. Wide tiles keep their glass
+        // (only the round icon inside them turns white), so their text colours stay as they are.
+        readonly property bool whole: on && width <= 110
+        readonly property color fg: whole ? Qt.rgba(0.07, 0.07, 0.09, 1) : t.fg
+        readonly property color fg2: whole ? Qt.rgba(0.07, 0.07, 0.09, 0.55) : t.fg2
         signal clicked()
         scale: (clickable && tma.pressed) ? 0.97 : 1
         Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: 2.4 } }
         GGlass { anchors.fill: parent; gx: tile.gx; cornerR: tile.radius; thickness: 22; shadowAmt: 0.45 }
+        Rectangle {     // enabled (small tiles only): the whole tile background is solid white
+            anchors.fill: parent
+            radius: tile.radius
+            color: "white"
+            opacity: tile.whole ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+        }
         Rectangle {
             anchors.fill: parent
             radius: tile.radius
-            color: (tile.clickable && tma.containsMouse) ? (tile.t.dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(1, 1, 1, 0.26)) : Qt.rgba(1, 1, 1, 0)
+            color: (tile.clickable && tma.containsMouse) ? (tile.t.dark ? Qt.rgba(1, 1, 1, 0.025) : Qt.rgba(1, 1, 1, 0.07)) : Qt.rgba(1, 1, 1, 0)
             Behavior on color { ColorAnimation { duration: 320; easing.type: Easing.OutCubic } }
         }
-        MenuBorder { z: 2; anchors.fill: parent; cornerR: tile.radius; dark: tile.gx.dark; tint: tile.gx.borderTint; amount: tile.gx.borderAmount }
+        CornerBorder { z: 2; anchors.fill: parent; cornerR: tile.radius; dark: tile.gx.dark; tint: tile.gx.borderTint; amount: tile.gx.borderAmount; lineW: 0.8 }
         MouseArea { id: tma; anchors.fill: parent; enabled: tile.clickable; hoverEnabled: true; onClicked: tile.clicked() }
     }
 
@@ -1086,10 +1101,10 @@ Scope {
         signal clicked()
         width: plText.implicitWidth + 32; height: 28
         GGlass { anchors.fill: parent; gx: pl.gx; cornerR: 14; thickness: 14; strengthMul: 0.6; shadowAmt: 0.4 }
-        MenuBorder { z: 2; anchors.fill: parent; cornerR: 14; dark: pl.gx.dark; tint: pl.gx.borderTint; amount: pl.gx.borderAmount }
+        CornerBorder { z: 2; anchors.fill: parent; cornerR: 14; dark: pl.gx.dark; tint: pl.gx.borderTint; amount: pl.gx.borderAmount; lineW: 0.8 }
         Rectangle {
             anchors.fill: parent; radius: 14
-            color: pla.containsMouse ? (pl.t.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.34)) : Qt.rgba(1, 1, 1, 0)
+            color: pla.containsMouse ? (pl.t.dark ? Qt.rgba(1, 1, 1, 0.04) : Qt.rgba(1, 1, 1, 0.09)) : Qt.rgba(1, 1, 1, 0)
         }
         Text {
             id: plText
@@ -1136,19 +1151,25 @@ Scope {
         property real shadow: 0
         signal clicked()
         property bool bounce: false
+        property bool glass: true       // false: a flat circle instead of a Liquid Glass disc
         property bool plain: false      // icon only: no glass disc and no click area of its own (the tile is the button)
-        width: d; height: d
+        readonly property bool inWide: plain && parent && parent.width > 110     // icon on a wide (two-cell) tile
+        // icon on a small (one-cell) tile = a "circle button": a little smaller circle with a bigger icon
+        readonly property bool circleBtn: plain && parent && parent.width <= 110
+        width: circleBtn ? 21 : d; height: width
         scale: (bounce && bma.pressed) ? 0.88 : 1
         Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
-        GGlass { visible: !b.plain; anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: b.shadow }
-        MenuBorder { visible: !b.plain; z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: b.gx.dark; tint: b.gx.borderTint; amount: b.gx.borderAmount }
+        GGlass { visible: !b.plain && b.glass; anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: b.shadow }
+        CornerBorder { visible: !b.plain && b.glass; z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: b.gx.dark; tint: b.gx.borderTint; amount: b.gx.borderAmount; lineW: 0.8 }
         Rectangle {
             anchors.fill: parent
-            radius: b.d / 2
-            // plain (icon on a tile): the accent circle appears only while enabled, nothing when off
-            color: b.on ? (b.onTint !== "" ? Qt.color(b.onTint) : Qt.rgba(b.t.accent.r, b.t.accent.g, b.t.accent.b, 0.92))
-                        : (b.plain ? (b.t.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.14))      // plain: a grey circle while off
-                                   : (bma.containsMouse ? (b.t.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.34)) : Qt.rgba(1, 1, 1, 0)))
+            radius: b.width / 2
+            // enabled: solid white fill (the icon carries the accent colour); off: grey circle only on wide tiles
+            color: b.on ? "white"
+                        : (b.plain ? (b.inWide ? (b.t.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.14))      // wide tile: grey circle while off
+                                               : Qt.rgba(1, 1, 1, 0))                                                 // small tile: none
+                                   : (!b.glass ? (b.t.dark ? Qt.rgba(1, 1, 1, bma.containsMouse ? 0.22 : 0.16) : Qt.rgba(0, 0, 0, bma.containsMouse ? 0.18 : 0.14))   // flat, no glass
+                                               : (bma.containsMouse ? (b.t.dark ? Qt.rgba(1, 1, 1, 0.04) : Qt.rgba(1, 1, 1, 0.09)) : Qt.rgba(1, 1, 1, 0))))
             Behavior on color { ColorAnimation { duration: 320; easing.type: Easing.OutCubic } }
         }
         // state flip: the icon dips, turns a touch and springs back (motion), while the fill fades
@@ -1163,9 +1184,9 @@ Scope {
             scale: 1 - 0.22 * b.pop
             rotation: (b.on ? -14 : 14) * b.pop
             anchors.centerIn: parent
-            width: b.d * 0.46; height: width
+            width: b.circleBtn ? 23 : b.width * 0.46; height: width
             kind: b.kind; level: b.level; flag: b.flag
-            color: b.on ? "white" : b.t.fg
+            color: b.on ? (b.onTint !== "" ? Qt.color(b.onTint) : b.t.accent) : b.t.fg
             Behavior on color { ColorAnimation { duration: 320; easing.type: Easing.OutCubic } }
         }
         MouseArea { id: bma; anchors.fill: parent; enabled: !b.plain; hoverEnabled: true; onClicked: b.clicked() }
@@ -1180,10 +1201,38 @@ Scope {
         property string rightKind: "sun"
         property real leftLevel: 1
         property real rightLevel: 3
+        property var gx: null               // glass context: when set, the knob turns into Liquid Glass while it is held
+        property real glassMul: 1.0         // refraction boost for the knob (the macOS-style panel runs its glass very softly)
         signal moved(real v)
         height: 28
+        property bool tileHover: false        // the pointer is anywhere over the tile that holds this slider
+        readonly property bool hovering: sma.containsMouse || sma.pressed || tileHover
+        // knob animation state: hover pops a rounded square in, holding it springs it bigger and turns it to glass
+        property real hoverT: hovering ? 1 : 0
+        Behavior on hoverT { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 2.2 } }
+        property real pressT: sma.pressed ? 1 : 0
+        Behavior on pressT { NumberAnimation { duration: sma.pressed ? 420 : 300; easing.type: Easing.OutBack; easing.overshoot: 3.0 } }
         readonly property real trackX: 28
         readonly property real trackW: Math.max(1, s.width - 28 - 26)
+        // jiggle: the knob stretches, leans and wobbles when the value moves; how hard depends on how fast it moves.
+        // `vel` is the smoothed speed (px/ms); `jig` chases a target set from it through a spring, so it overshoots and rings
+        // out after the movement stops (the target goes back to 0 shortly after the last change).
+        property real vel: 0
+        property real jig: 0
+        property real lastV: value
+        property real lastT: 0
+        Behavior on jig { SpringAnimation { spring: 3.4; damping: 0.2; epsilon: 0.004 } }
+        onValueChanged: {
+            var now = Date.now();
+            if (lastT > 0) {
+                var dt = Math.max(1, now - lastT);
+                vel = vel * 0.45 + ((value - lastV) * trackW / dt) * 0.55;
+                jig = Math.max(-1.5, Math.min(1.5, vel * 0.6));
+            }
+            lastV = value; lastT = now;
+            jigIdle.restart();
+        }
+        Timer { id: jigIdle; interval: 70; onTriggered: { s.vel = 0; s.jig = 0; } }
         Glyph {
             x: 4; anchors.verticalCenter: parent.verticalCenter
             width: 16; height: 16
@@ -1208,8 +1257,73 @@ Scope {
             kind: s.rightKind; level: s.rightLevel
             color: s.t.fg2
         }
+        // the knob: a rounded square on hover; held, it grows with a little spring and becomes Liquid Glass
+        Item {
+            id: knob
+            readonly property real kw: 21 + 6 * s.pressT
+            readonly property real kh: 14 + 3 * s.pressT
+            width: Math.max(1, kw); height: Math.max(1, kh)
+            x: s.trackX + Math.max(0, Math.min(1, s.value)) * s.trackW - width / 2 - s.jig * 3     // trails a little behind when moving
+            anchors.verticalCenter: parent.verticalCenter
+            visible: s.hoverT > 0.01
+            opacity: Math.min(1, s.hoverT * 1.6)
+            scale: 0.5 + 0.5 * s.hoverT
+            rotation: s.jig * 7
+            transform: Scale {      // squash and stretch along the movement: longer and flatter the faster it goes
+                origin.x: knob.width / 2; origin.y: knob.height / 2
+                xScale: 1 + 0.32 * Math.min(1.5, Math.abs(s.jig))
+                yScale: 1 - 0.16 * Math.min(1.5, Math.abs(s.jig))
+            }
+            readonly property real rad: Math.max(2, Math.min(height / 2, 8 + 3 * s.pressT))
+            // solid white-ish square (fades out while the glass takes over)
+            Rectangle {
+                anchors.fill: parent
+                radius: knob.rad
+                color: s.t.fg
+                opacity: s.gx ? Math.max(0, 1 - s.pressT * 1.4) : 1
+            }
+            Loader {
+                anchors.fill: parent
+                active: s.gx !== null && s.pressT > 0.02
+                opacity: Math.min(1, s.pressT * 1.6)
+                sourceComponent: Item {
+                    GGlass { anchors.fill: parent; gx: s.gx; cornerR: knob.rad; thickness: 16; strengthMul: s.glassMul * 0.85; shadowAmt: 0.5 }
+                    // the slider bar seen through the glass: the part of the track that lies under the knob
+                    Item {
+                        anchors.fill: parent
+                        clip: true
+                        Rectangle {
+                            x: s.trackX - knob.x; width: s.trackW; height: 4; radius: 2
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: Qt.rgba(s.t.fg.r, s.t.fg.g, s.t.fg.b, 0.35)
+                        }
+                        Rectangle {
+                            x: s.trackX - knob.x
+                            width: Math.max(0, Math.min(1, s.value)) * s.trackW
+                            height: 4; radius: 2
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: Qt.rgba(s.t.fg.r, s.t.fg.g, s.t.fg.b, 0.9)
+                        }
+                    }
+                    // edge: the same border as the Control Center buttons (thin, brighter shade of the background, fading out at the top-right and bottom-left corners, a bit translucent)
+                    CornerBorder { z: 2; anchors.fill: parent; cornerR: knob.rad; dark: s.gx.dark; tint: s.gx.borderTint; amount: s.gx.borderAmount; lineW: 0.8 }
+                    // glassy sheen: a soft specular highlight along the top, fading out towards the middle
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: knob.rad
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, s.t.dark ? 0.12 : 0.2) }
+                            GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0.02) }
+                            GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, s.t.dark ? 0.04 : 0.08) }
+                        }
+                    }
+                }
+            }
+        }
         MouseArea {
+            id: sma
             anchors.fill: parent
+            hoverEnabled: true
             preventStealing: true
             function setFrom(mx) { s.moved(Math.max(0, Math.min(1, (mx - s.trackX) / s.trackW))); }
             onPressed: mouse => setFrom(mouse.x)
@@ -1625,6 +1739,20 @@ Scope {
         return out;
     }
     readonly property var appAudioStreams: audioApps()
+    // The list of apps the sliders are built from only changes when an app appears or goes away. appAudioStreams is rebuilt on
+    // every volume tick, and feeding it straight to the Repeater destroyed the slider under your finger mid-drag.
+    property var appAudioKeys: []
+    function syncAppKeys() {
+        var k = [], l = appAudioStreams;
+        for (var i = 0; i < l.length; i++) k.push(l[i].key);
+        if (JSON.stringify(k) !== JSON.stringify(appAudioKeys)) appAudioKeys = k;
+    }
+    onAppAudioStreamsChanged: syncAppKeys()
+    function appByKey(key) {
+        var l = appAudioStreams;
+        for (var i = 0; i < l.length; i++) if (l[i].key === key) return l[i];
+        return null;
+    }
     function setAppVolume(app, v) {
         if (!app || !app.nodes) return;
         osdQuiet("volume", 600);
@@ -2778,7 +2906,7 @@ Scope {
     }
     function actionItems(q) {
         var all = [
-            { title: "Lock Screen", glyph: "lock", run: function () { sh("loginctl lock-session"); } },
+            { title: "Lock Screen", glyph: "lock", run: function () { root.lockScreen(); } },
             { title: "Sleep", glyph: "moon", run: function () { sh("systemctl suspend"); } },
             { title: "System Settings\u2026", glyph: "gear", run: function () { openSettings(); } },
             { title: "Log Out", glyph: "logout", confirm: true, run: function () { root.logOut(); } },
@@ -2850,7 +2978,7 @@ Scope {
             m.push(msep());
             m.push(mi("System Settings\u2026", "", function () { root.openSettings(); }));
             m.push(msep());
-            m.push(mi("Lock Screen", "", function () { sh("loginctl lock-session"); }));
+            m.push(mi("Lock Screen", "", function () { root.lockScreen(); }));
             m.push(mi("Sleep", "", function () { sh("systemctl suspend"); }));
             m.push(msep());
             m.push(mc("Restart\u2026", function () { sh("systemctl reboot"); }));
@@ -3505,6 +3633,7 @@ Scope {
     // window captures are admitted by the shared gate in shell.qml (hub.tlFor): 0.2 s after a window appears, one every 110 ms
 
     Component.onCompleted: {
+        syncAppKeys();
         Quickshell.execDetached(["mkdir", "-p", configDir]);
         wallpaperColorTimer.start();
         refreshBrightness();
@@ -4142,7 +4271,7 @@ Scope {
 
             WlrLayershell.namespace: "macbar"
             WlrLayershell.layer: WlrLayer.Top
-            WlrLayershell.keyboardFocus: (ui.pop === "wifi" && ui.wifiPrompt !== "") ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+            WlrLayershell.keyboardFocus: ((ui.pop === "wifi" || (ui.pop === "cc" && ui.ccPage === "wifi")) && ui.wifiPrompt !== "") ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
             mask: Region { item: maskItem; Region { item: toastMask } }
 
@@ -4158,6 +4287,8 @@ Scope {
                 property int calMonth: 0
                 property string wifiPrompt: ""      // ssid whose password field is open in the Wi-Fi popover
                 property bool ccEdit: false         // Control Center is in "Edit Controls" mode
+                property string ccPage: ""          // "" = the control grid, "wifi" = the Wi-Fi list shown inside the Control Center
+                onCcPageChanged: wifiPrompt = ""
                 property var trayItem: null         // SystemTrayItem whose menu is open in the tray popover
                 property var trayStack: []          // submenu path (QsMenuEntry objects) inside that menu
                 Timer { interval: 400; repeat: true; running: ui.pop === "vol"; onTriggered: root.audioTick++ }
@@ -4197,12 +4328,12 @@ Scope {
                 }
                 Timer {
                     interval: 4000; repeat: true
-                    running: ui.pop === "wifi" && ui.wifiPrompt === ""     // paused while typing so the list doesn't rebuild under the cursor
+                    running: (ui.pop === "wifi" || (ui.pop === "cc" && ui.ccPage === "wifi")) && ui.wifiPrompt === ""     // paused while typing so the list doesn't rebuild under the cursor
                     onTriggered: root.scanWifi()
                 }
                 Timer {
                     interval: 4000; repeat: true
-                    running: ui.pop === "bt"
+                    running: ui.pop === "bt" || (ui.pop === "cc" && ui.ccPage === "bt")
                     onTriggered: root.scanBt()
                 }
 
@@ -4320,6 +4451,7 @@ Scope {
                     wifiPrompt = "";
                     spHoverLabel = "";
                     if (pop !== "cc") ccEdit = false;
+                    if (pop !== "cc") ccPage = "";
                     root.notifOpen = (pop === "notif");
                     if (root.notifOpen) root.notifUnread = 0;
                     if (pop === "wifi") { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); }
@@ -4351,7 +4483,7 @@ Scope {
                     target: root
                     function onNotifPopRequest(open) {
                         if (!ui.toastScreen) return;
-                        if (open) ui.openPop("notif", ui.width); else if (ui.pop === "notif") ui.pop = "";
+                        if (open) ui.openPop("notif", bellBtn.visible ? bellBtn.mapToItem(ui, 0, 0).x : ui.width - 60); else if (ui.pop === "notif") ui.pop = "";
                     }
                 }
                 function openPop(name, x) {
@@ -5228,7 +5360,7 @@ Scope {
                                 width: 7; height: 7; radius: 3.5
                                 color: "#FF453A"
                             }
-                            MouseArea { anchors.fill: parent; onClicked: ui.openPop("notif", 0) }
+                            MouseArea { anchors.fill: parent; onClicked: ui.openPop("notif", bellBtn.mapToItem(ui, 0, 0).x) }
                         }
                         // wifi
                         Item {
@@ -5311,16 +5443,51 @@ Scope {
                 Item {
                     id: volPop
                     z: 10
-                    width: 330
-                    height: Math.min(volCol.height + 28, ui.height - root.barHeight - 40)
-                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX - width / 2))
-                    y: root.barHeight + 6
-                    opacity: ui.pop === "vol" ? 1 : 0
-                    visible: opacity > 0
-                    scale: root.barPopupScale * (ui.pop === "vol" ? 1 : 0.96)
-                    transformOrigin: Item.Top
-                    Behavior on opacity { NumberAnimation { duration: 110 } }
-                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    // same morph as the Wi-Fi popover, growing out of the speaker icon (menuX is the icon's centre here)
+    readonly property real ps: root.barPopupScale
+                    readonly property real fullW: 330
+                    readonly property real fullH: Math.min(volCol.height + 28, ui.height - root.barHeight - 40)
+                    // the rectangle it grows from (the bar icon, in screen px) and the one it grows into
+                    readonly property real srcW: 26
+                    readonly property real srcH: 22
+                    readonly property real srcX: ui.menuX - 13
+                    readonly property real srcY: Math.max(0, (root.barHeight - srcH) / 2)
+                    readonly property real dstX: Math.max(6, Math.min(ui.width - fullW * ps - 8, ui.menuX - fullW * ps / 2))
+                    readonly property real dstY: root.barHeight + 6
+
+                    readonly property bool opening: ui.pop === "vol"
+                    property real openT: opening ? 1 : 0
+                    Behavior on openT {
+                        NumberAnimation {
+                            duration: volPop.opening ? 520 : 220
+                            easing.type: volPop.opening ? Easing.OutBack : Easing.InOutCubic
+                            easing.overshoot: 0.7
+                        }
+                    }
+                    readonly property real t: Math.max(0, Math.min(1, openT))
+                    readonly property real contentT: Math.max(0, Math.min(1, (openT - 0.28) / 0.55))
+
+                    width: (srcW + (fullW * ps - srcW) * openT) / ps
+                    height: (srcH + (fullH * ps - srcH) * openT) / ps
+                    x: srcX + (dstX - srcX) * openT
+                    y: srcY + (dstY - srcY) * openT
+                    opacity: Math.min(1, t * 4)
+                    visible: openT > 0.002
+                    scale: ps
+                    transformOrigin: Item.TopLeft
+
+                    // morph blur: only exists while the animation runs, so the open panel is drawn directly (crisp text)
+                    readonly property real blurAmt: Math.pow(1 - t, 1.3)
+                    readonly property bool morphing: openT > 0.002 && Math.abs(openT - 1) > 0.002
+                    layer.enabled: morphing
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        blurEnabled: true
+                        blurMax: 48
+                        blur: volPop.blurAmt * 0.9
+                        autoPaddingEnabled: true
+                    }
+
                     LGlass {
                         anchors.fill: parent
                         backdrop: ui.glassSrc
@@ -5328,7 +5495,7 @@ Scope {
                         liquid: root.liquidActive
                         dark: root.effDark
                         bx: volPop.x; by: volPop.y
-                        cornerR: 26
+                        cornerR: Math.min(26, 8 + 18 * volPop.t)
                         tint: root.glassOpacity
                         thickness: 22
                         strength: 0.55 * root.glassLiquid
@@ -5343,11 +5510,69 @@ Scope {
                     MenuBorder {
                         z: 2
                         anchors.fill: parent
-                        cornerR: 26
+                        cornerR: Math.min(26, 8 + 18 * volPop.t)
                         dark: root.effDark
                         tint: root.menuBorderColor
                     }
                     MouseArea { anchors.fill: parent }      // clicks inside don't close the popover
+
+                    // glass context for the slider knobs (they turn into Liquid Glass while held, like the Control Center's):
+                    // a blurred copy of the backdrop around this popover, refracted by the knob's shader
+                    ShaderEffectSource {
+                        id: volSrc
+                        sourceItem: ui.glassSrc
+                        hideSource: true
+                        live: volPop.visible
+                        visible: false
+                        sourceRect: Qt.rect(volPop.x - 64 * root.barPopupScale, volPop.y - 64 * root.barPopupScale,
+                                            volPop.fullW * root.barPopupScale + 128 * root.barPopupScale, volPop.fullH * root.barPopupScale + 128 * root.barPopupScale)
+                    }
+                    MultiEffect {
+                        id: volBlurFx
+                        source: volSrc
+                        width: volSrc.sourceRect.width; height: volSrc.sourceRect.height
+                        blurEnabled: true
+                        blurMax: 64
+                        blur: Math.min(1.0, (volg.blur * volg.blurMul) * 1.4 / 64.0)
+                        autoPaddingEnabled: false
+                        visible: false
+                    }
+                    ShaderEffectSource {
+                        id: volBlur
+                        sourceItem: volBlurFx
+                        live: volPop.visible
+                        visible: false
+                    }
+                    GlassCtx {
+                        id: volg
+                        src: volBlur
+                        srcRect: volSrc.sourceRect
+                        frame: ui
+                        liquid: root.liquidActive
+                        shaderUrl: root.glassShaderUrl
+                        dark: root.effDark
+                        tint: root.glassOpacity
+                        strength: root.glassLiquid
+                        rim: root.glassRim * 0.25
+                        rimTint: 1
+                        ringW: 0
+                        borderTint: root.menuBorderColor
+                        borderAmount: 1
+                        whiteEdge: false
+                        grain: root.glassGrain
+                        blur: root.glassBlur
+                        debug: root.glassDebug
+                        onFailed: root.glassState = "failed"
+                    }
+                    Item {
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        clip: true
+                    Item {
+                        id: volBody
+                        x: -1; y: -1 + 10 * (1 - volPop.contentT)
+                        width: volPop.fullW; height: volPop.fullH
+                        opacity: volPop.contentT
                     Flickable {
                         id: volFlick
                         x: 0; y: 14
@@ -5368,7 +5593,7 @@ Scope {
                             Item {
                                 width: parent.width; height: 32
                                 CCSlider {
-                                    t: pal
+                                    t: pal; gx: volg
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: parent.width
                                     value: root.muted ? 0 : root.volume
@@ -5395,26 +5620,37 @@ Scope {
                             Item { width: 1; height: 5 }
                             Text { x: 4; text: "Apps"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold; bottomPadding: 2 }
                             Repeater {
-                                model: root.appAudioStreams
+                                model: root.appAudioKeys
                                 delegate: Item {
-                                    required property var modelData
-                                    width: volCol.width - 28; height: 54
+                                    id: appRow
+                                    required property string modelData
+                                    readonly property var app: root.appByKey(modelData)
+                                    // while dragging, the knob follows the pointer instead of waiting for the next volume update
+                                    property bool dragging: false
+                                    property real dragV: 0
+                                    readonly property real vol: dragging ? dragV : (app ? app.volume : 0)
+                                    Timer { id: dragEnd; interval: 500; onTriggered: appRow.dragging = false }
+                                    visible: app !== null
+                                    width: volCol.width - 28; height: app ? 54 : 0
                                     Text {
                                         x: 4; y: 0; width: parent.width - 8
-                                        text: modelData.name + "  ·  " + Math.round(modelData.volume * 100) + "%"
+                                        text: (appRow.app ? appRow.app.name : "") + "  ·  " + Math.round(appRow.vol * 100) + "%"
                                         color: pal.fg; elide: Text.ElideRight
                                         font.family: pal.fam; font.pixelSize: 12
                                     }
                                     CCSlider {
-                                        t: pal; x: 0; y: 20; width: parent.width
-                                        value: modelData.volume
-                                        leftKind: "speaker"; leftLevel: modelData.volume < 0.34 ? 1 : (modelData.volume < 0.67 ? 2 : 3)
+                                        t: pal; gx: volg; x: 0; y: 20; width: parent.width
+                                        value: appRow.vol
+                                        leftKind: "speaker"; leftLevel: appRow.vol < 0.34 ? 1 : (appRow.vol < 0.67 ? 2 : 3)
                                         rightKind: "speaker"; rightLevel: 3
-                                        onMoved: v => root.setAppVolume(modelData, v)
+                                        onMoved: v => {
+                                            appRow.dragV = v; appRow.dragging = true; dragEnd.restart();
+                                            root.setAppVolume(appRow.app, v);
+                                        }
                                     }
                                 }
                             }
-                            Text { visible: root.appAudioStreams.length === 0; x: 4; text: "No apps are playing audio"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 11; topPadding: 2; bottomPadding: 4 }
+                            Text { visible: root.appAudioKeys.length === 0; x: 4; text: "No apps are playing audio"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 11; topPadding: 2; bottomPadding: 4 }
                             Item { width: 1; height: 5 }
                             Rectangle { width: parent.width; height: 1; color: pal.sep }
                             Item { width: 1; height: 5 }
@@ -5434,7 +5670,7 @@ Scope {
                             Item {
                                 width: parent.width; height: 32
                                 CCSlider {
-                                    t: pal
+                                    t: pal; gx: volg
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: parent.width
                                     value: root.micMuted ? 0 : root.micVolume
@@ -5457,6 +5693,8 @@ Scope {
                             }
                             Text { visible: root.audioInputs.length === 0; x: 4; text: "No input devices"; color: pal.fg2; font.family: pal.fam; font.pixelSize: 12; topPadding: 4; bottomPadding: 4 }
                         }
+                    }
+                    }
                     }
                 }
 
@@ -5697,34 +5935,68 @@ Scope {
                 Item {
                     id: notifPop
                     z: 10
-                    width: 380
-                    // while clearing it tracks the collapsing list frame by frame (never shorter than the empty state),
+                    // same morph as the Wi-Fi popover: one glass shape grows out of the bell. When popups merge in it appears
+                    // at once instead (its cards are the popups) and only the chrome builds in around them.
+                    // while clearing the height tracks the collapsing list frame by frame (never shorter than the empty state),
                     // so the dust and the shrink are one motion; otherwise it eases to its new size
-                    height: 92 + (notifHist.count === 0 ? 70 : (root.notifClearing ? Math.max(70, nfl.height) : nfl.height)) + 14
-                    Behavior on height { enabled: !root.notifClearing; NumberAnimation { duration: 560; easing.type: Easing.OutQuint } }
-                    x: Math.max(6, ui.width - width - 8)
-                    y: root.barHeight + 6
-                    opacity: ui.pop === "notif" ? 1 : 0
-                    visible: opacity > 0
-                    scale: root.barPopupScale * (ui.pop === "notif" ? 1 : 0.96)
-                    transformOrigin: Item.TopRight
-                    // popups merging in: the panel appears at once (its cards are the popups, solid from the first frame) and only
-                    // its chrome (glass, header, Do Not Disturb) builds in around them
+                    property real fullH: 92 + (notifHist.count === 0 ? 70 : (root.notifClearing ? Math.max(70, nfl.height) : nfl.height)) + 14
+                    Behavior on fullH { enabled: !root.notifClearing; NumberAnimation { duration: 560; easing.type: Easing.OutQuint } }
+                    readonly property real ps: root.barPopupScale
+                    readonly property real fullW: 380
+                    readonly property real srcW: 26
+                    readonly property real srcH: 22
+                    readonly property real srcX: Math.max(0, Math.min(ui.width - srcW, ui.menuX + 1))
+                    readonly property real srcY: Math.max(0, (root.barHeight - srcH) / 2)
+                    readonly property real dstX: Math.max(6, ui.width - fullW * ps - 8)
+                    readonly property real dstY: root.barHeight + 6
+
                     readonly property bool merging: ui.toastsShown
-                    property real chrome: ui.pop === "notif" ? 1 : 0
-                    Behavior on chrome { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-                    Behavior on opacity { enabled: !notifPop.merging; NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
-                    Behavior on scale { enabled: !notifPop.merging; NumberAnimation { duration: 420; easing.type: Easing.OutQuint } }
+                    readonly property bool opening: ui.pop === "notif"
+                    property real openT: opening ? 1 : 0
+                    Behavior on openT {
+                        enabled: !notifPop.merging
+                        NumberAnimation {
+                            duration: notifPop.opening ? 520 : 220
+                            easing.type: notifPop.opening ? Easing.OutBack : Easing.InOutCubic
+                            easing.overshoot: 0.7
+                        }
+                    }
+                    readonly property real t: Math.max(0, Math.min(1, openT))
+                    readonly property real contentT: Math.max(0, Math.min(1, (openT - 0.28) / 0.55))
+                    // chrome (glass fill, header, Do Not Disturb): follows the morph, or builds in on its own while popups merge
+                    property real chromeM: ui.pop === "notif" ? 1 : 0
+                    Behavior on chromeM { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+                    readonly property real chrome: merging ? chromeM : contentT
+
+                    width: (srcW + (fullW * ps - srcW) * openT) / ps
+                    height: (srcH + (fullH * ps - srcH) * openT) / ps
+                    x: srcX + (dstX - srcX) * openT
+                    y: srcY + (dstY - srcY) * openT
+                    opacity: Math.min(1, t * 4)
+                    visible: openT > 0.002
+                    scale: ps
+                    transformOrigin: Item.TopLeft
+
+                    readonly property real blurAmt: Math.pow(1 - t, 1.3)
+                    readonly property bool morphing: openT > 0.002 && Math.abs(openT - 1) > 0.002
+                    layer.enabled: morphing
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        blurEnabled: true
+                        blurMax: 48
+                        blur: notifPop.blurAmt * 0.9
+                        autoPaddingEnabled: true
+                    }
 
                     LGlass {
                         anchors.fill: parent
-                        opacity: notifPop.chrome
+                        opacity: notifPop.merging ? notifPop.chromeM : 1
                         backdrop: ui.glassSrc
                         shaderUrl: root.glassShaderUrl
                         liquid: root.liquidActive
                         dark: root.effDark
                         bx: notifPop.x; by: notifPop.y
-                        cornerR: 26
+                        cornerR: Math.min(26, 8 + 18 * notifPop.t)
                         tint: root.glassOpacity
                         thickness: 26
                         strength: 0.8 * root.glassLiquid
@@ -5739,11 +6011,20 @@ Scope {
                     MenuBorder {
                         z: 2
                         anchors.fill: parent
-                        cornerR: 26
+                        cornerR: Math.min(26, 8 + 18 * notifPop.t)
                         dark: root.effDark
                         tint: root.menuBorderColor
                     }
                     MouseArea { anchors.fill: parent }      // clicks inside the panel don't close it
+
+                    // the content keeps its full size and is revealed by the growing glass (clipped), so nothing reflows mid-morph
+                    Item {
+                        anchors.fill: parent
+                        clip: true
+                    Item {
+                        id: notifBody
+                        x: 0; y: notifPop.merging ? 0 : 10 * (1 - notifPop.contentT)
+                        width: notifPop.fullW; height: notifPop.fullH
 
                     Item {
                         x: 18; y: 14; width: parent.width - 36; height: 26
@@ -5806,6 +6087,7 @@ Scope {
                     }
                     Flickable {
                         id: nfl
+                        opacity: notifPop.merging ? 1 : notifPop.contentT
                         x: 12; y: 92
                         width: parent.width - 24
                         height: Math.min(ncol.height, 440)
@@ -5842,7 +6124,7 @@ Scope {
                                         var f = root.notifMergeFrom[hcd.nid];
                                         if (!f || flipAnim.running) return;
                                         // the card's final width is the panel's list width (the list may not be laid out yet)
-                                        var cw = notifPop.width - 24;
+                                        var cw = notifPop.fullW - 24;
                                         if (!(cw > 0)) return;
                                         var here = hcd.mapToItem(ui, 0, 0);
                                         hcd.flipX = f.x + f.w - (here.x + cw);      // right edges line up (scale origin is the right edge)
@@ -5918,6 +6200,8 @@ Scope {
                                 }
                             }
                         }
+                    }
+                    }
                     }
                 }
 
@@ -6231,74 +6515,42 @@ Scope {
                     }
                 }
 
-                // ═════════ Wi-Fi networks ═════════
-                Item {
-                    id: wifiPop
-                    z: 10
-                    width: 320
-                    height: wifiCol.height + 24
-                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX + 14 - width / 2))
-                    y: root.barHeight + 6
-                    opacity: ui.pop === "wifi" ? 1 : 0
-                    visible: opacity > 0
-                    scale: root.barPopupScale * (ui.pop === "wifi" ? 1 : 0.96)
-                    transformOrigin: Item.Top
-                    Behavior on opacity { NumberAnimation { duration: 110 } }
-                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-
-                    LGlass {
-                        anchors.fill: parent
-                        backdrop: ui.glassSrc
-                        shaderUrl: root.glassShaderUrl
-                        liquid: root.liquidActive
-                        dark: root.effDark
-                        bx: wifiPop.x; by: wifiPop.y
-                        cornerR: 22
-                        tint: root.glassOpacity
-                        thickness: 22
-                        strength: 0.55 * root.glassLiquid
-                        rim: root.glassRim
-                        grain: root.glassGrain
-                        blur: 42
-                        debug: root.glassDebug
-                        onShaderError: root.glassState = "failed"
-                        rimTint: 1
-                        ringW: 1.4
-                    }
-                    MenuBorder {
-                        z: 2
-                        anchors.fill: parent
-                        cornerR: 22
-                        dark: root.effDark
-                        tint: root.menuBorderColor
-                    }
-                    MouseArea { anchors.fill: parent }          // swallow clicks on empty glass so the popover doesn't close
-
+                // ═════════ Wi-Fi list (shared by the top-bar popover and the Control Center page) ═════════
+                Component {
+                    id: wifiContent
                     Column {
                         id: wifiCol
-                        x: 12; y: 12
-                        width: parent.width - 24
+                        property var pp: pal                // palette: the panel palette in the popover, ccPal in the Control Center
+                        property bool showBack: false       // Control Center page: show the back arrow
+                        signal back()
+                        width: parent ? parent.width : 296
                         spacing: 6
 
                         // header: title + on/off switch
                         Item {
                             width: parent.width; height: 32
+                            Item {
+                                visible: wifiCol.showBack
+                                x: 0; width: 30; height: parent.height
+                                Glyph { anchors.centerIn: parent; width: 12; height: 12; kind: "chevL"; color: pp.fg }
+                                MouseArea { anchors.fill: parent; onClicked: wifiCol.back() }
+                            }
                             Text {
-                                x: 6; anchors.verticalCenter: parent.verticalCenter
+                                x: wifiCol.showBack ? 30 : 6; anchors.verticalCenter: parent.verticalCenter
                                 text: "Wi-Fi"
-                                color: pal.fg
-                                font.family: pal.fam; font.pixelSize: 15; font.weight: Font.DemiBold
+                                color: pp.fg
+                                font.family: pp.fam; font.pixelSize: 15; font.weight: Font.DemiBold
                             }
                             PSwitch {
-                                t: pal
+                                t: pp
                                 anchors.right: parent.right; anchors.rightMargin: 4
                                 anchors.verticalCenter: parent.verticalCenter
                                 checked: root.wifiOn
                                 onToggled: { root.toggleWifi(); wifiAfter.restart(); }
                             }
                         }
-                        Rectangle { width: parent.width; height: 1; color: pal.sep }
-                        Text { visible: root.otherConnections.length>0; width:parent.width; leftPadding:6; text:"Ethernet & VPN"; color:pal.fg2; font.family:pal.fam; font.pixelSize:11; font.weight:Font.DemiBold }
+                        Rectangle { width: parent.width; height: 1; color: pp.sep }
+                        Text { visible: root.otherConnections.length>0; width:parent.width; leftPadding:6; text:"Ethernet & VPN"; color:pp.fg2; font.family:pp.fam; font.pixelSize:11; font.weight:Font.DemiBold }
                         Column {
                             width: parent.width
                             Repeater {
@@ -6306,9 +6558,9 @@ Scope {
                                 delegate: Item {
                                     required property var modelData
                                     width: parent.width; height: 30
-                                    Rectangle { anchors.fill:parent; radius:8; color:connMa.containsMouse?pal.hover:"transparent" }
-                                    Glyph { x:8; anchors.verticalCenter:parent.verticalCenter; width:14; height:14; kind:modelData.type==="vpn"?"lock":"wifi"; color:pal.fg }
-                                    Text { x:30; anchors.verticalCenter:parent.verticalCenter; width:parent.width-42; elide:Text.ElideRight; text:modelData.name+(modelData.active?" · Connected":""); color:pal.fg; font.family:pal.fam; font.pixelSize:12 }
+                                    Rectangle { anchors.fill:parent; radius:8; color:connMa.containsMouse?pp.hover:"transparent" }
+                                    Glyph { x:8; anchors.verticalCenter:parent.verticalCenter; width:14; height:14; kind:modelData.type==="vpn"?"lock":"wifi"; color:pp.fg }
+                                    Text { x:30; anchors.verticalCenter:parent.verticalCenter; width:parent.width-42; elide:Text.ElideRight; text:modelData.name+(modelData.active?" · Connected":""); color:pp.fg; font.family:pp.fam; font.pixelSize:12 }
                                     MouseArea { id:connMa; anchors.fill:parent; hoverEnabled:true; onClicked:root.toggleConnection(modelData) }
                                 }
                             }
@@ -6319,23 +6571,23 @@ Scope {
                             width: parent.width; height: 56
                             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
                             text: "Wi-Fi is turned off"
-                            color: pal.fg2
-                            font.family: pal.fam; font.pixelSize: 13
+                            color: pp.fg2
+                            font.family: pp.fam; font.pixelSize: 13
                         }
                         Text {
                             visible: root.wifiOn && root.wifiNets.length === 0
                             width: parent.width; height: 56
                             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
                             text: root.wifiScanning ? "Searching\u2026" : "No networks found"
-                            color: pal.fg2
-                            font.family: pal.fam; font.pixelSize: 13
+                            color: pp.fg2
+                            font.family: pp.fam; font.pixelSize: 13
                         }
                         Text {
                             visible: root.wifiOn && root.wifiNets.length > 0
                             leftPadding: 6
                             text: "Networks"
-                            color: pal.fg2
-                            font.family: pal.fam; font.pixelSize: 11; font.weight: Font.DemiBold
+                            color: pp.fg2
+                            font.family: pp.fam; font.pixelSize: 11; font.weight: Font.DemiBold
                         }
 
                         // the list
@@ -6374,7 +6626,7 @@ Scope {
                                                 x: 9; anchors.verticalCenter: parent.verticalCenter
                                                 width: 14; height: 14
                                                 kind: "check"
-                                                color: wma.containsMouse ? "white" : pal.fg
+                                                color: wma.containsMouse ? "white" : pp.fg
                                             }
                                             Text {
                                                 x: 30
@@ -6382,8 +6634,8 @@ Scope {
                                                 width: parent.width - 30 - 96
                                                 elide: Text.ElideRight
                                                 text: nr.modelData.ssid
-                                                color: wma.containsMouse ? "white" : pal.fg
-                                                font.family: pal.fam; font.pixelSize: 13
+                                                color: wma.containsMouse ? "white" : pp.fg
+                                                font.family: pp.fam; font.pixelSize: 13
                                                 font.weight: nr.modelData.inUse ? Font.DemiBold : Font.Normal
                                             }
                                             Text {
@@ -6391,8 +6643,8 @@ Scope {
                                                 anchors.right: parent.right; anchors.rightMargin: 12
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: "Connecting\u2026"
-                                                color: pal.fg2
-                                                font.family: pal.fam; font.pixelSize: 12
+                                                color: pp.fg2
+                                                font.family: pp.fam; font.pixelSize: 12
                                             }
                                             Text {
                                                 visible: !nr.busy && nr.modelData.inUse && wma.containsMouse
@@ -6400,7 +6652,7 @@ Scope {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: "Disconnect"
                                                 color: "white"
-                                                font.family: pal.fam; font.pixelSize: 12
+                                                font.family: pp.fam; font.pixelSize: 12
                                             }
                                             Row {
                                                 visible: !nr.busy && !(nr.modelData.inUse && wma.containsMouse)
@@ -6412,13 +6664,13 @@ Scope {
                                                     anchors.verticalCenter: parent.verticalCenter
                                                     width: 13; height: 13
                                                     kind: "lock"
-                                                    color: wma.containsMouse ? "white" : pal.fg2
+                                                    color: wma.containsMouse ? "white" : pp.fg2
                                                 }
                                                 Glyph {
                                                     anchors.verticalCenter: parent.verticalCenter
                                                     width: 16; height: 16
                                                     kind: "wifi"; level: root.sigLevel(nr.modelData.signal)
-                                                    color: wma.containsMouse ? "white" : pal.fg
+                                                    color: wma.containsMouse ? "white" : pp.fg
                                                 }
                                             }
                                             MouseArea {
@@ -6437,15 +6689,15 @@ Scope {
                                             Rectangle {
                                                 x: 30; y: 3
                                                 width: parent.width - 30 - 4; height: 32; radius: 10
-                                                color: pal.btnOff
+                                                color: pp.btnOff
                                             }
                                             Text {
                                                 x: 42; y: 3; height: 32
                                                 verticalAlignment: Text.AlignVCenter
                                                 visible: pw.text === ""
                                                 text: "Password"
-                                                color: pal.fg3
-                                                font.family: pal.fam; font.pixelSize: 13
+                                                color: pp.fg3
+                                                font.family: pp.fam; font.pixelSize: 13
                                             }
                                             TextInput {
                                                 id: pw
@@ -6454,10 +6706,10 @@ Scope {
                                                 verticalAlignment: TextInput.AlignVCenter
                                                 clip: true
                                                 echoMode: TextInput.Password
-                                                color: pal.fg
+                                                color: pp.fg
                                                 selectionColor: root.accent
                                                 selectedTextColor: "white"
-                                                font.family: pal.fam; font.pixelSize: 13
+                                                font.family: pp.fam; font.pixelSize: 13
                                                 onVisibleChanged: if (visible) { text = ""; forceActiveFocus(); }
                                                 Keys.onPressed: event => {
                                                     if (event.key === Qt.Key_Escape) { ui.wifiPrompt = ""; event.accepted = true; }
@@ -6471,8 +6723,8 @@ Scope {
                                                 y: 3; height: 32
                                                 verticalAlignment: Text.AlignVCenter
                                                 text: "Join"
-                                                color: pw.text.length > 0 ? root.accent : pal.fg3
-                                                font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold
+                                                color: pw.text.length > 0 ? root.accent : pp.fg3
+                                                font.family: pp.fam; font.pixelSize: 13; font.weight: Font.DemiBold
                                                 MouseArea {
                                                     anchors.fill: parent; anchors.margins: -6
                                                     onClicked: ui.wifiSubmit(nr.modelData.ssid, pw.text)
@@ -6491,10 +6743,10 @@ Scope {
                             wrapMode: Text.WordWrap
                             text: root.wifiError
                             color: "#FF6961"
-                            font.family: pal.fam; font.pixelSize: 12
+                            font.family: pp.fam; font.pixelSize: 12
                         }
 
-                        Rectangle { width: parent.width; height: 1; color: pal.sep }
+                        Rectangle { width: parent.width; height: 1; color: pp.sep }
                         Item {
                             width: parent.width; height: 30
                             Rectangle {
@@ -6505,8 +6757,8 @@ Scope {
                             Text {
                                 x: 10; anchors.verticalCenter: parent.verticalCenter
                                 text: "Wi-Fi Settings\u2026"
-                                color: wsa.containsMouse ? "white" : pal.fg
-                                font.family: pal.fam; font.pixelSize: 13
+                                color: wsa.containsMouse ? "white" : pp.fg
+                                font.family: pp.fam; font.pixelSize: 13
                             }
                             MouseArea {
                                 id: wsa
@@ -6518,29 +6770,69 @@ Scope {
                     }
                 }
 
-                // ═════════ bluetooth popover ═════════
+                // ═════════ Wi-Fi networks ═════════
                 Item {
-                    id: btPop
+                    id: wifiPop
                     z: 10
-                    width: 320
-                    height: btCol.height + 24
-                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX + 14 - width / 2))
-                    y: root.barHeight + 6
-                    opacity: ui.pop === "bt" ? 1 : 0
-                    visible: opacity > 0
-                    scale: root.barPopupScale * (ui.pop === "bt" ? 1 : 0.96)
-                    transformOrigin: Item.Top
-                    Behavior on opacity { NumberAnimation { duration: 110 } }
-                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    // ── morph: the popover is ONE glass shape that grows out of the Wi-Fi icon (or the Control Center tile)
+                    // into the full menu, while the whole thing starts out of focus and sharpens as it opens. Closing folds it
+                    // back into the icon and blurs it out again.
+                    readonly property real ps: root.barPopupScale
+                    readonly property real fullW: 320
+                    readonly property real fullH: (wifiLoad.item ? wifiLoad.item.height : 120) + 24
+                    readonly property bool fromCC: ui.menuX >= ui.width - 1
+                    // the rectangle it grows from (in screen px)
+                    readonly property real srcW: fromCC ? 44 : 26
+                    readonly property real srcH: fromCC ? 30 : 22
+                    readonly property real srcX: fromCC ? ui.width - 64 : ui.menuX + 1
+                    readonly property real srcY: fromCC ? root.barHeight + 36 : Math.max(0, (root.barHeight - 22) / 2)
+                    // the rectangle it grows into
+                    readonly property real dstX: Math.max(6, Math.min(ui.width - fullW * ps - 8, ui.menuX + 14 - fullW * ps / 2))
+                    readonly property real dstY: root.barHeight + 6
+
+                    readonly property bool opening: ui.pop === "wifi"
+                    property real openT: opening ? 1 : 0
+                    Behavior on openT {
+                        NumberAnimation {
+                            duration: wifiPop.opening ? 520 : 220
+                            easing.type: wifiPop.opening ? Easing.OutBack : Easing.InOutCubic
+                            easing.overshoot: 0.7
+                        }
+                    }
+                    // clamped copy for things that must not overshoot
+                    readonly property real t: Math.max(0, Math.min(1, openT))
+                    // the size follows openT (so the spring overshoots a touch), the content fades in a little later
+                    readonly property real contentT: Math.max(0, Math.min(1, (openT - 0.28) / 0.55))
+
+                    width: (srcW + (fullW * ps - srcW) * openT) / ps
+                    height: (srcH + (fullH * ps - srcH) * openT) / ps
+                    x: srcX + (dstX - srcX) * openT
+                    y: srcY + (dstY - srcY) * openT
+                    opacity: Math.min(1, t * 4)
+                    visible: openT > 0.002
+                    scale: ps
+                    transformOrigin: Item.TopLeft
+
+                    // morph blur: only exists while the animation runs, so the open popover is drawn directly (crisp text)
+                    readonly property real blurAmt: Math.pow(1 - t, 1.3)
+                    readonly property bool morphing: openT > 0.002 && Math.abs(openT - 1) > 0.002
+                    layer.enabled: morphing
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        blurEnabled: true
+                        blurMax: 48
+                        blur: wifiPop.blurAmt * 0.9
+                        autoPaddingEnabled: true
+                    }
 
                     LGlass {
                         anchors.fill: parent
-                        backdrop: glassBackdrop.item
+                        backdrop: ui.glassSrc
                         shaderUrl: root.glassShaderUrl
                         liquid: root.liquidActive
-                        dark: root.darkMode
-                        bx: btPop.x; by: btPop.y
-                        cornerR: 22
+                        dark: root.effDark
+                        bx: wifiPop.x; by: wifiPop.y
+                        cornerR: Math.min(22, 8 + 14 * wifiPop.t)
                         tint: root.glassOpacity
                         thickness: 22
                         strength: 0.55 * root.glassLiquid
@@ -6555,44 +6847,72 @@ Scope {
                     MenuBorder {
                         z: 2
                         anchors.fill: parent
-                        cornerR: 22
-                        dark: root.darkMode
+                        cornerR: Math.min(22, 8 + 14 * wifiPop.t)
+                        dark: root.effDark
                         tint: root.menuBorderColor
                     }
-                    MouseArea { anchors.fill: parent }
+                    MouseArea { anchors.fill: parent }          // swallow clicks on empty glass so the popover doesn't close
 
+                    // the content keeps its full size and is revealed by the growing glass (clipped), fading in and settling
+                    // up from a few px below, so nothing reflows while the shape morphs
+                    Item {
+                        id: wifiClip
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        clip: true
+                    Loader {
+                        id: wifiLoad
+                        sourceComponent: wifiContent
+                        x: 11; y: 11 + 10 * (1 - wifiPop.contentT)
+                        width: wifiPop.fullW - 24
+                        opacity: wifiPop.contentT
+                    }
+                    }
+                }
+
+                // ═════════ Bluetooth list (shared by the top-bar popover and the Control Center page) ═════════
+                Component {
+                    id: btContent
                     Column {
                         id: btCol
-                        x: 12; y: 12
-                        width: parent.width - 24
+                        property var pp: pal                // palette: the panel palette in the popover, ccPal in the Control Center
+                        property bool showBack: false       // Control Center page: show the back arrow
+                        signal back()
+                        width: parent ? parent.width : 296
                         spacing: 6
 
                         // header: title + on/off switch
                         Item {
                             width: parent.width; height: 32
+                            Item {
+                                visible: btCol.showBack
+                                x: 0; width: 30; height: parent.height
+                                Glyph { anchors.centerIn: parent; width: 12; height: 12; kind: "chevL"; color: pp.fg }
+                                MouseArea { anchors.fill: parent; onClicked: btCol.back() }
+                            }
                             Text {
-                                x: 6; anchors.verticalCenter: parent.verticalCenter
+                                x: btCol.showBack ? 30 : 6; anchors.verticalCenter: parent.verticalCenter
                                 text: "Bluetooth"
-                                color: pal.fg
-                                font.family: pal.fam; font.pixelSize: 15; font.weight: Font.DemiBold
+                                color: pp.fg
+                                font.family: pp.fam; font.pixelSize: 15; font.weight: Font.DemiBold
                             }
                             PSwitch {
-                                t: pal
+                                t: pp
                                 anchors.right: parent.right; anchors.rightMargin: 4
                                 anchors.verticalCenter: parent.verticalCenter
                                 checked: root.btOn
                                 onToggled: root.toggleBt()
                             }
                         }
-                        Rectangle { width: parent.width; height: 1; color: pal.sep }
+                        Rectangle { width: parent.width; height: 1; color: pp.sep }
 
                         Text {
                             visible: !root.btOn
                             width: parent.width; height: 56
                             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
                             text: "Bluetooth is turned off"
-                            color: pal.fg2
-                            font.family: pal.fam; font.pixelSize: 13
+                            color: pp.fg2
+                            font.family: pp.fam; font.pixelSize: 13
                         }
 
                         Text {
@@ -6600,8 +6920,8 @@ Scope {
                             width: parent.width; height: 56
                             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
                             text: root.btScanning ? "Searching for devices\u2026" : "No devices found"
-                            color: pal.fg2
-                            font.family: pal.fam; font.pixelSize: 13
+                            color: pp.fg2
+                            font.family: pp.fam; font.pixelSize: 13
                         }
 
                         Item {
@@ -6610,8 +6930,8 @@ Scope {
                             Text {
                                 x: 6; anchors.verticalCenter: parent.verticalCenter
                                 text: "Devices"
-                                color: pal.fg2
-                                font.family: pal.fam; font.pixelSize: 11; font.weight: Font.DemiBold
+                                color: pp.fg2
+                                font.family: pp.fam; font.pixelSize: 11; font.weight: Font.DemiBold
                             }
                             Row {
                                 anchors.right: parent.right; anchors.rightMargin: 6
@@ -6620,12 +6940,12 @@ Scope {
                                 Text {
                                     visible: root.btScanning
                                     text: "Scanning\u2026"
-                                    color: pal.fg2; font.family: pal.fam; font.pixelSize: 11
+                                    color: pp.fg2; font.family: pp.fam; font.pixelSize: 11
                                 }
                                 Text {
                                     visible: !root.btScanning
                                     text: "Scan"
-                                    color: root.accent; font.family: pal.fam; font.pixelSize: 11; font.weight: Font.DemiBold
+                                    color: root.accent; font.family: pp.fam; font.pixelSize: 11; font.weight: Font.DemiBold
                                     MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: root.scanBt() }
                                 }
                             }
@@ -6665,14 +6985,14 @@ Scope {
                                             x: 9; anchors.verticalCenter: parent.verticalCenter
                                             width: 14; height: 14
                                             kind: "check"
-                                            color: bma.containsMouse ? "white" : pal.fg
+                                            color: bma.containsMouse ? "white" : pp.fg
                                         }
                                         Glyph {
                                             visible: !devRow.modelData.connected
                                             x: 9; anchors.verticalCenter: parent.verticalCenter
                                             width: 14; height: 14
                                             kind: devRow.modelData.icon || "bluetooth"
-                                            color: bma.containsMouse ? "white" : pal.fg2
+                                            color: bma.containsMouse ? "white" : pp.fg2
                                         }
 
                                         Text {
@@ -6681,8 +7001,8 @@ Scope {
                                             width: parent.width - 30 - 100
                                             elide: Text.ElideRight
                                             text: devRow.modelData.name || devRow.modelData.mac
-                                            color: bma.containsMouse ? "white" : pal.fg
-                                            font.family: pal.fam; font.pixelSize: 13
+                                            color: bma.containsMouse ? "white" : pp.fg
+                                            font.family: pp.fam; font.pixelSize: 13
                                             font.weight: devRow.modelData.connected ? Font.DemiBold : Font.Normal
                                         }
 
@@ -6691,8 +7011,8 @@ Scope {
                                             anchors.right: parent.right; anchors.rightMargin: 12
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: devRow.modelData.connected ? "Disconnecting\u2026" : "Connecting\u2026"
-                                            color: bma.containsMouse ? "white" : pal.fg2
-                                            font.family: pal.fam; font.pixelSize: 12
+                                            color: bma.containsMouse ? "white" : pp.fg2
+                                            font.family: pp.fam; font.pixelSize: 12
                                         }
 
                                         Text {
@@ -6701,7 +7021,7 @@ Scope {
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: "Disconnect"
                                             color: "white"
-                                            font.family: pal.fam; font.pixelSize: 12
+                                            font.family: pp.fam; font.pixelSize: 12
                                         }
 
                                         Text {
@@ -6709,8 +7029,8 @@ Scope {
                                             anchors.right: parent.right; anchors.rightMargin: 12
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: "Connected"
-                                            color: pal.fg2
-                                            font.family: pal.fam; font.pixelSize: 12
+                                            color: pp.fg2
+                                            font.family: pp.fam; font.pixelSize: 12
                                         }
 
                                         Text {
@@ -6719,7 +7039,7 @@ Scope {
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: "Connect"
                                             color: "white"
-                                            font.family: pal.fam; font.pixelSize: 12
+                                            font.family: pp.fam; font.pixelSize: 12
                                         }
 
                                         Text {
@@ -6727,8 +7047,8 @@ Scope {
                                             anchors.right: parent.right; anchors.rightMargin: 12
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: "Paired"
-                                            color: pal.fg2
-                                            font.family: pal.fam; font.pixelSize: 12
+                                            color: pp.fg2
+                                            font.family: pp.fam; font.pixelSize: 12
                                         }
 
                                         MouseArea {
@@ -6750,10 +7070,10 @@ Scope {
                             wrapMode: Text.WordWrap
                             text: root.btError
                             color: "#FF6961"
-                            font.family: pal.fam; font.pixelSize: 12
+                            font.family: pp.fam; font.pixelSize: 12
                         }
 
-                        Rectangle { width: parent.width; height: 1; color: pal.sep }
+                        Rectangle { width: parent.width; height: 1; color: pp.sep }
                         Item {
                             width: parent.width; height: 30
                             Rectangle {
@@ -6764,8 +7084,8 @@ Scope {
                             Text {
                                 x: 10; anchors.verticalCenter: parent.verticalCenter
                                 text: "Bluetooth Settings\u2026"
-                                color: bsa.containsMouse ? "white" : pal.fg
-                                font.family: pal.fam; font.pixelSize: 13
+                                color: bsa.containsMouse ? "white" : pp.fg
+                                font.family: pp.fam; font.pixelSize: 13
                             }
                             MouseArea {
                                 id: bsa
@@ -6773,6 +7093,99 @@ Scope {
                                 hoverEnabled: true
                                 onClicked: { ui.pop = ""; root.openSettings("bluetooth"); }
                             }
+                        }
+                    }
+                }
+
+                // ═════════ bluetooth popover ═════════
+                Item {
+                    id: btPop
+                    z: 10
+                    // same morph as the Wi-Fi popover: one glass shape grows out of the bluetooth icon, blurred, and sharpens
+                    // as it opens; closing folds it back into the icon.
+    readonly property real ps: root.barPopupScale
+                    readonly property real fullW: 320
+                    readonly property real fullH: (btLoad.item ? btLoad.item.height : 120) + 24
+                    // the rectangle it grows from (the bar icon, in screen px) and the one it grows into
+                    readonly property real srcW: 26
+                    readonly property real srcH: 22
+                    readonly property real srcX: ui.menuX + 1
+                    readonly property real srcY: Math.max(0, (root.barHeight - srcH) / 2)
+                    readonly property real dstX: Math.max(6, Math.min(ui.width - fullW * ps - 8, ui.menuX + 14 - fullW * ps / 2))
+                    readonly property real dstY: root.barHeight + 6
+
+                    readonly property bool opening: ui.pop === "bt"
+                    property real openT: opening ? 1 : 0
+                    Behavior on openT {
+                        NumberAnimation {
+                            duration: btPop.opening ? 520 : 220
+                            easing.type: btPop.opening ? Easing.OutBack : Easing.InOutCubic
+                            easing.overshoot: 0.7
+                        }
+                    }
+                    readonly property real t: Math.max(0, Math.min(1, openT))
+                    readonly property real contentT: Math.max(0, Math.min(1, (openT - 0.28) / 0.55))
+
+                    width: (srcW + (fullW * ps - srcW) * openT) / ps
+                    height: (srcH + (fullH * ps - srcH) * openT) / ps
+                    x: srcX + (dstX - srcX) * openT
+                    y: srcY + (dstY - srcY) * openT
+                    opacity: Math.min(1, t * 4)
+                    visible: openT > 0.002
+                    scale: ps
+                    transformOrigin: Item.TopLeft
+
+                    // morph blur: only exists while the animation runs, so the open panel is drawn directly (crisp text)
+                    readonly property real blurAmt: Math.pow(1 - t, 1.3)
+                    readonly property bool morphing: openT > 0.002 && Math.abs(openT - 1) > 0.002
+                    layer.enabled: morphing
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        blurEnabled: true
+                        blurMax: 48
+                        blur: btPop.blurAmt * 0.9
+                        autoPaddingEnabled: true
+                    }
+
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: ui.glassSrc
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.effDark
+                        bx: btPop.x; by: btPop.y
+                        cornerR: Math.min(22, 8 + 14 * btPop.t)
+                        tint: root.glassOpacity
+                        thickness: 22
+                        strength: 0.55 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: 42
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: Math.min(22, 8 + 14 * btPop.t)
+                        dark: root.effDark
+                        tint: root.menuBorderColor
+                    }
+                    MouseArea { anchors.fill: parent }
+
+                    // the content keeps its full size and is revealed by the growing glass (clipped)
+                    Item {
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        clip: true
+                        Loader {
+                            id: btLoad
+                            sourceComponent: btContent
+                            x: 11; y: 11 + 10 * (1 - btPop.contentT)
+                            width: btPop.fullW - 24
+                            opacity: btPop.contentT
                         }
                     }
                 }
@@ -7240,8 +7653,8 @@ Scope {
                 Item {
                     id: cc
                     z: 10
-                    width: 340
-                    height: ccCol.height
+                    width: 300
+                    height: ui.ccPage === "" ? ccCol.height : (ui.ccPage === "wifi" ? ccWifiPage.height : ccBtPage.height)
                     x: Math.max(8, ui.width - width - 10)
                     y: root.barHeight + 6
                     // opening (ColorOS 17): the panel springs out from the Control Center button, overshoots a little and
@@ -7333,11 +7746,12 @@ Scope {
                         // macOS style: the panel is the glass, so each control only keeps a faint shape on top of it
                         tint: root.ccStyle === "macos" ? root.glassOpacity * 0.30 : root.glassOpacity
                         strength: root.ccStyle === "macos" ? root.glassLiquid * 0.30 : root.glassLiquid
-                        rim: root.ccStyle === "macos" ? root.glassRim * 0.45 : root.glassRim
+                        rim: root.ccStyle === "macos" ? root.glassRim * 0.10 : root.glassRim * 0.25
                         rimTint: 1
-                        ringW: 0.4                          // thinner edge line than the menus: Control Center is busier
+                        ringW: 0                            // the border is the QML CornerBorder now (see component CornerBorder)
                         borderTint: root.menuBorderColor
-                        borderAmount: 0.45
+                        borderAmount: 1                     // strength of the CornerBorder on every tile / button / the panel
+                        whiteEdge: false                    // no light inner ring on the non-liquid fallback pane
                         grain: root.glassGrain
                         blur: root.glassBlur
                         debug: root.glassDebug
@@ -7378,14 +7792,9 @@ Scope {
                                 on: root.wifiOn
                             }
                             MouseArea {
-                                // only the arrow end opens the network list; the rest of the tile switches Wi-Fi on / off
+                                // only the arrow end opens the Wi-Fi page inside the Control Center; the rest of the tile switches Wi-Fi on / off
                                 x: parent.width - 48; width: 48; height: parent.height
-                                onClicked: ui.openPop("wifi", ui.width)
-                            }
-                            Glyph {
-                                x: parent.width - 22; anchors.verticalCenter: parent.verticalCenter
-                                width: 12; height: 12
-                                kind: "chevR"; color: tl.fg2
+                                onClicked: { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); ui.ccPage = "wifi"; }
                             }
                             Column {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
@@ -7421,15 +7830,9 @@ Scope {
                             }
                             MouseArea {
                                 visible: btTile.wide
-                                // only the arrow end opens the device list; the rest of the tile switches Bluetooth on / off
+                                // only the arrow end opens the Bluetooth page inside the Control Center; the rest of the tile switches Bluetooth on / off
                                 x: parent.width - 48; width: 48; height: parent.height
-                                onClicked: ui.openPop("bt", ui.width)
-                            }
-                            Glyph {
-                                visible: btTile.wide
-                                x: parent.width - 22; anchors.verticalCenter: parent.verticalCenter
-                                width: 12; height: 12
-                                kind: "chevR"; color: btTile.fg2
+                                onClicked: { root.btError = ""; root.scanBt(); root.refreshBt(); ui.ccPage = "bt"; }
                             }
                             Column {
                                 visible: btTile.wide
@@ -7479,7 +7882,7 @@ Scope {
                                 x: 62; anchors.verticalCenter: parent.verticalCenter
                                 spacing: 1
                                 Text { text: "Focus"; color: tl.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                MorphText { animateWidth: false; duration: 420; text: root.dnd ? "Do Not Disturb" : "Off"; color: tl.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
+                                MorphText { animateWidth: false; duration: 420; text: root.dnd ? "On" : "Off"; color: tl.fg2; font.family: ccPal.fam; font.pixelSize: 12 }
                             }
                         }
                     }
@@ -7684,8 +8087,11 @@ Scope {
                                 text: "Display"
                                 color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
                             }
+                            HoverHandler { id: tileHovDisplay }
                             CCSlider {
+                                tileHover: tileHovDisplay.hovered
                                 t: ccPal
+                                gx: ccg; glassMul: root.ccStyle === "macos" ? 3 : 1
                                 x: 12; y: 28
                                 width: parent.width - 24
                                 value: root.brightness
@@ -7705,8 +8111,11 @@ Scope {
                                 text: "Sound"
                                 color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
                             }
+                            HoverHandler { id: tileHovSound }
                             CCSlider {
+                                tileHover: tileHovSound.hovered
                                 t: ccPal
+                                gx: ccg; glassMul: root.ccStyle === "macos" ? 3 : 1
                                 x: 12; y: 28
                                 width: parent.width - 24 - 36
                                 value: root.muted ? 0 : root.volume
@@ -7717,6 +8126,7 @@ Scope {
                             CCBtn {
                                 t: ccPal; gx: ccg
                                 d: 28
+                                glass: false
                                 x: parent.width - 12 - 28; y: 28
                                 kind: "speaker"; level: root.muted ? 0 : 3
                                 on: root.muted
@@ -7730,10 +8140,55 @@ Scope {
                     Loader {
                         active: root.ccStyle === "macos"
                         x: -12; y: -12
-                        width: cc.width + 24; height: ccCol.height + 24
+                        width: cc.width + 24; height: cc.height + 24
                         sourceComponent: Item {
                             GGlass { anchors.fill: parent; gx: ccg; cornerR: 24; thickness: 26; strengthMul: 1.0; shadowAmt: 0.6 }
-                            MenuBorder { z: 2; anchors.fill: parent; cornerR: 24; dark: ccg.dark; tint: root.menuBorderColor; amount: ccg.borderAmount }
+                            CornerBorder { z: 2; anchors.fill: parent; cornerR: 24; dark: ccg.dark; tint: root.menuBorderColor; amount: ccg.borderAmount; lineW: 0.8 }
+                        }
+                    }
+
+                    // Wi-Fi page: the network list opens inside the Control Center (back arrow in the header) instead of
+                    // switching to the top-bar Wi-Fi popover
+                    Item {
+                        id: ccWifiPage
+                        readonly property bool shown: ui.ccPage === "wifi"
+                        width: parent.width
+                        height: wifiPageLoad.height + 24
+                        opacity: shown ? 1 : 0
+                        visible: opacity > 0.01
+                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                        GGlass { visible: root.ccStyle !== "macos"; anchors.fill: parent; gx: ccg; cornerR: 26; thickness: 22; shadowAmt: 0.45 }
+                        CornerBorder { visible: root.ccStyle !== "macos"; z: 2; anchors.fill: parent; cornerR: 26; dark: ccg.dark; tint: ccg.borderTint; amount: ccg.borderAmount; lineW: 0.8 }
+                        MouseArea { anchors.fill: parent }
+                        Loader {
+                            id: wifiPageLoad
+                            active: ccWifiPage.shown || ccWifiPage.visible
+                            x: 12; y: 12
+                            width: parent.width - 24
+                            sourceComponent: wifiContent
+                            onLoaded: { item.pp = ccPal; item.showBack = true; item.back.connect(function () { ui.ccPage = ""; }); }
+                        }
+                    }
+
+                    // Bluetooth page: the device list opens inside the Control Center, like the Wi-Fi page
+                    Item {
+                        id: ccBtPage
+                        readonly property bool shown: ui.ccPage === "bt"
+                        width: parent.width
+                        height: btPageLoad.height + 24
+                        opacity: shown ? 1 : 0
+                        visible: opacity > 0.01
+                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                        GGlass { visible: root.ccStyle !== "macos"; anchors.fill: parent; gx: ccg; cornerR: 26; thickness: 22; shadowAmt: 0.45 }
+                        CornerBorder { visible: root.ccStyle !== "macos"; z: 2; anchors.fill: parent; cornerR: 26; dark: ccg.dark; tint: ccg.borderTint; amount: ccg.borderAmount; lineW: 0.8 }
+                        MouseArea { anchors.fill: parent }
+                        Loader {
+                            id: btPageLoad
+                            active: ccBtPage.shown || ccBtPage.visible
+                            x: 12; y: 12
+                            width: parent.width - 24
+                            sourceComponent: btContent
+                            onLoaded: { item.pp = ccPal; item.showBack = true; item.back.connect(function () { ui.ccPage = ""; }); }
                         }
                     }
 
@@ -7742,48 +8197,74 @@ Scope {
                         x: 0; y: 0
                         width: parent.width
                         spacing: 10
+                        opacity: ui.ccPage === "" ? 1 : 0
+                        visible: opacity > 0.01
+                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-                        // ── privacy: which apps use the microphone / camera / screen (only while something is active) ──
+                        // ── privacy: a small glass pill (icons + the apps using them), only while something is active ──
                         Item {
                             id: ccPriv
                             visible: root.privacyAny && root.barWidgetEnabled("privacy")
                             width: parent.width
-                            height: visible ? root.privacyRows.length * 46 + 14 : 0
-                            CCTile { anchors.fill: parent; t: ccPal; gx: ccg; radius: 22 }
-                            Column {
-                                x: 8; y: 7
-                                width: parent.width - 16
-                                Repeater {
-                                    model: root.privacyRows
-                                    delegate: Item {
-                                        id: pr
-                                        required property var modelData
-                                        width: parent.width; height: 46
-                                        Rectangle {
-                                            x: 4
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: 30; height: 30; radius: 15
-                                            color: pr.modelData.c
-                                            Glyph { anchors.centerIn: parent; width: 15; height: 15; kind: pr.modelData.glyph; color: "white" }
-                                        }
-                                        Column {
-                                            x: 44
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: parent.width - 44 - (pr.modelData.k === "rec" ? 70 : 6)
-                                            spacing: 1
-                                            Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.title; color: ccPal.fg; font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                            Text { width: parent.width; elide: Text.ElideRight; text: pr.modelData.sub; color: ccPal.fg2; font.family: ccPal.fam; font.pixelSize: 11 }
-                                        }
-                                        Rectangle {
-                                            visible: pr.modelData.k === "rec"
-                                            anchors.right: parent.right; anchors.rightMargin: 4
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: 54; height: 24; radius: 12
-                                            color: "#FF453A"
-                                            Text { anchors.centerIn: parent; text: "Stop"; color: "white"; font.family: ccPal.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
-                                            MouseArea { anchors.fill: parent; onClicked: root.toggleRecording() }
+                            height: visible ? 32 : 0
+                            // one icon per kind of use (screen sharing and recording share the purple one)
+                            readonly property var icons: {
+                                var a = [], seen = {};
+                                for (var i = 0; i < root.privacyRows.length; i++) {
+                                    var r = root.privacyRows[i];
+                                    if (seen[r.c + r.glyph]) continue;
+                                    seen[r.c + r.glyph] = true;
+                                    a.push({ glyph: r.glyph, c: r.c });
+                                }
+                                return a;
+                            }
+                            // every app using the mic / camera / screen, once each
+                            readonly property string names: {
+                                var all = root.privacy.mic.concat(root.privacy.cam).concat(root.privacy.share), out = [];
+                                for (var i = 0; i < all.length; i++) if (out.indexOf(all[i]) < 0) out.push(all[i]);
+                                if (out.length === 0 && root.recording) return "Screen Recording " + root.recTime();
+                                return out.join(", ");
+                            }
+                            Item {
+                                id: privPill
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                height: 32
+                                width: Math.min(parent.width, 14 + privIcons.width + 8 + privText.implicitWidth + (root.recording ? 8 + 44 : 0) + 14)
+                                CCTile { anchors.fill: parent; t: ccPal; gx: ccg; radius: 16 }
+                                Row {
+                                    id: privIcons
+                                    x: 14
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 4
+                                    Repeater {
+                                        model: ccPriv.icons
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            width: 18; height: 18; radius: 9
+                                            color: modelData.c
+                                            Glyph { anchors.centerIn: parent; width: 10; height: 10; kind: modelData.glyph; color: "white" }
                                         }
                                     }
+                                }
+                                Text {
+                                    id: privText
+                                    x: 14 + privIcons.width + 8
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: Math.min(implicitWidth, privPill.width - x - 14 - (root.recording ? 52 : 0))
+                                    elide: Text.ElideRight
+                                    text: ccPriv.names
+                                    color: ccPal.fg
+                                    font.family: ccPal.fam; font.pixelSize: 13; font.weight: Font.Medium
+                                }
+                                // while recording, the pill also carries the Stop button
+                                Rectangle {
+                                    visible: root.recording
+                                    anchors.right: parent.right; anchors.rightMargin: 7
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 44; height: 20; radius: 10
+                                    color: "#FF453A"
+                                    Text { anchors.centerIn: parent; text: "Stop"; color: "white"; font.family: ccPal.fam; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                    MouseArea { anchors.fill: parent; onClicked: root.toggleRecording() }
                                 }
                             }
                         }
@@ -7841,8 +8322,12 @@ Scope {
                                     Behavior on y { enabled: !ct.dragging; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                     Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
+                                    // one-cell controls (the circle buttons) are drawn as a smaller circle centred in their grid cell
+                                    readonly property bool small: slot !== null && slot.w === 1 && slot.h === 1
                                     Loader {
-                                        anchors.fill: parent
+                                        anchors.centerIn: parent
+                                        width: ct.small ? 63 : ct.width
+                                        height: ct.small ? 63 : ct.height
                                         active: ct.slot !== null
                                         sourceComponent: cc.ccComp(ct.modelData.id)
                                     }
