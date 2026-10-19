@@ -3,6 +3,7 @@
 // sizes: Small 168x168 · Medium 358x168 · Large 358x354 (times scaleF, the widget size slider)
 import QtQuick
 import QtQuick.Effects
+import "I18n.js" as I18n
 
 Item {
     id: w
@@ -49,7 +50,7 @@ Item {
             width: parent.width - 24
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            text: w.source.toString() === "" ? "No image" : (img.status === Image.Loading ? "" : "Image not found")
+            text: w.source.toString() === "" ? I18n.tr("No image") : (img.status === Image.Loading ? "" : I18n.tr("Image not found"))
             color: w.darkGlass ? Qt.rgba(1, 1, 1, 0.5) : Qt.rgba(0, 0, 0, 0.45)
             font.family: w.fam
             font.pixelSize: 14 * w.s

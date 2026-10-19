@@ -29,6 +29,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
+import "I18n.js" as I18n
 
 Scope {
     id: root
@@ -429,7 +430,7 @@ Scope {
                     height: g.height - 4
                     Text {
                         anchors.centerIn: parent
-                        text: parent.modelData
+                        text: I18n.tr(parent.modelData)
                         color: g.t.text
                         font.family: g.t.fam
                         font.pixelSize: 12
@@ -533,7 +534,7 @@ Scope {
         Text {
             y: 60
             anchors.horizontalCenter: parent.horizontalCenter
-            text: tile.label
+            text: I18n.tr(tile.label)
             color: tile.t.text
             font.family: tile.t.fam
             font.pixelSize: 12
@@ -1024,7 +1025,7 @@ Scope {
                         x: 30
                         anchors.verticalCenter: parent.verticalCenter
                         visible: searchInput.text === ""
-                        text: "Search"
+                        text: I18n.tr("Search")
                         color: pal.text3
                         font.family: pal.fam
                         font.pixelSize: 13
@@ -1069,7 +1070,7 @@ Scope {
                     Column {
                         x: 52; anchors.verticalCenter: parent.verticalCenter
                         Text { text: root.userName; color: prefsWindow.cur === acct.idx && prefsWindow.active ? "white" : pal.text; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                        Text { text: "Local Account"; color: prefsWindow.cur === acct.idx && prefsWindow.active ? Qt.rgba(1, 1, 1, 0.8) : pal.text2; font.family: pal.fam; font.pixelSize: 11 }
+                        Text { text: I18n.tr("Local Account"); color: prefsWindow.cur === acct.idx && prefsWindow.active ? Qt.rgba(1, 1, 1, 0.8) : pal.text2; font.family: pal.fam; font.pixelSize: 11 }
                     }
                     MouseArea { id: acctMa; anchors.fill: parent; hoverEnabled: true; onClicked: prefsWindow.go(acct.idx) }
                 }
@@ -1140,7 +1141,7 @@ Scope {
                             Text {
                                 x: 42
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: navRow.p.name
+                                text: I18n.tr(navRow.p.name)
                                 color: (navRow.sel && prefsWindow.active) ? "white" : pal.text
                                 font.family: pal.fam
                                 font.pixelSize: 14
@@ -1160,7 +1161,7 @@ Scope {
                         width: parent.width
                         topPadding: 14
                         horizontalAlignment: Text.AlignHCenter
-                        text: "No Results"
+                        text: I18n.tr("No Results")
                         color: pal.text2
                         font.family: pal.fam
                         font.pixelSize: 12
@@ -1210,7 +1211,7 @@ Scope {
                 Text {
                     x: 74
                     anchors.verticalCenter: parent.verticalCenter
-                    text: prefsWindow.panes[prefsWindow.cur].name
+                    text: I18n.tr(prefsWindow.panes[prefsWindow.cur].name)
                     color: pal.text
                     font.family: pal.fam
                     font.pixelSize: 15
@@ -1298,19 +1299,36 @@ Scope {
             Column {
                 spacing: 10
 
-                SLabel { t: pal; header: true; text: "Shell" }
                 SCard {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Dock"
-                        subtitle: "Show the Dock at the bottom of the screen"
+                        title: I18n.tr("Language")
+                        subtitle: I18n.tr("Automatic follows the system language")
+                        SSegmented {
+                            t: pal
+                            readonly property var codes: ["auto", "en", "ru"]
+                            model: ["Automatic", "English", "Русский"]
+                            segWidth: 96
+                            current: codes.indexOf(root.bar ? root.bar.language : "auto")
+                            onPicked: i => { if (root.bar) root.bar.language = codes[i]; }
+                        }
+                    }
+                }
+
+                SLabel { t: pal; header: true; text: I18n.tr("Shell") }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Dock")
+                        subtitle: I18n.tr("Show the Dock at the bottom of the screen")
                         SSwitch { t: pal; checked: root.dockEnabled; onToggled: v => root.dockEnabled = v }
                     }
                     SRow {
                         t: pal
-                        title: "Menu Bar"
-                        subtitle: "Show the panel at the top of the screen. Spotlight, Control Center and the calendar belong to it."
+                        title: I18n.tr("Menu Bar")
+                        subtitle: I18n.tr("Show the panel at the top of the screen. Spotlight, Control Center and the calendar belong to it.")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.barEnabled : true
@@ -1322,8 +1340,8 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Spotlight & top bar menus"
-                        subtitle: "Set Light or Dark appearance for Spotlight and dropdown menus only"
+                        title: I18n.tr("Spotlight & top bar menus")
+                        subtitle: I18n.tr("Set Light or Dark appearance for Spotlight and dropdown menus only")
                         SSegmented {
                             t: pal
                             model: ["Light", "Dark"]
@@ -1335,40 +1353,40 @@ Scope {
                 }
                 SLabel {
                     t: pal
-                    text: "If you turn both off, reopen this window with:  qs -c macbar ipc call settings open"
+                    text: I18n.tr("If you turn both off, reopen this window with:  qs -c macbar ipc call settings open")
                 }
 
-                SLabel { t: pal; header: true; text: "Desktop Widgets" }
+                SLabel { t: pal; header: true; text: I18n.tr("Desktop Widgets") }
                 SCard {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Arrange widgets"
+                        title: I18n.tr("Arrange widgets")
                         subtitle: (root.hub && root.hub.widgets && root.hub.widgets.editing)
-                                  ? "Editing is on: drag a widget to move it, use the \u2212 badge to remove it, then click Stop Editing."
-                                  : "Drag a widget to move it (it snaps to the grid). Use the \u2212 badge on a widget to remove it."
+                                  ? I18n.tr("Editing is on: drag a widget to move it, use the \u2212 badge to remove it, then click Stop Editing.")
+                                  : I18n.tr("Drag a widget to move it (it snaps to the grid). Use the \u2212 badge on a widget to remove it.")
                         SButton {
                             t: pal
-                            text: (root.hub && root.hub.widgets && root.hub.widgets.editing) ? "Stop Editing" : "Edit on Desktop"
+                            text: (root.hub && root.hub.widgets && root.hub.widgets.editing) ? I18n.tr("Stop Editing") : I18n.tr("Edit on Desktop")
                             onClicked: { if (root.hub && root.hub.widgets) root.hub.widgets.editing = !root.hub.widgets.editing; }
                         }
                     }
                     SRow {
                         t: pal
-                        title: "Widget size"
-                        subtitle: "Makes every desktop widget smaller or larger (" + Math.round((root.hub && root.hub.widgets ? root.hub.widgets.widgetScale : 1) * 100) + "%)"
+                        title: I18n.tr("Widget size")
+                        subtitle: I18n.tr("Makes every desktop widget smaller or larger (") + Math.round((root.hub && root.hub.widgets ? root.hub.widgets.widgetScale : 1) * 100) + "%)"
                         SSlider {
                             t: pal
                             from: 0.6; to: 1.5; stepSize: 0.05
                             value: root.hub && root.hub.widgets ? root.hub.widgets.widgetScale : 1
-                            leftLabel: "Small"; rightLabel: "Large"
+                            leftLabel: I18n.tr("Small"); rightLabel: I18n.tr("Large")
                             onMoved: v => { if (root.hub && root.hub.widgets) root.hub.widgets.widgetScale = Math.round(v * 100) / 100; }
                         }
                     }
                     SRow {
                         t: pal
-                        title: "Temperature unit"
-                        subtitle: "Used by the Weather widget"
+                        title: I18n.tr("Temperature unit")
+                        subtitle: I18n.tr("Used by the Weather widget")
                         SSegmented {
                             t: pal
                             model: ["\u00B0C", "\u00B0F"]
@@ -1379,8 +1397,8 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Weather location"
-                        subtitle: "Automatic uses your IP address; or type a city name"
+                        title: I18n.tr("Weather location")
+                        subtitle: I18n.tr("Automatic uses your IP address; or type a city name")
                         SSegmented {
                             t: pal
                             model: ["Automatic", "City"]
@@ -1392,8 +1410,8 @@ Scope {
                     SRow {
                         t: pal
                         visible: root.hub && root.hub.widgets && root.hub.widgets.locMode === "city"
-                        title: "City"
-                        subtitle: "For example: Riyadh, Dubai, London"
+                        title: I18n.tr("City")
+                        subtitle: I18n.tr("For example: Riyadh, Dubai, London")
                         Rectangle {
                             width: 210; height: 26; radius: 6
                             color: pal.ctrl
@@ -1417,16 +1435,16 @@ Scope {
                     }
                 }
 
-                SLabel { t: pal; header: true; text: "Add a Widget" }
+                SLabel { t: pal; header: true; text: I18n.tr("Add a Widget") }
                 SCard {
                     t: pal
                     Repeater {
                         model: [
-                            { type: "weather",  name: "Weather",  hint: "Current conditions, hourly and daily forecast", styles: [["liquid", "Liquid Glass"], ["normal", "Normal"]] },
-                            { type: "calendar", name: "Calendar", hint: "Today's date and the month", styles: [["liquid", "Liquid Glass"], ["normal", "Normal"]] },
-                            { type: "clock",    name: "Clock",    hint: "Analog clock face", styles: [["liquid", "Liquid Glass"], ["light", "Light"], ["dark", "Dark"]] },
-                            { type: "player",   name: "Player",   hint: "Now Playing with controls and lyrics", styles: [["liquid", "Liquid Glass"], ["light", "Light"], ["dark", "Dark"]] },
-                            { type: "image",    name: "Image",    hint: "Your own picture (you choose the file)", styles: [["normal", "Photo"]] }
+                            { type: "weather",  name: I18n.tr("Weather"),  hint: I18n.tr("Current conditions, hourly and daily forecast"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "calendar", name: I18n.tr("Calendar"), hint: I18n.tr("Today's date and the month"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "clock",    name: I18n.tr("Clock"),    hint: I18n.tr("Analog clock face"), styles: [["liquid", I18n.tr("Liquid Glass")], ["light", I18n.tr("Light")], ["dark", I18n.tr("Dark")]] },
+                            { type: "player",   name: I18n.tr("Player"),   hint: I18n.tr("Now Playing with controls and lyrics"), styles: [["liquid", I18n.tr("Liquid Glass")], ["light", I18n.tr("Light")], ["dark", I18n.tr("Dark")]] },
+                            { type: "image",    name: I18n.tr("Image"),    hint: I18n.tr("Your own picture (you choose the file)"), styles: [["normal", I18n.tr("Photo")]] }
                         ]
                         delegate: SRow {
                             id: addRow
@@ -1434,8 +1452,8 @@ Scope {
                             property int styleIdx: 0
                             readonly property var wdg: root.hub ? root.hub.widgets : null
                             t: pal
-                            title: modelData.name
-                            subtitle: modelData.hint + (wdg ? "  \u00B7  " + (wdg.rev >= 0 ? wdg.count(modelData.type) : 0) + " on desktop" : "")
+                            title: I18n.tr(modelData.name)
+                            subtitle: modelData.hint + (wdg ? "  \u00B7  " + (wdg.rev >= 0 ? wdg.count(modelData.type) : 0) + I18n.tr(" on desktop") : "")
                             Row {
                                 spacing: 8
                                 SSegmented {
@@ -1472,44 +1490,44 @@ Scope {
                 }
                 SLabel {
                     t: pal
-                    text: "Image widgets: pick a picture with + S / M / L (needs zenity, kdialog or yad). To change it later, use Edit on Desktop and press Choose Image on the widget."
+                    text: I18n.tr("Image widgets: pick a picture with + S / M / L (needs zenity, kdialog or yad). To change it later, use Edit on Desktop and press Choose Image on the widget.")
                 }
 
-                SLabel { t: pal; header: true; text: "Sound" }
+                SLabel { t: pal; header: true; text: I18n.tr("Sound") }
                 SCard {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Play user interface sound effects"
-                        subtitle: "Volume pop, notifications, screenshots, charger, emptying the Trash and the lock screen"
+                        title: I18n.tr("Play user interface sound effects")
+                        subtitle: I18n.tr("Volume pop, notifications, screenshots, charger, emptying the Trash and the lock screen")
                         SSwitch { t: pal; checked: root.bar ? root.bar.uiSounds : true; onToggled: v => { if (root.bar) root.bar.uiSounds = v; } }
                     }
                 }
 
-                SLabel { t: pal; header: true; text: "Lock Screen" }
+                SLabel { t: pal; header: true; text: I18n.tr("Lock Screen") }
                 SCard {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Album background when the cover is enlarged"
-                        subtitle: "Tap the album cover on the lock screen: the background turns into a blurred version of the artwork"
+                        title: I18n.tr("Album background when the cover is enlarged")
+                        subtitle: I18n.tr("Tap the album cover on the lock screen: the background turns into a blurred version of the artwork")
                         SSwitch { t: pal; checked: root.bar ? root.bar.lockArtBackground : true; onToggled: v => { if (root.bar) root.bar.lockArtBackground = v; } }
                     }
                 }
 
-                SLabel { t: pal; header: true; text: "Game Mode" }
+                SLabel { t: pal; header: true; text: I18n.tr("Game Mode") }
                 SCard {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Game Mode"
-                        subtitle: "Turns off blur, shadows, animations and Liquid Glass, pauses an animated wallpaper and uses the performance power profile. Everything comes back when it turns off."
+                        title: I18n.tr("Game Mode")
+                        subtitle: I18n.tr("Turns off blur, shadows, animations and Liquid Glass, pauses an animated wallpaper and uses the performance power profile. Everything comes back when it turns off.")
                         SSwitch { t: pal; checked: root.bar ? root.bar.gamingMode : false; onToggled: v => { if (root.bar) root.bar.gamingMode = v; } }
                     }
                     SRow {
                         t: pal
-                        title: "Turn on automatically for fullscreen games"
-                        subtitle: root.bar && root.bar.gamingAutoActive ? "On now: a game is fullscreen" : "Steam, Sober (Roblox), Minecraft, Lutris, Heroic and Windows games"
+                        title: I18n.tr("Turn on automatically for fullscreen games")
+                        subtitle: root.bar && root.bar.gamingAutoActive ? I18n.tr("On now: a game is fullscreen") : I18n.tr("Steam, Sober (Roblox), Minecraft, Lutris, Heroic and Windows games")
                         SSwitch { t: pal; checked: root.bar ? root.bar.gamingAuto : true; onToggled: v => { if (root.bar) root.bar.gamingAuto = v; } }
                     }
                 }
@@ -1526,10 +1544,10 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Menu Bar style"
+                        title: I18n.tr("Menu Bar style")
                         subtitle: (root.bar && root.bar.barStyle === "liquid" && root.bar.glassState === "failed")
-                                  ? "Liquid Glass couldn't start (install qt6-shadertools)"
-                                  : "Style of the menus and popovers"
+                                  ? I18n.tr("Liquid Glass couldn't start (install qt6-shadertools)")
+                                  : I18n.tr("Style of the menus and popovers")
                         SSegmented {
                             t: pal
                             model: ["Normal Blur", "Apple Liquid Glass"]
@@ -1540,8 +1558,8 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Liquid Glass bar"
-                        subtitle: "The menu bar strip itself is Liquid Glass, refracting the wallpaper and windows under it (needs Apple Liquid Glass style)"
+                        title: I18n.tr("Liquid Glass bar")
+                        subtitle: I18n.tr("The menu bar strip itself is Liquid Glass, refracting the wallpaper and windows under it (needs Apple Liquid Glass style)")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.barGlass : true
@@ -1554,12 +1572,12 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Menu Bar and widget size"
-                        subtitle: "Scales the bar widgets; the left and right groups stay tucked into the screen corners"
+                        title: I18n.tr("Menu Bar and widget size")
+                        subtitle: I18n.tr("Scales the bar widgets; the left and right groups stay tucked into the screen corners")
                         SSlider {
                             t: pal; from: 22; to: 48; stepSize: 1
                             value: root.bar ? root.bar.barHeight : 28
-                            leftLabel: "Compact"; rightLabel: "Large"
+                            leftLabel: I18n.tr("Compact"); rightLabel: I18n.tr("Large")
                             onMoved: v => { if (root.bar) root.bar.barHeight = Math.round(v); }
                         }
                     }
@@ -1568,8 +1586,8 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Menu Bar logo"
-                        subtitle: "Choose the Arch mark, Apple logo, or a custom image"
+                        title: I18n.tr("Menu Bar logo")
+                        subtitle: I18n.tr("Choose the Arch mark, Apple logo, or a custom image")
                         SSegmented {
                             t: pal
                             model: ["Arch", "Apple", "Custom"]
@@ -1583,8 +1601,8 @@ Scope {
                     SRow {
                         t: pal
                         visible: root.bar && root.bar.barLogoMode === "custom"
-                        title: "Custom image path"
-                        subtitle: "Enter a local image path (PNG, SVG, or other supported format)"
+                        title: I18n.tr("Custom image path")
+                        subtitle: I18n.tr("Enter a local image path (PNG, SVG, or other supported format)")
                         Row {
                             spacing: 8
                             Rectangle {
@@ -1624,7 +1642,7 @@ Scope {
                                 }
                             }
                             SButton {
-                                t: pal; text: "Clear"
+                                t: pal; text: I18n.tr("Clear")
                                 onClicked: { if (root.bar) root.bar.barCustomLogoPath = ""; }
                             }
                         }
@@ -1635,13 +1653,13 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Bar background"
-                        subtitle: "A separate layer (macbarbg) so Hyprland can blur it. Needs: layerrule = blur, macbarbg"
+                        title: I18n.tr("Bar background")
+                        subtitle: I18n.tr("A separate layer (macbarbg) so Hyprland can blur it. Needs: layerrule = blur, macbarbg")
                         SSlider {
                             t: pal
                             from: 0; to: 0.6; stepSize: 0.01
                             value: root.bar ? root.bar.barBgOpacity : 0.10
-                            leftLabel: "Hidden"; rightLabel: "Tinted"
+                            leftLabel: I18n.tr("Hidden"); rightLabel: I18n.tr("Tinted")
                             onMoved: v => { if (root.bar) root.bar.barBgOpacity = v; }
                         }
                     }
@@ -1651,7 +1669,7 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "24-hour clock"
+                        title: I18n.tr("24-hour clock")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.use24h : false
@@ -1660,7 +1678,7 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Show date"
+                        title: I18n.tr("Show date")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.showDate : false
@@ -1669,7 +1687,7 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Show seconds"
+                        title: I18n.tr("Show seconds")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.showSeconds : false
@@ -1678,7 +1696,7 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Week starts on Monday"
+                        title: I18n.tr("Week starts on Monday")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.weekStartsMonday : false
@@ -1691,7 +1709,7 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Battery percentage"
+                        title: I18n.tr("Battery percentage")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.showBatteryPercent : false
@@ -1700,8 +1718,8 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Real-time glass"
-                        subtitle: "Keep window captures live so popovers, Spotlight and the Dock open on current pixels. Turn off to save GPU."
+                        title: I18n.tr("Real-time glass")
+                        subtitle: I18n.tr("Keep window captures live so popovers, Spotlight and the Dock open on current pixels. Turn off to save GPU.")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.glassRealtime : true
@@ -1710,60 +1728,60 @@ Scope {
                     }
                 }
 
-                SLabel { t: pal; header: true; text: "Top Bar Widgets" }
+                SLabel { t: pal; header: true; text: I18n.tr("Top Bar Widgets") }
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Apple menu"
+                        t: pal; title: I18n.tr("Apple menu")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appleMenu") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appleMenu", v); } }
                     }
                     SRow {
-                        t: pal; title: "Application menus"
+                        t: pal; title: I18n.tr("Application menus")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appMenus") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appMenus", v); } }
                     }
                     SRow {
-                        t: pal; title: "Workspace switcher"
+                        t: pal; title: I18n.tr("Workspace switcher")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("workspaces") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("workspaces", v); } }
                     }
                     SRow {
-                        t: pal; title: "System tray"
+                        t: pal; title: I18n.tr("System tray")
                         SSwitch { t: pal; checked: root.bar ? root.bar.showTray : true; onToggled: v => { if (root.bar) root.bar.showTray = v; } }
                     }
                     SRow {
-                        t: pal; title: "Volume"
+                        t: pal; title: I18n.tr("Volume")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("volume") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("volume", v); } }
                     }
                     SRow {
-                        t: pal; title: "Bluetooth"
-                        subtitle: "Show the Bluetooth status icon, even while Bluetooth is off"
+                        t: pal; title: I18n.tr("Bluetooth")
+                        subtitle: I18n.tr("Show the Bluetooth status icon, even while Bluetooth is off")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("bluetooth") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("bluetooth", v); } }
                     }
                     SRow {
-                        t: pal; title: "Keyboard layout"
+                        t: pal; title: I18n.tr("Keyboard layout")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("keyboard") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("keyboard", v); } }
                     }
                     SRow {
-                        t: pal; title: "Notifications"
+                        t: pal; title: I18n.tr("Notifications")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("notifications") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("notifications", v); } }
                     }
                     SRow {
-                        t: pal; title: "Wi-Fi and network"
+                        t: pal; title: I18n.tr("Wi-Fi and network")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("wifi") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("wifi", v); } }
                     }
                     SRow {
-                        t: pal; title: "Spotlight search"
+                        t: pal; title: I18n.tr("Spotlight search")
                         SSwitch { t: pal; checked: root.bar ? root.bar.showSearch : true; onToggled: v => { if (root.bar) root.bar.showSearch = v; } }
                     }
                     SRow {
-                        t: pal; title: "Privacy indicators"
+                        t: pal; title: I18n.tr("Privacy indicators")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("privacy") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("privacy", v); } }
                     }
                     SRow {
-                        t: pal; title: "Control Center"
+                        t: pal; title: I18n.tr("Control Center")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("controlCenter") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("controlCenter", v); } }
                     }
                     SRow {
-                        t: pal; title: "Clock and calendar"
+                        t: pal; title: I18n.tr("Clock and calendar")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("clock") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("clock", v); } }
                     }
                 }
@@ -1772,8 +1790,8 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Keep clipboard history"
-                        subtitle: "Spotlight \u2192 Clipboard (needs wl-clipboard and cliphist). Turn off to stop recording what you copy"
+                        title: I18n.tr("Keep clipboard history")
+                        subtitle: I18n.tr("Spotlight \u2192 Clipboard (needs wl-clipboard and cliphist). Turn off to stop recording what you copy")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.clipHistory : false
@@ -1782,8 +1800,8 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Paste after choosing"
-                        subtitle: "Insert the chosen clipboard entry or emoji into the focused app (Shift+Return only copies)"
+                        title: I18n.tr("Paste after choosing")
+                        subtitle: I18n.tr("Insert the chosen clipboard entry or emoji into the focused app (Shift+Return only copies)")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.clipAutoPaste : false
@@ -1791,13 +1809,13 @@ Scope {
                         }
                     }
                 }
-                SLabel { t: pal; header: true; text: "Screenshots" }
+                SLabel { t: pal; header: true; text: I18n.tr("Screenshots") }
                 SCard {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Save to a folder"
-                        subtitle: "Press Print to select an area. Turn off to only copy it to the clipboard"
+                        title: I18n.tr("Save to a folder")
+                        subtitle: I18n.tr("Press Print to select an area. Turn off to only copy it to the clipboard")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.screenshotSave : true
@@ -1806,8 +1824,8 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Save location"
-                        subtitle: "Leave empty for ~/Pictures/Screenshots"
+                        title: I18n.tr("Save location")
+                        subtitle: I18n.tr("Leave empty for ~/Pictures/Screenshots")
                         Row {
                             spacing: 8
                             Rectangle {
@@ -1839,12 +1857,12 @@ Scope {
                                     font.pixelSize: 12
                                 }
                             }
-                            SButton { t: pal; text: "Choose\u2026"; onClicked: shotPick.running = true }
+                            SButton { t: pal; text: I18n.tr("Choose\u2026"); onClicked: shotPick.running = true }
                         }
                     }
                     SRow {
                         t: pal
-                        title: "Quick folders"
+                        title: I18n.tr("Quick folders")
                         SSegmented {
                             t: pal
                             property var dirs: ["~/Pictures/Screenshots", "~/Pictures", "~/Desktop", "~/Downloads"]
@@ -1859,7 +1877,7 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Copy to clipboard"
+                        title: I18n.tr("Copy to clipboard")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.screenshotClipboard : true
@@ -1868,7 +1886,7 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Show a notification"
+                        title: I18n.tr("Show a notification")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.screenshotNotify : true
@@ -1878,7 +1896,7 @@ Scope {
                 }
                 SLabel {
                     t: pal
-                    text: "Bind the Print key:  bind = , Print, exec, qs -c macbar ipc call screenshot region.  Choose\u2026 needs zenity, kdialog or yad; otherwise type the path. Screenshots need grim."
+                    text: I18n.tr("Bind the Print key:  bind = , Print, exec, qs -c macbar ipc call screenshot region.  Choose\u2026 needs zenity, kdialog or yad; otherwise type the path. Screenshots need grim.")
                 }
                 Process {
                     id: shotPick
@@ -1895,7 +1913,7 @@ Scope {
                 }
                 SLabel {
                     t: pal
-                    text: "Translucency, accent color, appearance and font are in Appearance. Commands (terminal, launcher, files, clipboard) can be edited in ~/.config/macbar/settings.json."
+                    text: I18n.tr("Translucency, accent color, appearance and font are in Appearance. Commands (terminal, launcher, files, clipboard) can be edited in ~/.config/macbar/settings.json.")
                 }
             }
         }
@@ -1986,19 +2004,19 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Size"
+                        title: I18n.tr("Size")
                         SSlider {
                             t: pal
                             from: 32; to: 128; stepSize: 1
                             value: root.iconSize
-                            leftLabel: "Small"; rightLabel: "Large"
+                            leftLabel: I18n.tr("Small"); rightLabel: I18n.tr("Large")
                             onMoved: v => root.iconSize = Math.round(v)
                         }
                     }
                     SRow {
                         t: pal
-                        title: "Magnification"
-                        subtitle: "Enlarge icons as the pointer moves over them"
+                        title: I18n.tr("Magnification")
+                        subtitle: I18n.tr("Enlarge icons as the pointer moves over them")
                         SSwitch {
                             t: pal
                             checked: root.magnificationEnabled
@@ -2007,31 +2025,31 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Magnification amount"
+                        title: I18n.tr("Magnification amount")
                         opacity: root.magnificationEnabled ? 1 : 0.45
                         SSlider {
                             t: pal
                             enabled: root.magnificationEnabled
                             from: 1.1; to: 2.5; stepSize: 0.05
                             value: root.magnification
-                            leftLabel: "Min"; rightLabel: "Max"
+                            leftLabel: I18n.tr("Min"); rightLabel: I18n.tr("Max")
                             onMoved: v => root.magnification = v
                         }
                     }
                 }
 
-                SLabel { t: pal; header: true; text: "Icon Tint" }
+                SLabel { t: pal; header: true; text: I18n.tr("Icon Tint") }
                 SCard {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Tint Dock icons"
-                        subtitle: "Re-colours every icon with one colour. Works with any icon pack."
+                        title: I18n.tr("Tint Dock icons")
+                        subtitle: I18n.tr("Re-colours every icon with one colour. Works with any icon pack.")
                         SSwitch { t: pal; checked: root.iconTint; onToggled: v => root.iconTint = v }
                     }
                     SRow {
                         t: pal
-                        title: "Colour"
+                        title: I18n.tr("Colour")
                         opacity: root.iconTint ? 1 : 0.45
                         Row {
                             spacing: 6
@@ -2071,15 +2089,15 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Strength"
-                        subtitle: "Lower values keep some of the original icon colours"
+                        title: I18n.tr("Strength")
+                        subtitle: I18n.tr("Lower values keep some of the original icon colours")
                         opacity: root.iconTint ? 1 : 0.45
                         SSlider {
                             t: pal
                             enabled: root.iconTint
                             from: 0.1; to: 1.0; stepSize: 0.05
                             value: root.iconTintStrength
-                            leftLabel: "Subtle"; rightLabel: "Full"
+                            leftLabel: I18n.tr("Subtle"); rightLabel: I18n.tr("Full")
                             onMoved: v => root.iconTintStrength = Math.round(v * 100) / 100
                         }
                     }
@@ -2089,28 +2107,28 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Icon spacing"
+                        title: I18n.tr("Icon spacing")
                         SSlider {
                             t: pal
                             from: 0; to: 20; stepSize: 1
                             value: root.spacing
-                            leftLabel: "Tight"; rightLabel: "Loose"
+                            leftLabel: I18n.tr("Tight"); rightLabel: I18n.tr("Loose")
                             onMoved: v => root.spacing = Math.round(v)
                         }
                     }
                     SRow {
                         t: pal
-                        title: "Distance from screen edge"
+                        title: I18n.tr("Distance from screen edge")
                         SSlider {
                             t: pal
                             from: 0; to: 40; stepSize: 1
                             value: root.margin
-                            leftLabel: "Flush"; rightLabel: "Floating"
+                            leftLabel: I18n.tr("Flush"); rightLabel: I18n.tr("Floating")
                             onMoved: v => root.margin = Math.round(v)
                         }
                     }
                 }
-                SLabel { t: pal; text: "Changes apply to the Dock immediately." }
+                SLabel { t: pal; text: I18n.tr("Changes apply to the Dock immediately.") }
             }
         }
 
@@ -2124,22 +2142,22 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Appearance"
-                        subtitle: "Light, Dark, or Auto for the Dock, Menu Bar and Settings. Spotlight and top bar menus use General → Spotlight & top bar menus."
+                        title: I18n.tr("Appearance")
+                        subtitle: I18n.tr("Light, Dark, or Auto for the Dock, Menu Bar and Settings. Spotlight and top bar menus use General → Spotlight & top bar menus.")
                         Row {
                             spacing: 14
                             SThemeTile {
-                                t: pal; label: "Light"; dark: false
+                                t: pal; label: I18n.tr("Light"); dark: false
                                 selected: root.appearanceMode === "light"
                                 onClicked: root.setAppearance("light")
                             }
                             SThemeTile {
-                                t: pal; label: "Dark"; dark: true
+                                t: pal; label: I18n.tr("Dark"); dark: true
                                 selected: root.appearanceMode === "dark"
                                 onClicked: root.setAppearance("dark")
                             }
                             SThemeTile {
-                                t: pal; label: "Auto"; split: true
+                                t: pal; label: I18n.tr("Auto"); split: true
                                 selected: root.appearanceMode === "auto"
                                 onClicked: root.setAppearance("auto")
                             }
@@ -2151,8 +2169,8 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Accent color"
-                        subtitle: "Highlights in the Dock menu and this window"
+                        title: I18n.tr("Accent color")
+                        subtitle: I18n.tr("Highlights in the Dock menu and this window")
                         Row {
                             spacing: 6
                             Repeater {
@@ -2191,12 +2209,12 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Dock style"
+                        title: I18n.tr("Dock style")
                         subtitle: root.dockStyle === "liquid" && root.glassState === "failed"
-                                  ? "Liquid Glass couldn't start (install qt6-shadertools) – using Normal Blur"
+                                  ? I18n.tr("Liquid Glass couldn't start (install qt6-shadertools) – using Normal Blur")
                                   : (root.dockStyle === "liquid" && root.glassState === "building"
-                                     ? "Preparing the Liquid Glass shader…"
-                                     : "Blur of the desktop, or refracting Liquid Glass")
+                                     ? I18n.tr("Preparing the Liquid Glass shader…")
+                                     : I18n.tr("Blur of the desktop, or refracting Liquid Glass"))
                         SSegmented {
                             t: pal
                             model: ["Normal Blur", "Apple Liquid Glass"]
@@ -2211,51 +2229,51 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Translucency"
-                        subtitle: root.dockStyle === "liquid" ? "How much tint the glass adds over the refraction"
-                                                              : "How frosted the Dock's glass looks"
+                        title: I18n.tr("Translucency")
+                        subtitle: root.dockStyle === "liquid" ? I18n.tr("How much tint the glass adds over the refraction")
+                                                              : I18n.tr("How frosted the Dock's glass looks")
                         SSlider {
                             t: pal
                             from: 0.0; to: 0.85; stepSize: 0.01
                             value: root.glassOpacity
-                            leftLabel: "Clear"; rightLabel: "Frosted"
+                            leftLabel: I18n.tr("Clear"); rightLabel: I18n.tr("Frosted")
                             onMoved: v => root.setLook("glassOpacity", v)
                         }
                     }
                     SRow {
                         t: pal
                         visible: root.dockStyle === "liquid"
-                        title: "Blur"
-                        subtitle: "How strongly the glass blurs what's behind it"
+                        title: I18n.tr("Blur")
+                        subtitle: I18n.tr("How strongly the glass blurs what's behind it")
                         SSlider {
                             t: pal
                             from: 0; to: 80; stepSize: 1
                             value: root.glassBlur
-                            leftLabel: "Sharp"; rightLabel: "Very blurry"
+                            leftLabel: I18n.tr("Sharp"); rightLabel: I18n.tr("Very blurry")
                             onMoved: v => root.setLook("glassBlur", Math.round(v))
                         }
                     }
                     SRow {
                         t: pal
                         visible: root.dockStyle === "liquid"
-                        title: "Liquid strength"
-                        subtitle: "Refraction, magnification and colour fringing of the glass"
+                        title: I18n.tr("Liquid strength")
+                        subtitle: I18n.tr("Refraction, magnification and colour fringing of the glass")
                         SSlider {
                             t: pal
                             from: 0.5; to: 2.5; stepSize: 0.05
                             value: root.glassLiquid
-                            leftLabel: "Subtle"; rightLabel: "Very liquid"
+                            leftLabel: I18n.tr("Subtle"); rightLabel: I18n.tr("Very liquid")
                             onMoved: v => root.setLook("glassLiquid", v)
                         }
                     }
                     SRow {
                         t: pal
-                        title: "Corner radius"
+                        title: I18n.tr("Corner radius")
                         SSlider {
                             t: pal
                             from: 0; to: 32; stepSize: 1
                             value: root.cornerRadius
-                            leftLabel: "Square"; rightLabel: "Round"
+                            leftLabel: I18n.tr("Square"); rightLabel: I18n.tr("Round")
                             onMoved: v => root.cornerRadius = Math.round(v)
                         }
                     }
@@ -2265,8 +2283,8 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Font"
-                        subtitle: "Used for labels and menus"
+                        title: I18n.tr("Font")
+                        subtitle: I18n.tr("Used for labels and menus")
                         SSegmented {
                             t: pal
                             model: ["Open Runde", "Noto Sans", "System"]
@@ -2277,8 +2295,8 @@ Scope {
                     }
                 }
                 SLabel { t: pal; text: root.dockStyle === "liquid"
-                                       ? "Liquid Glass refracts the wallpaper and windows behind the Dock in real time. Corner radius also shapes the glass."
-                                       : "The blur behind the Dock comes from your Hyprland layer rule; translucency only controls the tint." }
+                                       ? I18n.tr("Liquid Glass refracts the wallpaper and windows behind the Dock in real time. Corner radius also shapes the glass.")
+                                       : I18n.tr("The blur behind the Dock comes from your Hyprland layer rule; translucency only controls the tint.") }
             }
         }
 
@@ -2292,10 +2310,10 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Automatically hide and show the Dock"
-                        subtitle: root.hideMode === "smart" ? "Hides only while a tiled window needs the space"
+                        title: I18n.tr("Automatically hide and show the Dock")
+                        subtitle: root.hideMode === "smart" ? I18n.tr("Hides only while a tiled window needs the space")
                                 : (root.hideMode === "always" ? "Always hidden until the pointer touches the screen edge"
-                                                              : "Always visible and reserves screen space")
+                                                              : I18n.tr("Always visible and reserves screen space"))
                         SSegmented {
                             t: pal
                             model: ["Smart", "Always", "Never"]
@@ -2307,12 +2325,12 @@ Scope {
                     SRow {
                         t: pal
                         visible: root.hideMode !== "never"
-                        title: "Hide delay"
+                        title: I18n.tr("Hide delay")
                         SSlider {
                             t: pal
                             from: 0; to: 1500; stepSize: 50
                             value: root.hideDelay
-                            leftLabel: "Instant"; rightLabel: "1.5 s"
+                            leftLabel: I18n.tr("Instant"); rightLabel: "1.5 s"
                             onMoved: v => root.hideDelay = Math.round(v)
                         }
                     }
@@ -2322,7 +2340,7 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Show Dock on"
+                        title: I18n.tr("Show Dock on")
                         SSegmented {
                             t: pal
                             model: ["All Displays", "Primary Only"]
@@ -2340,36 +2358,36 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Show labels"
-                        subtitle: "Display an app's name when you hover its icon"
+                        title: I18n.tr("Show labels")
+                        subtitle: I18n.tr("Display an app's name when you hover its icon")
                         SSwitch { t: pal; checked: root.showLabels; onToggled: v => root.showLabels = v }
                     }
                     SRow {
                         t: pal
-                        title: "Show window previews"
-                        subtitle: "Open windows appear as live previews next to the Trash, each with its app's icon"
+                        title: I18n.tr("Show window previews")
+                        subtitle: I18n.tr("Open windows appear as live previews next to the Trash, each with its app's icon")
                         SSwitch { t: pal; checked: root.showThumbs; onToggled: v => root.showThumbs = v }
                     }
                     SRow {
                         t: pal
-                        title: "Live window capture"
-                        subtitle: "Capture open windows for the previews. Turn off and the previews show the app icon instead (Liquid Glass is not affected)"
+                        title: I18n.tr("Live window capture")
+                        subtitle: I18n.tr("Capture open windows for the previews. Turn off and the previews show the app icon instead (Liquid Glass is not affected)")
                         SSwitch { t: pal; checked: root.windowCapture; onToggled: v => root.windowCapture = v }
                     }
                     SRow {
                         t: pal
-                        title: "Show indicators for open applications"
+                        title: I18n.tr("Show indicators for open applications")
                         SSwitch { t: pal; checked: root.showIndicators; onToggled: v => root.showIndicators = v }
                     }
                     SRow {
                         t: pal
-                        title: "Animate opening applications"
-                        subtitle: "Icons bounce while an app is launching"
+                        title: I18n.tr("Animate opening applications")
+                        subtitle: I18n.tr("Icons bounce while an app is launching")
                         SSwitch { t: pal; checked: root.bounceOnLaunch; onToggled: v => root.bounceOnLaunch = v }
                     }
                     SRow {
                         t: pal
-                        title: "Show Trash in the Dock"
+                        title: I18n.tr("Show Trash in the Dock")
                         SSwitch { t: pal; checked: root.showTrash; onToggled: v => root.showTrash = v }
                     }
                 }
@@ -2386,14 +2404,14 @@ Scope {
                     return i.kind === "app" && i.pinned && !i.special;
                 }).length
 
-                SLabel { t: pal; header: true; text: "Kept in Dock" }
+                SLabel { t: pal; header: true; text: I18n.tr("Kept in Dock") }
                 SCard {
                     t: pal
                     SRow {
                         t: pal
                         visible: appsCol.pinCount === 0
-                        title: "No apps are kept in the Dock"
-                        subtitle: "Right-click a running app and choose Keep in Dock."
+                        title: I18n.tr("No apps are kept in the Dock")
+                        subtitle: I18n.tr("Right-click a running app and choose Keep in Dock.")
                     }
                     Repeater {
                         model: root.items
@@ -2406,21 +2424,21 @@ Scope {
                             iconSource: modelData.icon ? root.iconSrc(modelData.icon) : ""
                             SButton {
                                 t: pal
-                                text: "Remove"
+                                text: I18n.tr("Remove")
                                 onClicked: root.togglePin(appRow.modelData)
                             }
                         }
                     }
                 }
-                SLabel { t: pal; text: "Drag icons in the Dock to reorder them. Pins are saved to ~/.config/macdock/pinned.json." }
+                SLabel { t: pal; text: I18n.tr("Drag icons in the Dock to reorder them. Pins are saved to ~/.config/macdock/pinned.json.") }
 
                 SCard {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Reset Dock Items"
-                        subtitle: "Go back to the default set of apps"
-                        SButton { t: pal; text: "Reset"; onClicked: root.resetPins() }
+                        title: I18n.tr("Reset Dock Items")
+                        subtitle: I18n.tr("Go back to the default set of apps")
+                        SButton { t: pal; text: I18n.tr("Reset"); onClicked: root.resetPins() }
                     }
                 }
             }
@@ -2450,10 +2468,10 @@ Scope {
                     t: pal
                     visible: wifiPane.eth !== null
                     SRow {
-                        t: pal; title: "Ethernet"
+                        t: pal; title: I18n.tr("Ethernet")
                         subtitle: !wifiPane.eth ? "" : (wifiPane.eth.up
-                                  ? "Connected" + (wifiPane.eth.ip !== "" ? " · " + wifiPane.eth.ip : "") + (parseInt(wifiPane.eth.speed) > 0 ? " · " + wifiPane.eth.speed + " Mb/s" : "")
-                                  : "Cable unplugged")
+                                  ? I18n.tr("Connected") + (wifiPane.eth.ip !== "" ? " · " + wifiPane.eth.ip : "") + (parseInt(wifiPane.eth.speed) > 0 ? " · " + wifiPane.eth.speed + I18n.tr(" Mb/s") : "")
+                                  : I18n.tr("Cable unplugged"))
                         Row {
                             spacing: 8
                             WGlyph { width: 18; height: 18; kind: "ethernet"; color: pal.text; anchors.verticalCenter: parent.verticalCenter }
@@ -2464,12 +2482,12 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Wi-Fi"
-                        subtitle: !root.bar ? "" : (!root.bar.wifiOn ? "Off" : (root.bar.wifiSsid !== "" ? "Connected to " + root.bar.wifiSsid : "Not connected"))
+                        t: pal; title: I18n.tr("Wi-Fi")
+                        subtitle: !root.bar ? "" : (!root.bar.wifiOn ? I18n.tr("Off") : (root.bar.wifiSsid !== "" ? I18n.tr("Connected to ") + root.bar.wifiSsid : I18n.tr("Not connected")))
                         SSwitch { t: pal; checked: root.bar ? root.bar.wifiOn : false; onToggled: v => { if (root.bar && root.bar.wifiOn !== v) root.bar.toggleWifi(); } }
                     }
                 }
-                SLabel { t: pal; header: true; text: "Known Networks & Other Networks"; visible: root.bar && root.bar.wifiOn }
+                SLabel { t: pal; header: true; text: I18n.tr("Known Networks & Other Networks"); visible: root.bar && root.bar.wifiOn }
                 SCard {
                     t: pal
                     visible: root.bar && root.bar.wifiOn
@@ -2479,10 +2497,10 @@ Scope {
                             required property var modelData
                             t: pal
                             title: modelData.ssid + (modelData.inUse ? "  ✓" : "")
-                            subtitle: (modelData.secure ? "Secured" : "Open") + (modelData.saved ? " · Saved" : "") + " · " + modelData.signal + "%"
+                            subtitle: (modelData.secure ? I18n.tr("Secured") : I18n.tr("Open")) + (modelData.saved ? I18n.tr(" · Saved") : "") + " · " + modelData.signal + "%"
                             SButton {
                                 t: pal
-                                text: modelData.inUse ? "Connected" : (modelData.saved || !modelData.secure ? "Connect" : "Join…")
+                                text: modelData.inUse ? I18n.tr("Connected") : (modelData.saved || !modelData.secure ? I18n.tr("Connect") : I18n.tr("Join…"))
                                 onClicked: {
                                     if (modelData.inUse) return;
                                     if (modelData.saved || !modelData.secure) root.bar.connectWifi(modelData.ssid, "");
@@ -2494,7 +2512,7 @@ Scope {
                 }
                 Row {
                     spacing: 8
-                    SButton { t: pal; text: "Scan Again"; onClicked: if (root.bar) root.bar.scanWifi() }
+                    SButton { t: pal; text: I18n.tr("Scan Again"); onClicked: if (root.bar) root.bar.scanWifi() }
                 }
             }
         }
@@ -2514,12 +2532,12 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Bluetooth"
-                        subtitle: root.bar && root.bar.btOn ? "This computer is discoverable as \"" + root.userName + "\"" : "Off"
+                        t: pal; title: I18n.tr("Bluetooth")
+                        subtitle: root.bar && root.bar.btOn ? I18n.tr("This computer is discoverable as \"") + root.userName + "\"" : I18n.tr("Off")
                         SSwitch { t: pal; checked: root.bar ? root.bar.btOn : false; onToggled: v => { if (root.bar && root.bar.btOn !== v) root.bar.toggleBt(); } }
                     }
                 }
-                SLabel { t: pal; header: true; text: "My Devices"; visible: btPane.myDevs.length > 0 }
+                SLabel { t: pal; header: true; text: I18n.tr("My Devices"); visible: btPane.myDevs.length > 0 }
                 SCard {
                     t: pal
                     visible: btPane.myDevs.length > 0
@@ -2529,17 +2547,17 @@ Scope {
                             required property var modelData
                             t: pal
                             title: modelData.name
-                            subtitle: (root.bar && root.bar.btBusy === modelData.mac ? (modelData.connected ? "Disconnecting\u2026" : "Connecting\u2026")
+                            subtitle: (root.bar && root.bar.btBusy === modelData.mac ? (modelData.connected ? I18n.tr("Disconnecting\u2026") : I18n.tr("Connecting\u2026"))
                                        : (modelData.connected ? "Connected" : "Not Connected")) + (modelData.bat !== "" ? " \u00B7 " + modelData.bat + "%" : "")
                             SButton {
-                                t: pal; text: modelData.connected ? "Disconnect" : "Connect"
+                                t: pal; text: modelData.connected ? I18n.tr("Disconnect") : I18n.tr("Connect")
                                 enabled: !(root.bar && root.bar.btBusy !== "")
                                 onClicked: { if (root.bar) root.bar.connectBt(modelData.mac, modelData.connected); }
                             }
                         }
                     }
                 }
-                SLabel { t: pal; header: true; text: (root.bar && root.bar.btScanning) ? "Nearby Devices \u2014 searching\u2026" : "Nearby Devices"; visible: root.bar && root.bar.btOn }
+                SLabel { t: pal; header: true; text: (root.bar && root.bar.btScanning) ? I18n.tr("Nearby Devices \u2014 searching\u2026") : I18n.tr("Nearby Devices"); visible: root.bar && root.bar.btOn }
                 SCard {
                     t: pal
                     visible: root.bar && root.bar.btOn
@@ -2549,9 +2567,9 @@ Scope {
                             required property var modelData
                             t: pal
                             title: modelData.name
-                            subtitle: root.bar && root.bar.btBusy === modelData.mac ? "Pairing\u2026" : "Not paired"
+                            subtitle: root.bar && root.bar.btBusy === modelData.mac ? I18n.tr("Pairing\u2026") : I18n.tr("Not paired")
                             SButton {
-                                t: pal; text: "Connect"
+                                t: pal; text: I18n.tr("Connect")
                                 enabled: !(root.bar && root.bar.btBusy !== "")
                                 onClicked: { if (root.bar) root.bar.connectBt(modelData.mac, false); }
                             }
@@ -2560,9 +2578,9 @@ Scope {
                     SRow {
                         t: pal
                         visible: btPane.nearby.length === 0
-                        title: root.bar && root.bar.btScanning ? "Searching for devices\u2026" : "No new devices found"
-                        subtitle: "Put the device in pairing mode, then scan again"
-                        SButton { t: pal; text: "Scan Again"; enabled: !(root.bar && root.bar.btScanning); onClicked: { if (root.bar) root.bar.scanBt(); } }
+                        title: root.bar && root.bar.btScanning ? I18n.tr("Searching for devices\u2026") : I18n.tr("No new devices found")
+                        subtitle: I18n.tr("Put the device in pairing mode, then scan again")
+                        SButton { t: pal; text: I18n.tr("Scan Again"); enabled: !(root.bar && root.bar.btScanning); onClicked: { if (root.bar) root.bar.scanBt(); } }
                     }
                 }
                 SLabel { t: pal; text: root.bar ? root.bar.btError : ""; visible: root.bar && root.bar.btError !== "" }
@@ -2597,8 +2615,8 @@ Scope {
                             required property var modelData
                             t: pal
                             readonly property bool up: modelData.state.indexOf("connected") === 0
-                            title: ({ ethernet: "Ethernet", wifi: "Wi-Fi", tun: modelData.dev === "tailscale0" ? "Tailscale" : "VPN" })[modelData.type] || modelData.dev
-                            subtitle: (up ? "Connected" : "Not Connected") + (modelData.con !== "" ? " · " + modelData.con : "") + (modelData.ip !== "" ? " · " + modelData.ip : "")
+                            title: ({ ethernet: I18n.tr("Ethernet"), wifi: I18n.tr("Wi-Fi"), tun: modelData.dev === "tailscale0" ? I18n.tr("Tailscale") : I18n.tr("VPN") })[modelData.type] || modelData.dev
+                            subtitle: (up ? I18n.tr("Connected") : I18n.tr("Not Connected")) + (modelData.con !== "" ? " · " + modelData.con : "") + (modelData.ip !== "" ? " · " + modelData.ip : "")
                             Rectangle { width: 10; height: 10; radius: 5; color: parent.up ? "#30D158" : pal.text3 }
                         }
                     }
@@ -2621,8 +2639,8 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Battery Level"
-                        subtitle: batPane.charging ? "Charging" : (batPane.dev && batPane.dev.timeToEmpty > 0 ? Math.floor(batPane.dev.timeToEmpty / 3600) + " h " + Math.round(batPane.dev.timeToEmpty % 3600 / 60) + " min remaining" : "On battery")
+                        t: pal; title: I18n.tr("Battery Level")
+                        subtitle: batPane.charging ? I18n.tr("Charging") : (batPane.dev && batPane.dev.timeToEmpty > 0 ? Math.floor(batPane.dev.timeToEmpty / 3600) + " h " + Math.round(batPane.dev.timeToEmpty % 3600 / 60) + I18n.tr(" min remaining") : I18n.tr("On battery"))
                         Row {
                             spacing: 8
                             Rectangle {
@@ -2633,8 +2651,8 @@ Scope {
                         }
                     }
                     SRow {
-                        t: pal; title: "Energy Mode"
-                        subtitle: "Power profile used by the system"
+                        t: pal; title: I18n.tr("Energy Mode")
+                        subtitle: I18n.tr("Power profile used by the system")
                         SSegmented {
                             t: pal; model: ["Low Power", "Automatic", "High Power"]; segWidth: 84
                             current: ["power-saver", "balanced", "performance"].indexOf(batPane.profile)
@@ -2642,16 +2660,16 @@ Scope {
                         }
                     }
                 }
-                SLabel { t: pal; header: true; text: "Game Mode" }
+                SLabel { t: pal; header: true; text: I18n.tr("Game Mode") }
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Game Mode"
-                        subtitle: "Turns off blur, shadows, animations and Liquid Glass, pauses an animated wallpaper and uses High Power"
+                        t: pal; title: I18n.tr("Game Mode")
+                        subtitle: I18n.tr("Turns off blur, shadows, animations and Liquid Glass, pauses an animated wallpaper and uses High Power")
                         SSwitch { t: pal; checked: root.bar ? root.bar.gamingMode : false; onToggled: v => { if (root.bar) root.bar.gamingMode = v; } }
                     }
                     SRow {
-                        t: pal; title: "Turn on automatically for fullscreen games"
+                        t: pal; title: I18n.tr("Turn on automatically for fullscreen games")
                         SSwitch { t: pal; checked: root.bar ? root.bar.gamingAuto : true; onToggled: v => { if (root.bar) root.bar.gamingAuto = v; } }
                     }
                 }
@@ -2663,7 +2681,7 @@ Scope {
             id: paneCC
             Column {
                 spacing: 10
-                SLabel { t: pal; text: "Choose which controls appear in Control Center. You can also drag them around in Control Center → Edit Controls." }
+                SLabel { t: pal; text: I18n.tr("Choose which controls appear in Control Center. You can also drag them around in Control Center → Edit Controls.") }
                 SCard {
                     t: pal
                     Repeater {
@@ -2671,7 +2689,7 @@ Scope {
                         delegate: SRow {
                             required property var modelData
                             t: pal
-                            title: modelData.label
+                            title: I18n.tr(modelData.label)
                             SSwitch {
                                 t: pal
                                 checked: root.bar ? root.bar.ccControls.indexOf(modelData.id) >= 0 : false
@@ -2694,13 +2712,13 @@ Scope {
             Column {
                 spacing: 18
                 Loader { width: parent.width; sourceComponent: paneDock }
-                SLabel { t: pal; header: true; text: "App Switcher (Alt + Tab)" }
+                SLabel { t: pal; header: true; text: I18n.tr("App Switcher (Alt + Tab)") }
                 SCard {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Style"
-                        subtitle: "Liquid Glass refracts what's behind it, Frosted blurs it, Opaque is a solid panel"
+                        title: I18n.tr("Style")
+                        subtitle: I18n.tr("Liquid Glass refracts what's behind it, Frosted blurs it, Opaque is a solid panel")
                         SSegmented {
                             t: pal
                             model: ["Liquid Glass", "Frosted", "Opaque"]
@@ -2710,7 +2728,7 @@ Scope {
                         }
                     }
                 }
-                SLabel { t: pal; header: true; text: "Behavior" }
+                SLabel { t: pal; header: true; text: I18n.tr("Behavior") }
                 Loader { width: parent.width; sourceComponent: paneBehavior }
             }
         }
@@ -2731,24 +2749,24 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Brightness"
+                        t: pal; title: I18n.tr("Brightness")
                         SSlider { t: pal; value: root.bar ? root.bar.brightness : 0.5; onMoved: v => { if (root.bar) root.bar.setBrightness(v); } }
                     }
                     SRow {
-                        t: pal; title: "Night Shift"
-                        subtitle: "Warmer colours to reduce blue light"
+                        t: pal; title: I18n.tr("Night Shift")
+                        subtitle: I18n.tr("Warmer colours to reduce blue light")
                         SSwitch { t: pal; checked: root.bar ? root.bar.nightOn : false; onToggled: v => { if (root.bar) root.bar.nightOn = v; } }
                     }
                     SRow {
-                        t: pal; title: "Colour Temperature"; visible: root.bar && root.bar.nightOn
+                        t: pal; title: I18n.tr("Colour Temperature"); visible: root.bar && root.bar.nightOn
                         SSlider {
-                            t: pal; leftLabel: "Less Warm"; rightLabel: "More Warm"
+                            t: pal; leftLabel: I18n.tr("Less Warm"); rightLabel: I18n.tr("More Warm")
                             value: root.bar ? 1 - (root.bar.nightTemp - 2500) / 3500 : 0.5
                             onMoved: v => { if (root.bar) root.bar.nightTemp = Math.round(2500 + (1 - v) * 3500); }
                         }
                     }
                 }
-                SLabel { t: pal; header: true; text: "Displays" }
+                SLabel { t: pal; header: true; text: I18n.tr("Displays") }
                 // keep / revert sheet (macOS: "Keep these display settings?")
                 Rectangle {
                     visible: root.pendingOut !== ""
@@ -2758,22 +2776,22 @@ Scope {
                     Text {
                         x: 14; anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - 220; wrapMode: Text.WordWrap
-                        text: "Keep these display settings? Reverting in " + root.revertLeft + " s."
+                        text: I18n.tr("Keep these display settings? Reverting in ") + root.revertLeft + " s."
                         color: pal.text; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold
                     }
                     Row {
                         anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
                         spacing: 8
-                        SButton { t: pal; text: "Revert"; onClicked: root.revertMode() }
-                        SButton { t: pal; text: "Keep Changes"; onClicked: root.keepMode() }
+                        SButton { t: pal; text: I18n.tr("Revert"); onClicked: root.revertMode() }
+                        SButton { t: pal; text: I18n.tr("Keep Changes"); onClicked: root.keepMode() }
                     }
                 }
                 SCard {
                     t: pal
                     visible: root.monList.length > 1
                     SRow {
-                        t: pal; title: "Main display"
-                        subtitle: "The Dock, the lock screen controls and new widgets go here"
+                        t: pal; title: I18n.tr("Main display")
+                        subtitle: I18n.tr("The Dock, the lock screen controls and new widgets go here")
                         SSegmented {
                             t: pal
                             model: root.monList.map(function (m) { return m.name; })
@@ -2825,10 +2843,10 @@ Scope {
                         SRow {
                             t: pal
                             title: (modelData.description || modelData.name).replace(/\s*\(.*\)$/, "")
-                            subtitle: modelData.name + " · " + modelData.width + " × " + modelData.height + " @ " + Math.round(modelData.refreshRate) + " Hz · Scale " + modelData.scale
+                            subtitle: modelData.name + " · " + modelData.width + " × " + modelData.height + " @ " + Math.round(modelData.refreshRate) + I18n.tr(" Hz · Scale ") + modelData.scale
                         }
                         SRow {
-                            t: pal; title: "Resolution"
+                            t: pal; title: I18n.tr("Resolution")
                             SPopUp {
                                 t: pal
                                 model: monCard.resolutions.map(function (r) { return r.w + " × " + r.h + (r.custom ? "  (current)" : ""); })
@@ -2843,7 +2861,7 @@ Scope {
                             }
                         }
                         SRow {
-                            t: pal; title: "Refresh rate"
+                            t: pal; title: I18n.tr("Refresh rate")
                             SPopUp {
                                 t: pal
                                 model: monCard.rates.map(function (h) { return h + " Hz"; })
@@ -2867,23 +2885,23 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Show notification banners"
-                        subtitle: "Off = Do Not Disturb: notifications still go to Notification Center, without banners"
+                        t: pal; title: I18n.tr("Show notification banners")
+                        subtitle: I18n.tr("Off = Do Not Disturb: notifications still go to Notification Center, without banners")
                         SSwitch { t: pal; checked: root.bar ? !root.bar.notifDnd : true; onToggled: v => { if (root.bar) root.bar.notifDnd = !v; } }
                     }
                     SRow {
-                        t: pal; title: "Play sound for notifications"
+                        t: pal; title: I18n.tr("Play sound for notifications")
                         SSwitch { t: pal; checked: root.bar ? root.bar.uiSounds : true; onToggled: v => { if (root.bar) root.bar.uiSounds = v; } }
                     }
                     SRow {
-                        t: pal; title: "Screenshot notifications"
+                        t: pal; title: I18n.tr("Screenshot notifications")
                         SSwitch { t: pal; checked: root.bar ? root.bar.screenshotNotify : true; onToggled: v => { if (root.bar) root.bar.screenshotNotify = v; } }
                     }
                 }
                 Row {
                     spacing: 8
-                    SButton { t: pal; text: "Send Test Notification"; onClicked: Quickshell.execDetached(["notify-send", "-a", "Settings", "Test notification", "Notifications are working"]) }
-                    SButton { t: pal; text: "Clear Notification Center"; onClicked: if (root.bar) root.bar.notifClearAnimated() }
+                    SButton { t: pal; text: I18n.tr("Send Test Notification"); onClicked: Quickshell.execDetached(["notify-send", "-a", I18n.tr("Settings"), I18n.tr("Test notification"), I18n.tr("Notifications are working")]) }
+                    SButton { t: pal; text: I18n.tr("Clear Notification Center"); onClicked: if (root.bar) root.bar.notifClearAnimated() }
                 }
             }
         }
@@ -2901,19 +2919,19 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Play user interface sound effects"
+                        t: pal; title: I18n.tr("Play user interface sound effects")
                         SSwitch { t: pal; checked: root.bar ? root.bar.uiSounds : true; onToggled: v => { if (root.bar) root.bar.uiSounds = v; } }
                     }
                 }
-                SLabel { t: pal; header: true; text: "Output" }
+                SLabel { t: pal; header: true; text: I18n.tr("Output") }
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Output volume"
+                        t: pal; title: I18n.tr("Output volume")
                         SSlider { t: pal; value: root.bar ? (root.bar.muted ? 0 : root.bar.volume) : 0; onMoved: v => { if (root.bar) root.bar.setVolume(v); } }
                     }
                     SRow {
-                        t: pal; title: "Mute"
+                        t: pal; title: I18n.tr("Mute")
                         SSwitch { t: pal; checked: root.bar ? root.bar.muted : false; onToggled: v => { if (root.bar && root.bar.muted !== v) root.bar.toggleMute(); } }
                     }
                     Repeater {
@@ -2924,16 +2942,16 @@ Scope {
                             title: modelData.description || modelData.nickname || modelData.name
                             id: devRowSink
                             readonly property bool cur: Pipewire.defaultAudioSink === modelData
-                            subtitle: cur ? "Selected" : ""
-                            SButton { t: pal; text: devRowSink.cur ? "In Use" : "Use"; onClicked: Pipewire.preferredDefaultAudioSink = devRowSink.modelData }
+                            subtitle: cur ? I18n.tr("Selected") : ""
+                            SButton { t: pal; text: devRowSink.cur ? I18n.tr("In Use") : I18n.tr("Use"); onClicked: Pipewire.preferredDefaultAudioSink = devRowSink.modelData }
                         }
                     }
                 }
-                SLabel { t: pal; header: true; text: "Input" }
+                SLabel { t: pal; header: true; text: I18n.tr("Input") }
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Input volume"
+                        t: pal; title: I18n.tr("Input volume")
                         SSlider { t: pal; value: sndPane.src && sndPane.src.audio ? sndPane.src.audio.volume : 0; onMoved: v => { if (sndPane.src && sndPane.src.audio) sndPane.src.audio.volume = v; } }
                     }
                     Repeater {
@@ -2944,8 +2962,8 @@ Scope {
                             title: modelData.description || modelData.nickname || modelData.name
                             id: devRowSource
                             readonly property bool cur: Pipewire.defaultAudioSource === modelData
-                            subtitle: cur ? "Selected" : ""
-                            SButton { t: pal; text: devRowSource.cur ? "In Use" : "Use"; onClicked: Pipewire.preferredDefaultAudioSource = devRowSource.modelData }
+                            subtitle: cur ? I18n.tr("Selected") : ""
+                            SButton { t: pal; text: devRowSource.cur ? I18n.tr("In Use") : I18n.tr("Use"); onClicked: Pipewire.preferredDefaultAudioSource = devRowSource.modelData }
                         }
                     }
                 }
@@ -2960,13 +2978,13 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Do Not Disturb"
-                        subtitle: "Silences notification banners"
+                        t: pal; title: I18n.tr("Do Not Disturb")
+                        subtitle: I18n.tr("Silences notification banners")
                         SSwitch { t: pal; checked: root.bar ? root.bar.notifDnd : false; onToggled: v => { if (root.bar) root.bar.notifDnd = v; } }
                     }
                     SRow {
-                        t: pal; title: "Keep Awake"
-                        subtitle: "Stop the computer from going to sleep or locking"
+                        t: pal; title: I18n.tr("Keep Awake")
+                        subtitle: I18n.tr("Stop the computer from going to sleep or locking")
                         SSwitch { t: pal; checked: root.bar ? root.bar.keepAwake : false; onToggled: v => { if (root.bar) root.bar.keepAwake = v; } }
                     }
                 }
@@ -2986,8 +3004,8 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Now Playing position"
-                        subtitle: "You can also drag it on the lock screen"
+                        t: pal; title: I18n.tr("Now Playing position")
+                        subtitle: I18n.tr("You can also drag it on the lock screen")
                         SSegmented {
                             t: pal; model: ["Under Clock", "Above Password"]; segWidth: 110
                             current: lockPane.slot === "bottom" ? 1 : 0
@@ -2998,12 +3016,12 @@ Scope {
                         }
                     }
                     SRow {
-                        t: pal; title: "Album background when the cover is enlarged"
+                        t: pal; title: I18n.tr("Album background when the cover is enlarged")
                         SSwitch { t: pal; checked: root.bar ? root.bar.lockArtBackground : true; onToggled: v => { if (root.bar) root.bar.lockArtBackground = v; } }
                     }
                     SRow {
-                        t: pal; title: "24-hour clock"
-                        subtitle: "Shared with the menu bar clock"
+                        t: pal; title: I18n.tr("24-hour clock")
+                        subtitle: I18n.tr("Shared with the menu bar clock")
                         SSwitch { t: pal; checked: root.bar ? root.bar.use24h : true; onToggled: v => { if (root.bar) root.bar.use24h = v; } }
                     }
                 }
@@ -3011,7 +3029,7 @@ Scope {
                 // the clock fonts, loaded straight from their files so the previews never fall back to another face
                 FontLoader { id: fNunito; source: "file://" + Quickshell.env("HOME") + "/.local/share/fonts/Nunito/Nunito.ttf" }
                 FontLoader { id: fSerif; source: "file://" + Quickshell.env("HOME") + "/.local/share/fonts/NotoSerifDisplay/NotoSerifDisplay.ttf" }
-                SLabel { t: pal; text: "Clock"; font.weight: Font.DemiBold; topPadding: 6 }
+                SLabel { t: pal; text: I18n.tr("Clock"); font.weight: Font.DemiBold; topPadding: 6 }
                 SCard {
                     t: pal
                     // preset tiles
@@ -3055,13 +3073,13 @@ Scope {
                                         }
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (root.bar) root.bar.applyLockClockPreset(tile.modelData.id) }
                                     }
-                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: tile.modelData.name; color: tile.sel ? pal.accent : pal.text; font.family: pal.fam; font.pixelSize: 12; font.weight: tile.sel ? Font.DemiBold : Font.Normal }
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: I18n.tr(tile.modelData.name); color: tile.sel ? pal.accent : pal.text; font.family: pal.fam; font.pixelSize: 12; font.weight: tile.sel ? Font.DemiBold : Font.Normal }
                                 }
                             }
                         }
                     }
                     SRow {
-                        t: pal; title: "Font"
+                        t: pal; title: I18n.tr("Font")
                         SPopUp {
                             t: pal
                             model: ["Condensed", "Rounded", "Serif", "Default"]
@@ -3071,17 +3089,17 @@ Scope {
                         }
                     }
                     SRow {
-                        t: pal; title: "Weight"
+                        t: pal; title: I18n.tr("Weight")
                         SSlider {
                             t: pal; width: 220; from: 100; to: 1000; stepSize: 10
-                            leftLabel: "Thin"; rightLabel: "Heavy"
+                            leftLabel: I18n.tr("Thin"); rightLabel: I18n.tr("Heavy")
                             value: root.bar ? root.bar.lockClockWeight : 680
                             onMoved: v => { if (root.bar) { root.bar.lockClockWeight = Math.round(v); root.bar.lockClockStyle = "custom"; } }
                         }
                     }
                     SRow {
-                        t: pal; title: "Style"
-                        subtitle: "Solid glows with a hint of the wallpaper; Glass is Liquid Glass that catches the light"
+                        t: pal; title: I18n.tr("Style")
+                        subtitle: I18n.tr("Solid glows with a hint of the wallpaper; Glass is Liquid Glass that catches the light")
                         SSegmented {
                             t: pal; model: ["Solid", "Glass"]; segWidth: 80
                             current: root.bar && root.bar.lockClockMaterial === "solid" ? 0 : 1
@@ -3089,17 +3107,17 @@ Scope {
                         }
                     }
                     SRow {
-                        t: pal; title: root.bar && root.bar.lockClockMaterial === "solid" ? "Brightness" : "Glass"
+                        t: pal; title: root.bar && root.bar.lockClockMaterial === "solid" ? I18n.tr("Brightness") : I18n.tr("Glass")
                         SSlider {
                             t: pal; width: 220; from: 0; to: 1
-                            leftLabel: root.bar && root.bar.lockClockMaterial === "solid" ? "Subtle" : "Clear"
-                            rightLabel: root.bar && root.bar.lockClockMaterial === "solid" ? "Bright" : "Frosted"
+                            leftLabel: root.bar && root.bar.lockClockMaterial === "solid" ? I18n.tr("Subtle") : I18n.tr("Clear")
+                            rightLabel: root.bar && root.bar.lockClockMaterial === "solid" ? I18n.tr("Bright") : I18n.tr("Frosted")
                             value: root.bar ? root.bar.lockClockIntensity : 0.6
                             onMoved: v => { if (root.bar) { root.bar.lockClockIntensity = v; root.bar.lockClockStyle = "custom"; } }
                         }
                     }
                     SRow {
-                        t: pal; title: "Color"
+                        t: pal; title: I18n.tr("Color")
                         Row {
                             spacing: 8
                             Repeater {
@@ -3119,8 +3137,8 @@ Scope {
                         }
                     }
                     SRow {
-                        t: pal; title: "Tall digits"
-                        subtitle: "Stretches the Condensed font to fill the space, like iOS 26"
+                        t: pal; title: I18n.tr("Tall digits")
+                        subtitle: I18n.tr("Stretches the Condensed font to fill the space, like iOS 26")
                         SSwitch {
                             t: pal
                             enabled: root.bar && root.bar.lockClockFont === "condensed"
@@ -3129,7 +3147,7 @@ Scope {
                         }
                     }
                     SRow {
-                        t: pal; title: "Date"
+                        t: pal; title: I18n.tr("Date")
                         SSegmented {
                             t: pal; model: ["Friday, October 16", "Fri Oct 16"]; segWidth: 130
                             current: root.bar && root.bar.lockClockDate === "short" ? 1 : 0
@@ -3141,14 +3159,14 @@ Scope {
                     spacing: 8
                     // a 6-second look at the lock screen (no real lock) with the settings above
                     SButton {
-                        t: pal; text: "Preview"
+                        t: pal; text: I18n.tr("Preview")
                         onClicked: {
                             var b = root.bar;
                             var cfg = JSON.stringify({ f: b.lockClockFont, w: b.lockClockWeight, m: b.lockClockMaterial, i: b.lockClockIntensity, c: b.lockClockTint, t: b.lockClockTall, d: b.lockClockDate });
                             Quickshell.execDetached(["sh", "-c", "MACLOCK_PREVIEW=1 MACLOCK_CLOCK=\"$1\" timeout 6 qs -c MacLock >/dev/null 2>&1", "sh", cfg]);
                         }
                     }
-                    SButton { t: pal; text: "Lock Screen Now"; onClicked: { prefsWindow.visible = false; Quickshell.execDetached(["sh", "-c", "pgrep -f -- \"-c [M]acLock\" >/dev/null 2>&1 || qs -c MacLock"]); } }
+                    SButton { t: pal; text: I18n.tr("Lock Screen Now"); onClicked: { prefsWindow.visible = false; Quickshell.execDetached(["sh", "-c", "pgrep -f -- \"-c [M]acLock\" >/dev/null 2>&1 || qs -c MacLock"]); } }
                 }
             }
         }
@@ -3177,14 +3195,14 @@ Scope {
                 }
                 SCard {
                     t: pal
-                    SRow { t: pal; title: "Full name"; Text { text: root.userName; color: pal.text2; font.family: pal.fam; font.pixelSize: 13 } }
-                    SRow { t: pal; title: "Account name"; Text { text: Quickshell.env("USER"); color: pal.text2; font.family: pal.fam; font.pixelSize: 13 } }
-                    SRow { t: pal; title: "Home folder"; Text { text: Quickshell.env("HOME"); color: pal.text2; font.family: pal.fam; font.pixelSize: 13 } }
+                    SRow { t: pal; title: I18n.tr("Full name"); Text { text: root.userName; color: pal.text2; font.family: pal.fam; font.pixelSize: 13 } }
+                    SRow { t: pal; title: I18n.tr("Account name"); Text { text: Quickshell.env("USER"); color: pal.text2; font.family: pal.fam; font.pixelSize: 13 } }
+                    SRow { t: pal; title: I18n.tr("Home folder"); Text { text: Quickshell.env("HOME"); color: pal.text2; font.family: pal.fam; font.pixelSize: 13 } }
                     SRow {
-                        t: pal; title: "Picture"
-                        subtitle: "Used on the lock screen and here"
+                        t: pal; title: I18n.tr("Picture")
+                        subtitle: I18n.tr("Used on the lock screen and here")
                         SButton {
-                            t: pal; text: "Change…"
+                            t: pal; text: I18n.tr("Change…")
                             onClicked: picProc.running = true
                         }
                     }
@@ -3205,15 +3223,15 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Key repeat rate"
-                        SSlider { t: pal; leftLabel: "Slow"; rightLabel: "Fast"; from: 10; to: 80; value: root.bar ? root.bar.kbRepeatRate : 35; onMoved: v => { if (root.bar) root.bar.kbRepeatRate = Math.round(v); } }
+                        t: pal; title: I18n.tr("Key repeat rate")
+                        SSlider { t: pal; leftLabel: I18n.tr("Slow"); rightLabel: I18n.tr("Fast"); from: 10; to: 80; value: root.bar ? root.bar.kbRepeatRate : 35; onMoved: v => { if (root.bar) root.bar.kbRepeatRate = Math.round(v); } }
                     }
                     SRow {
-                        t: pal; title: "Delay until repeat"
-                        SSlider { t: pal; leftLabel: "Long"; rightLabel: "Short"; from: 0; to: 1; value: root.bar ? 1 - (root.bar.kbRepeatDelay - 150) / 650 : 0.6; onMoved: v => { if (root.bar) root.bar.kbRepeatDelay = Math.round(150 + (1 - v) * 650); } }
+                        t: pal; title: I18n.tr("Delay until repeat")
+                        SSlider { t: pal; leftLabel: I18n.tr("Long"); rightLabel: I18n.tr("Short"); from: 0; to: 1; value: root.bar ? 1 - (root.bar.kbRepeatDelay - 150) / 650 : 0.6; onMoved: v => { if (root.bar) root.bar.kbRepeatDelay = Math.round(150 + (1 - v) * 650); } }
                     }
                 }
-                SLabel { t: pal; text: "Layout: " + "us" + ". Changes apply right away." }
+                SLabel { t: pal; text: I18n.tr("Layout: ") + "us" + ". Changes apply right away." }
             }
         }
 
@@ -3225,12 +3243,12 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Tracking speed"
-                        SSlider { t: pal; leftLabel: "Slow"; rightLabel: "Fast"; from: -1; to: 1; value: root.bar ? root.bar.mouseSens : 0; onMoved: v => { if (root.bar) root.bar.mouseSens = v; } }
+                        t: pal; title: I18n.tr("Tracking speed")
+                        SSlider { t: pal; leftLabel: I18n.tr("Slow"); rightLabel: I18n.tr("Fast"); from: -1; to: 1; value: root.bar ? root.bar.mouseSens : 0; onMoved: v => { if (root.bar) root.bar.mouseSens = v; } }
                     }
                     SRow {
-                        t: pal; title: "Natural scrolling"
-                        subtitle: "Content tracks finger movement"
+                        t: pal; title: I18n.tr("Natural scrolling")
+                        subtitle: I18n.tr("Content tracks finger movement")
                         SSwitch { t: pal; checked: root.bar ? root.bar.mouseNatural : false; onToggled: v => { if (root.bar) root.bar.mouseNatural = v; } }
                     }
                 }
@@ -3245,20 +3263,20 @@ Scope {
                 SCard {
                     t: pal
                     SRow {
-                        t: pal; title: "Tap to click"
+                        t: pal; title: I18n.tr("Tap to click")
                         SSwitch { t: pal; checked: root.bar ? root.bar.tpTap : true; onToggled: v => { if (root.bar) root.bar.tpTap = v; } }
                     }
                     SRow {
-                        t: pal; title: "Natural scrolling"
+                        t: pal; title: I18n.tr("Natural scrolling")
                         SSwitch { t: pal; checked: root.bar ? root.bar.tpNatural : true; onToggled: v => { if (root.bar) root.bar.tpNatural = v; } }
                     }
                     SRow {
-                        t: pal; title: "Ignore trackpad while typing"
+                        t: pal; title: I18n.tr("Ignore trackpad while typing")
                         SSwitch { t: pal; checked: root.bar ? root.bar.tpDwt : true; onToggled: v => { if (root.bar) root.bar.tpDwt = v; } }
                     }
                     SRow {
-                        t: pal; title: "Scrolling speed"
-                        SSlider { t: pal; leftLabel: "Slow"; rightLabel: "Fast"; from: 0.2; to: 2; value: root.bar ? root.bar.tpScroll : 0.7; onMoved: v => { if (root.bar) root.bar.tpScroll = v; } }
+                        t: pal; title: I18n.tr("Scrolling speed")
+                        SSlider { t: pal; leftLabel: I18n.tr("Slow"); rightLabel: I18n.tr("Fast"); from: 0.2; to: 2; value: root.bar ? root.bar.tpScroll : 0.7; onMoved: v => { if (root.bar) root.bar.tpScroll = v; } }
                     }
                 }
             }
@@ -3336,25 +3354,25 @@ Scope {
                             spacing: 6
                             Text {
                                 width: parent.width; elide: Text.ElideRight
-                                text: wpPane.curPath !== "" ? wpPane.nameOf(wpPane.curPath) : "No wallpaper"
+                                text: wpPane.curPath !== "" ? wpPane.nameOf(wpPane.curPath) : I18n.tr("No wallpaper")
                                 color: pal.text; font.family: pal.fam; font.pixelSize: 15; font.weight: Font.DemiBold
                             }
                             Text {
                                 width: parent.width
-                                text: wpPane.curVideo !== "" ? "Animated wallpaper" : "Picture"
+                                text: wpPane.curVideo !== "" ? I18n.tr("Animated wallpaper") : I18n.tr("Picture")
                                 color: pal.text2; font.family: pal.fam; font.pixelSize: 12
                             }
                             Text {
                                 width: parent.width; wrapMode: Text.WordWrap
                                 visible: wpPane.curVideo !== ""
-                                text: "Plays on every display and pauses behind fullscreen windows. The Liquid Glass and the lock screen use it too."
+                                text: I18n.tr("Plays on every display and pauses behind fullscreen windows. The Liquid Glass and the lock screen use it too.")
                                 color: pal.text3; font.family: pal.fam; font.pixelSize: 11
                             }
                             Row {
                                 spacing: 8
                                 topPadding: 4
-                                SButton { t: pal; text: "Open Folder"; onClicked: Quickshell.execDetached(["xdg-open", root.bar ? root.bar.wpDirEff : ""]) }
-                                SButton { t: pal; text: "Refresh"; onClicked: if (root.bar) root.bar.wpRefresh() }
+                                SButton { t: pal; text: I18n.tr("Open Folder"); onClicked: Quickshell.execDetached(["xdg-open", root.bar ? root.bar.wpDirEff : ""]) }
+                                SButton { t: pal; text: I18n.tr("Refresh"); onClicked: if (root.bar) root.bar.wpRefresh() }
                             }
                         }
                     }
@@ -3366,7 +3384,7 @@ Scope {
                     visible: root.bar && root.bar.wpHasPair
                     SRow {
                         t: pal
-                        title: "Appearance"
+                        title: I18n.tr("Appearance")
                         subtitle: {
                             var a = root.bar ? root.bar.wallpaperAppearance : "auto";
                             return a === "auto" ? "Follows Light / Dark Mode"
@@ -3385,7 +3403,7 @@ Scope {
 
                 Item {
                     width: parent.width; height: 30
-                    SLabel { t: pal; header: true; width: 200; anchors.verticalCenter: parent.verticalCenter; text: "Wallpapers"; topPadding: 0 }
+                    SLabel { t: pal; header: true; width: 200; anchors.verticalCenter: parent.verticalCenter; text: I18n.tr("Wallpapers"); topPadding: 0 }
                     SSegmented {
                         t: pal
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
@@ -3432,7 +3450,7 @@ Scope {
                             Text {
                                 anchors.fill: parent
                                 verticalAlignment: Text.AlignVCenter
-                                text: "Search wallpapers"
+                                text: I18n.tr("Search wallpapers")
                                 color: pal.text3
                                 font.family: pal.fam
                                 font.pixelSize: 12
@@ -3526,7 +3544,7 @@ Scope {
                                         Text {
                                             id: wtBadge
                                             anchors.centerIn: parent
-                                            text: "\u25B6  Animated"
+                                            text: I18n.tr("\u25B6  Animated")
                                             color: "white"; font.family: pal.fam; font.pixelSize: 9; font.weight: Font.DemiBold
                                         }
                                     }
@@ -3580,11 +3598,11 @@ Scope {
                 SLabel {
                     t: pal
                     visible: wpPane.shown.length === 0
-                    text: wpPane.searchText.trim() !== "" ? "No wallpapers match “" + wpPane.searchText + "”."
+                    text: wpPane.searchText.trim() !== "" ? I18n.tr("No wallpapers match “") + wpPane.searchText + "”."
                         : wpPane.filter === 2 ? "No animated wallpapers yet. Drop .mp4 / .webm videos into " + (root.bar ? root.bar.wpDirEff : "~/Pictures/Wallpapers") + "."
-                                              : "Nothing here yet."
+                                              : I18n.tr("Nothing here yet.")
                 }
-                SLabel { t: pal; text: "Tip: Ctrl+Alt+W opens the quick wallpaper picker, which shows animated wallpapers too." }
+                SLabel { t: pal; text: I18n.tr("Tip: Ctrl+Alt+W opens the quick wallpaper picker, which shows animated wallpapers too.") }
             }
         }
 
@@ -3621,7 +3639,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: "Version 0.1.8 \u2022 Hyprland \u2022 Quickshell"
+                            text: I18n.tr("Version 0.1.8 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: pal.fam
                             font.pixelSize: 12
@@ -3633,7 +3651,7 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Configuration"
+                        title: I18n.tr("Configuration")
                         Text {
                             text: "~/.config/macdock"
                             color: pal.text2
@@ -3643,10 +3661,10 @@ Scope {
                     }
                     SRow {
                         t: pal
-                        title: "Open configuration folder"
+                        title: I18n.tr("Open configuration folder")
                         SButton {
                             t: pal
-                            text: "Open"
+                            text: I18n.tr("Open")
                             onClicked: Quickshell.execDetached(["xdg-open", root.configDir])
                         }
                     }
@@ -3656,11 +3674,11 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Install dependencies"
-                        subtitle: "Installs everything MacShell uses (Quickshell, awww, mpvpaper, ffmpeg, wf-recorder, fonts, icons…) with your package manager, in a terminal"
+                        title: I18n.tr("Install dependencies")
+                        subtitle: I18n.tr("Installs everything MacShell uses (Quickshell, awww, mpvpaper, ffmpeg, wf-recorder, fonts, icons…) with your package manager, in a terminal")
                         SButton {
                             t: pal
-                            text: "Install\u2026"
+                            text: I18n.tr("Install\u2026")
                             onClicked: {
                                 var inst = Quickshell.env("HOME") + "/.local/share/macshell/install.sh";
                                 var term = root.bar ? root.bar.terminal : "kitty";
@@ -3673,12 +3691,12 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
-                        title: "Reset MacShell"
-                        subtitle: "Restore every setting to its default (appearance, Dock, Menu Bar, widgets, lock screen, input). Pinned apps and your widgets' layout are kept."
+                        title: I18n.tr("Reset MacShell")
+                        subtitle: I18n.tr("Restore every setting to its default (appearance, Dock, Menu Bar, widgets, lock screen, input). Pinned apps and your widgets' layout are kept.")
                         SButton {
                             t: pal
                             destructive: true
-                            text: aboutCol.armed ? "Click to Confirm" : "Reset\u2026"
+                            text: aboutCol.armed ? I18n.tr("Click to Confirm") : I18n.tr("Reset\u2026")
                             onClicked: {
                                 if (aboutCol.armed) { aboutCol.armed = false; root.resetSettings(); }
                                 else { aboutCol.armed = true; disarm.restart(); }
@@ -3688,7 +3706,7 @@ Scope {
                 }
 
                 // ── Credits ──
-                SLabel { t: pal; header: true; text: "Credits" }
+                SLabel { t: pal; header: true; text: I18n.tr("Credits") }
                 SCard {
                     t: pal
                     Repeater {
@@ -3723,7 +3741,7 @@ Scope {
                                 width: parent.width - 70 - 90
                                 spacing: 2
                                 Text { text: cr.modelData.name; color: pal.text; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                Text { width: parent.width; text: cr.modelData.role; wrapMode: Text.WordWrap; color: pal.text2; font.family: pal.fam; font.pixelSize: 11 }
+                                Text { width: parent.width; text: I18n.tr(cr.modelData.role); wrapMode: Text.WordWrap; color: pal.text2; font.family: pal.fam; font.pixelSize: 11 }
                             }
                             Text {
                                 anchors.right: parent.right; anchors.rightMargin: 14; anchors.verticalCenter: parent.verticalCenter
@@ -3739,7 +3757,7 @@ Scope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     topPadding: 4
-                    text: "Designed by Apple in California.\nRebuilt on Linux by two people who could not afford the Mac."
+                    text: I18n.tr("Designed by Apple in California.\nRebuilt on Linux by two people who could not afford the Mac.")
                     color: pal.text3; font.family: pal.fam; font.pixelSize: 11
                 }
 
@@ -3759,18 +3777,18 @@ Scope {
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter; y: 64
-                            text: "Protect your MacShell with AppleCare+"
+                            text: I18n.tr("Protect your MacShell with AppleCare+")
                             color: pal.text; font.family: pal.fam; font.pixelSize: 17; font.weight: Font.DemiBold
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter; y: 90
                             width: parent.width - 60; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
-                            text: "Unlimited repairs for accidental damage, 24/7 priority access to Apple experts, and battery service coverage. Same price as for a MacBook Pro."
+                            text: I18n.tr("Unlimited repairs for accidental damage, 24/7 priority access to Apple experts, and battery service coverage. Same price as for a MacBook Pro.")
                             color: pal.text2; font.family: pal.fam; font.pixelSize: 12
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter; y: 136
-                            text: "$279.00 for 3 years or $99.99/yr."
+                            text: I18n.tr("$279.00 for 3 years or $99.99/yr.")
                             color: pal.text; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.Medium
                         }
                         Rectangle {
@@ -3779,7 +3797,7 @@ Scope {
                             color: careMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
                             scale: careMa.pressed ? 0.96 : 1
                             Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutQuint } }
-                            Text { anchors.centerIn: parent; text: "Add AppleCare+"; color: "white"; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                            Text { anchors.centerIn: parent; text: I18n.tr("Add AppleCare+"); color: "white"; font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
                             MouseArea { id: careMa; anchors.fill: parent; cursorShape: Qt.PointingHandCursor }
                         }
                     }
@@ -4095,17 +4113,17 @@ Scope {
     function menuFor(item) {
         var m = [];
         if (item.kind === "win") {
-            m.push({ kind: "item", label: "Show", run: function () { activate(item, false); } });
-            m.push({ kind: "item", label: "Close", run: function () { if (item.tl) item.tl.close(); } });
+            m.push({ kind: "item", label: I18n.tr("Show"), run: function () { activate(item, false); } });
+            m.push({ kind: "item", label: I18n.tr("Close"), run: function () { if (item.tl) item.tl.close(); } });
             m.push({ kind: "sep" });
-            m.push({ kind: "item", label: "Settings\u2026", run: function() { root.openPrefs(); } });
+            m.push({ kind: "item", label: I18n.tr("Settings\u2026"), run: function() { root.openPrefs(); } });
             return m;
         }
         if (item.special === "trash") {
-            m.push({ kind: "item", label: "Open", run: function () { activate(item, false); } });
-            m.push({ kind: "item", label: "Empty Trash", confirm: true, disabled: !trashFull, run: function () { root.emptyTrash(); } });
+            m.push({ kind: "item", label: I18n.tr("Open"), run: function () { activate(item, false); } });
+            m.push({ kind: "item", label: I18n.tr("Empty Trash"), confirm: true, disabled: !trashFull, run: function () { root.emptyTrash(); } });
             m.push({ kind: "sep" });
-            m.push({ kind: "item", label: "Settings\u2026", run: function() { root.openPrefs(); } });
+            m.push({ kind: "item", label: I18n.tr("Settings\u2026"), run: function() { root.openPrefs(); } });
             return m;
         }
         var wins = windowsFor(item.key);
@@ -4120,21 +4138,21 @@ Scope {
             m.push({ kind: "sep" });
         }
         if (item.entry) {
-            m.push({ kind: "item", label: item.pinned ? "Remove from Dock" : "Keep in Dock",
+            m.push({ kind: "item", label: item.pinned ? I18n.tr("Remove from Dock") : I18n.tr("Keep in Dock"),
                      run: function () { togglePin(item); } });
-            m.push({ kind: "item", label: wins.length > 0 ? "New Window" : "Open",
+            m.push({ kind: "item", label: wins.length > 0 ? I18n.tr("New Window") : I18n.tr("Open"),
                      run: function () { activate(item, true); } });
         }
         if (wins.length > 0) {
             m.push({ kind: "sep" });
-            m.push({ kind: "item", label: "Quit", run: function () {
+            m.push({ kind: "item", label: I18n.tr("Quit"), run: function () {
                 var ws = windowsFor(item.key);
                 for (var j = 0; j < ws.length; j++) ws[j].close();
             } });
         }
         
         m.push({ kind: "sep" });
-        m.push({ kind: "item", label: "Settings\u2026", run: function() { root.openPrefs(); } });
+        m.push({ kind: "item", label: I18n.tr("Settings\u2026"), run: function() { root.openPrefs(); } });
 
         return m;
     }
@@ -5379,7 +5397,7 @@ Scope {
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: parent.width - 20
                                     elide: Text.ElideRight
-                                    text: mi.isSep ? "" : (mi.armedNow ? "Click again to confirm" : mi.modelData.label)
+                                    text: mi.isSep ? "" : (mi.armedNow ? I18n.tr("Click again to confirm") : I18n.tr(mi.modelData.label))
                                     color: mi.off ? Qt.rgba(1, 1, 1, 0.4) : "white"
                                     font.pixelSize: 13
                                     font.family: root.fontFamily
