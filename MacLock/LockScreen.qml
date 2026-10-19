@@ -171,7 +171,7 @@ Item {
                     // Cinematic dark overlay so clock and text stay perfectly readable
                     Rectangle {
                         anchors.fill: parent
-                        color: Qt.rgba(0, 0, 0, 0.32)
+                        color: Qt.rgba(0, 0, 0, 0.20)
                     }
                     TapHandler {
                         onTapped: {

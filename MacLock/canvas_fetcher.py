@@ -189,19 +189,75 @@ def get_spotify_track_id(expected_title=None):
         pass
     return ""
 
+def is_full_hd(video_path):
+    """Check if video is already scaled to 1920x1080 Full HD."""
+    try:
+        out = subprocess.run([
+            'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0',
+            video_path
+        ], capture_output=True, text=True, timeout=1.5)
+        return out.returncode == 0 and '1920x1080' in out.stdout.strip()
+    except Exception:
+        return False
+
+def scale_to_full_hd(src_video, dest_video):
+    """
+    Scale / crop video to pristine 1920x1080 Full HD (16:9) using high-quality
+    Lanczos filtering and subtle unsharp enhancement so it renders 1:1 pixel-perfect
+    on desktop screens without runtime bilinear scaling blur.
+    """
+    try:
+        temp_out = dest_video + ".fhd_tmp.mp4"
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'error',
+            '-i', src_video,
+            '-vf', 'scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,unsharp=5:5:0.5:5:5:0.0',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '17',
+            '-pix_fmt', 'yuv420p',
+            temp_out
+        ]
+        res = subprocess.run(cmd, timeout=25)
+        if res.returncode == 0 and os.path.exists(temp_out) and os.path.getsize(temp_out) > 10000:
+            os.replace(temp_out, dest_video)
+            return True
+        if os.path.exists(temp_out):
+            try: os.remove(temp_out)
+            except Exception: pass
+    except Exception:
+        pass
+    return False
+
+def ensure_full_hd(video_path):
+    """Ensure cached video is scaled to crisp Full HD 1080p."""
+    if not os.path.exists(video_path) or os.path.getsize(video_path) < 10000:
+        return False
+    if is_full_hd(video_path):
+        return True
+    return scale_to_full_hd(video_path, video_path)
+
 def download_video(url, target_path):
+    temp_dl = target_path + ".dl.mp4"
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=15) as resp:
             content = resp.read()
             if len(content) > 1000:
-                with open(target_path, 'wb') as f:
+                with open(temp_dl, 'wb') as f:
                     f.write(content)
+                if not scale_to_full_hd(temp_dl, target_path):
+                    os.replace(temp_dl, target_path)
+                elif os.path.exists(temp_dl):
+                    try: os.remove(temp_dl)
+                    except Exception: pass
                 mark_used(target_path)
                 prune_cache()
                 return True
     except Exception:
         pass
+    if os.path.exists(temp_dl):
+        try: os.remove(temp_dl)
+        except Exception: pass
     return False
 
 # ═══════════════════════ APPLE MUSIC MOTION ARTWORK ═══════════════════════
@@ -308,20 +364,36 @@ def fetch_apple_music_motion(artist, title, album, target_path):
             if len(data) > 10000:
                 with open(temp_direct, 'wb') as f:
                     f.write(data)
-                # Remux with ffmpeg to ensure timestamps start at 0 and fast looping
+                # Scale / crop to true 1920x1080 Full HD with Lanczos filter and subtle unsharp
+                if scale_to_full_hd(temp_direct, target_path):
+                    if os.path.exists(temp_direct):
+                        try: os.remove(temp_direct)
+                        except Exception: pass
+                    return True
+                # Fallback to copy remux if scale failed
                 subprocess.run([
                     'ffmpeg', '-y', '-loglevel', 'error',
                     '-i', temp_direct, '-c', 'copy', target_path
                 ], timeout=10)
                 if os.path.exists(temp_direct):
-                    os.remove(temp_direct)
+                    try: os.remove(temp_direct)
+                    except Exception: pass
                 return os.path.exists(target_path) and os.path.getsize(target_path) > 10000
 
-        # Fallback to ffmpeg stream capture
+        # Fallback to ffmpeg stream capture + Full HD scale
+        temp_cap = target_path + ".cap.mp4"
         subprocess.run([
             'ffmpeg', '-y', '-loglevel', 'error',
-            '-i', chosen_stream, '-c', 'copy', '-t', '30', target_path
+            '-i', chosen_stream, '-c', 'copy', '-t', '30', temp_cap
         ], timeout=15)
+        if os.path.exists(temp_cap) and os.path.getsize(temp_cap) > 10000:
+            if scale_to_full_hd(temp_cap, target_path):
+                if os.path.exists(temp_cap):
+                    try: os.remove(temp_cap)
+                    except Exception: pass
+                return True
+            os.replace(temp_cap, target_path)
+            return True
         return os.path.exists(target_path) and os.path.getsize(target_path) > 10000
 
     except Exception:
@@ -350,6 +422,7 @@ def main():
 
     # 1. Check local cache files first (prefer name_path which stores high-fidelity Apple Music artwork)
     if name_path and os.path.exists(name_path) and os.path.getsize(name_path) > 10000:
+        ensure_full_hd(name_path)
         mark_used(name_path)
         print(json.dumps({"success": True, "videoPath": name_path, "isOfficial": True, "source": "cache"}))
         return
@@ -357,6 +430,7 @@ def main():
     if title:
         title_path = os.path.join(CACHE_DIR, f"{sanitize(title)}.mp4")
         if os.path.exists(title_path) and os.path.getsize(title_path) > 10000:
+            ensure_full_hd(title_path)
             mark_used(title_path)
             print(json.dumps({"success": True, "videoPath": title_path, "isOfficial": True, "source": "cache"}))
             return
@@ -364,6 +438,7 @@ def main():
     if track_id:
         id_path = os.path.join(CACHE_DIR, f"{track_id}.mp4")
         if os.path.exists(id_path) and os.path.getsize(id_path) > 10000:
+            ensure_full_hd(id_path)
             mark_used(id_path)
             print(json.dumps({"success": True, "videoPath": id_path, "isOfficial": True, "source": "cache"}))
             return
