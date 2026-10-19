@@ -298,6 +298,14 @@ LIBS_LOCK=(
     "hyprlock:the PAM stack MacLock checks passwords with (/etc/pam.d/hyprlock)"
 )
 
+# Debian/Ubuntu ship Qt split into many packages: the QML modules and plugins MacShell imports
+APT_QT_PKGS=(
+    qt6-wayland qt6-svg-plugins
+    qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts
+    qml6-module-qtquick-effects qml6-module-qtquick-window qml6-module-qtquick-templates
+    qml6-module-qtqml qml6-module-qtqml-workerscript qml6-module-qtcore qml6-module-qtmultimedia
+)
+
 PM=""            # pacman | dnf | apt
 SUDO=""
 CAN_INSTALL=1
@@ -418,7 +426,15 @@ install_extra_sources() {
             printf '%s\n' "${missing[@]}" | grep -qx hyprland && warn "hyprland is not in your repositories: see https://wiki.hyprland.org"
             ;;
         apt)
-            warn "not in the Debian/Ubuntu repositories: ${missing[*]}. Build them from source: https://quickshell.org and https://wiki.hyprland.org"
+            warn "not in the enabled Debian/Ubuntu repositories: ${missing[*]}"
+            if grep -qs '^ID=debian' /etc/os-release; then
+                say "  On Debian 13 (trixie) Hyprland and Quickshell are in trixie-backports. Enable it, then install them:"
+                say "      echo 'deb http://deb.debian.org/debian trixie-backports main' | sudo tee /etc/apt/sources.list.d/backports.list"
+                say "      sudo apt update && sudo apt install -t trixie-backports hyprland quickshell"
+                say "  Details: docs/DEBIAN.md"
+            else
+                say "  Build them from source: https://quickshell.org and https://wiki.hyprland.org"
+            fi
             MANUAL_LIST+=("${missing[@]}") ;;
     esac
 }
@@ -454,6 +470,13 @@ check_deps() {
         [ -n "$PM" ] && first_installed "$dp" >/dev/null && continue
         if [ -n "$PM" ] && pick=$(first_available "$dp"); then repo+=("$pick"); else extra+=("${dp%%|*}"); fi
     done
+
+    if [ "$PM" = apt ]; then
+        for p in "${APT_QT_PKGS[@]}"; do
+            pkg_installed "$p" && continue
+            pkg_available "$p" && repo+=("$p")
+        done
+    fi
 
     if [ "${#repo[@]}" -eq 0 ] && [ "${#extra[@]}" -eq 0 ]; then
         ok "all dependencies are installed"
@@ -904,7 +927,7 @@ backup_current() { # backup_current <dest> <name>
 }
 
 # repository files that are not part of a Quickshell config (MacLock is excluded so it never ends up inside MacShell)
-EXCLUDES=(.git .github install.sh macshell-update macshell-start README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME")
+EXCLUDES=(.git .github install.sh macshell-update macshell-start README.md README LICENSE LICENSE.md docs compat screenshots scripts sounds "$LOCK_NAME")
 LOCK_EXCLUDES=(.git .github)
 
 sync_files() { # sync_files <source-folder> <dest> <exclude>...
@@ -1009,6 +1032,53 @@ done
 START
     chmod +x "$BIN_DIR/.macshell-start.new" && mv -f "$BIN_DIR/.macshell-start.new" "$BIN_DIR/macshell-start"
     ln -sf "$BIN_DIR/macshell-start" "$LINK_DIR/macshell-start"
+}
+
+# ───────────── compatibility: Qt older than 6.9, missing "Inter Variable" font ─────────────
+qt_version() {
+    local v="" t
+    for t in qtpaths6 qmake6; do
+        have "$t" || continue
+        if [ "$t" = qtpaths6 ]; then v=$("$t" --qt-version 2>/dev/null); else v=$("$t" -query QT_VERSION 2>/dev/null); fi
+        [ -n "$v" ] && { echo "$v"; return 0; }
+    done
+    if have pkg-config; then v=$(pkg-config --modversion Qt6Core 2>/dev/null); [ -n "$v" ] && { echo "$v"; return 0; }; fi
+    [ -n "$PM" ] || detect_pm
+    case "$PM" in
+        apt)    v=$(dpkg-query -W -f='${Version}' libqt6core6t64 2>/dev/null || dpkg-query -W -f='${Version}' libqt6core6 2>/dev/null) ;;
+        pacman) v=$(pacman -Q qt6-base 2>/dev/null | awk '{print $2}') ;;
+        dnf)    v=$(rpm -q --qf '%{VERSION}' qt6-qtbase 2>/dev/null) ;;
+    esac
+    printf '%s' "$v" | grep -oE '^[0-9]+\.[0-9]+(\.[0-9]+)?' || true
+}
+version_lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
+
+apply_compat() { # apply_compat <source-root> <installed dirs...>
+    local root="$1" qv d shim; shift
+    qv=$(qt_version)
+    shim="$root/compat/qt-6.8/RectangularShadow.qml"
+    # RectangularShadow only exists in Qt >= 6.9. Unknown version -> install the shim, it is harmless on newer Qt.
+    if [ -f "$shim" ] && { [ -z "$qv" ] || version_lt "$qv" 6.9.0; }; then
+        for d in "$@"; do [ -d "$d" ] && cp -f "$shim" "$d/RectangularShadow.qml"; done
+        ok "Qt ${qv:-unknown} < 6.9: installed the RectangularShadow compatibility shim"
+    fi
+    # MacShell asks for the "Inter Variable" font; many distros only ship static "Inter" (or none) -> alias it
+    if have fc-match && fc-match 'Inter' family 2>/dev/null | grep -qi '^Inter' \
+       && ! fc-match 'Inter Variable' family 2>/dev/null | grep -qi '^Inter'; then
+        d="${XDG_CONFIG_HOME:-$HOME/.config}/fontconfig/conf.d"
+        mkdir -p "$d"
+        cat > "$d/60-macshell-inter.conf" <<'FCEOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <alias binding="same">
+    <family>Inter Variable</family>
+    <prefer><family>Inter</family></prefer>
+  </alias>
+</fontconfig>
+FCEOF
+        ok "font: 'Inter Variable' now falls back to the installed 'Inter'"
+    fi
 }
 
 install_extras() {
@@ -1178,6 +1248,7 @@ if [ -n "$LOCK_ROOT" ]; then
     ok "MacLock files copied"
 fi
 install_extras "$SRC_ROOT"
+apply_compat "$SRC_ROOT" "$DEST" "${LOCK_ROOT:+$LOCK_DEST}"
 build_shaders "$DEST"
 write_env_template
 ensure_dirs
