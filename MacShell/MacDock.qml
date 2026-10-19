@@ -647,10 +647,10 @@ Scope {
     Window {
         id: prefsWindow
         title: "macshell Settings"
-        width: 720
-        height: 520
-        minimumWidth: 620
-        minimumHeight: 420
+        width: 800
+        height: 880
+        minimumWidth: 560
+        minimumHeight: 380
         visible: false
         color: "transparent"
         flags: Qt.Window | Qt.FramelessWindowHint
@@ -748,8 +748,10 @@ Scope {
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: prefsWindow.visible = false }
 
         // Settings always opens as a floating, centred window (no windowrule needed in hyprland.conf)
-        onVisibleChanged: if (visible) { floatTries = 0; floatTimer.restart(); }
+        onVisibleChanged: if (visible) { showNormal(); floatTries = 0; floatTimer.restart(); }
         property int floatTries: 0
+        readonly property int preferredWidth: 800
+        readonly property int preferredHeight: 880
         Timer {
             id: floatTimer
             interval: 140
@@ -758,8 +760,9 @@ Scope {
                 // the compositor maps the window a moment after it becomes visible: send the dispatches a few times
                 var sel = 'window = "title:^(' + prefsWindow.title + ')$"';
                 Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
-                if (prefsWindow.floatTries === 1) {
-                    Hyprland.dispatch('hl.dsp.window.resize({ x = ' + prefsWindow.width + ', y = ' + prefsWindow.height + ', "exact", ' + sel + ' })');
+                // Hyprland can remember an older floating size; reapply the compact size after mapping.
+                if (prefsWindow.floatTries >= 1) {
+                    Hyprland.dispatch('hl.dsp.window.resize({ x = ' + prefsWindow.preferredWidth + ', y = ' + prefsWindow.preferredHeight + ', "exact", ' + sel + ' })');
                     Hyprland.dispatch('hl.dsp.window.center({ ' + sel + ' })');
                 }
                 if (++prefsWindow.floatTries >= 4) stop();
@@ -1269,6 +1272,21 @@ Scope {
                             t: pal
                             checked: root.bar ? root.bar.barEnabled : true
                             onToggled: v => { if (root.bar) root.bar.barEnabled = v; }
+                        }
+                    }
+                }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: "Spotlight & top bar menus"
+                        subtitle: "Set Light or Dark appearance for Spotlight and dropdown menus only"
+                        SSegmented {
+                            t: pal
+                            model: ["Light", "Dark"]
+                            segWidth: 72
+                            current: root.bar && root.bar.panelDarkMode ? 1 : 0
+                            onPicked: i => { if (root.bar) root.bar.panelDarkMode = (i === 1); }
                         }
                     }
                 }
@@ -3887,9 +3905,9 @@ Scope {
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
         darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Open Runde";
+        iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
         showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true;
-        iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──

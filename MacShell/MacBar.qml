@@ -1056,6 +1056,7 @@ Scope {
         required property var t
         required property var gx
         property real radius: 34
+        // the whole tile is the button: a click anywhere fires clicked(); the round icon inside only shows the on / off state
         property bool on: false
         property string onTint: ""
         property bool clickable: false
@@ -2956,7 +2957,7 @@ Scope {
                     }
                     m.push(msep());
                 }
-                m.push(mchk("Dark Mode", "", root.darkMode, function () { root.darkMode = !root.darkMode; }));
+                m.push(mchk("Dark Mode", "", root.darkMode, function () { root.setAppearance(root.darkMode ? "light" : "dark"); }));
             } else if (name === "window") {
                 if (has) {
                     m.push(mi("Minimize", "", disp('hl.dsp.window.move({ workspace = "special:minimized", follow = false })')));
@@ -3320,7 +3321,7 @@ Scope {
     }
     function resetSettings() {
         barEnabled = true;
-        darkMode = true; accent = "#0a84ff"; fontFamily = "Inter Variable"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false;
+        darkMode = true; appearanceMode = "dark"; panelDarkMode = true; accent = "#0a84ff"; fontFamily = "Open Runde"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true; showCpuRam = true;
         showTray = true; showSearch = true;
         spotlightEnabled = true; ccEnabled = true; notificationsEnabled = true; clockAppEnabled = true; ccStyle = "tiles";
@@ -3337,7 +3338,7 @@ Scope {
         onLoaded: {
             try {
                 var o = JSON.parse(text());
-                root.applySettings(o, ["darkMode", "accent", "fontFamily", "glassOpacity", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "wallpaperPath"]);
+                root.applySettings(o, ["darkMode", "appearanceMode", "accent", "fontFamily", "glassOpacity", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "wallpaperPath"]);
                 if (o.dockStyle !== undefined) root.barStyle = (o.dockStyle === "liquid") ? "liquid" : "blur";
             } catch (err) { }
             store.path = root.configDir + "/settings.json";
@@ -3505,6 +3506,7 @@ Scope {
 
     Component.onCompleted: {
         Quickshell.execDetached(["mkdir", "-p", configDir]);
+        wallpaperColorTimer.start();
         refreshBrightness();
         refreshWifi();
         refreshKeyboardLayout();

@@ -13,7 +13,7 @@
 #      the lock screen to      ~/.config/quickshell/MacLock         (lock with:  sh ~/.config/quickshell/MacLock/lock-via-ipc.sh)
 #      (MacShell and MacLock are two separate Quickshell configs; neither is placed inside the other)
 #      helper scripts to       ~/.config/hypr-macshell/scripts      (only if the repo ships them)
-#      sounds to               ~/.local/share/sounds/macshell       (only if the repo ships them)
+#      sounds to               ~/.local/share/sounds/macshell       (shipped ones, plus the rest synthesized by macshell-make-sounds.py)
 #      the update tool to      ~/.local/share/macshell/bin/macshell-update  (+ ~/.local/bin/macshell-update)
 #      the start script to     ~/.local/share/macshell/bin/macshell-start   (+ ~/.local/bin/macshell-start)
 #   4. adds the autostart to your Hyprland config: a Lua block in hyprland.lua (Hyprland 0.55+), or an exec-once line

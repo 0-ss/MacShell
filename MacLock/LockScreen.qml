@@ -782,7 +782,7 @@ Item {
     // figure-height axis (YTFI) plus width and weight, so the digits get taller/condensed with even strokes.
     //   room to spare → tall, condensed digits;  artwork / lyrics open → regular-width, shorter, smaller digits
     // ── clock style (Settings → Lock Screen → Clock) ──
-    //   font: condensed (Roboto Flex, can go tall) | rounded (Nunito) | serif (Noto Serif Display) | inter (Inter Display)
+    //   font: condensed (Roboto Flex, can go tall) | rounded (Nunito) | serif (Noto Serif Display) | inter (Open Runde)
     //   material: frosted (milky glass) | liquid (clear glass with a bright rim)
     readonly property var ckCfg: (ls.st.clockCfg && !ls.st.clockCfg.__ignore) ? ls.st.clockCfg : ({})
     readonly property string ckFont: ["condensed", "rounded", "serif", "inter"].indexOf(ckCfg.f) >= 0 ? ckCfg.f : "condensed"

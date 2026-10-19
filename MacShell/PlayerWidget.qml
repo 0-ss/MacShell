@@ -26,7 +26,6 @@ Item {
     property string size: "small"
     property real scaleF: 1.0
     property real contentScale: 1.0          // scales art / text / buttons; the card itself keeps the widget's full size
-
     // ── animated canvas ──
     property bool desktopCanvas: true
     property string canvasVideo: ""
