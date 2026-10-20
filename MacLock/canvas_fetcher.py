@@ -36,8 +36,8 @@ APPLE_TOKEN_CACHE = os.path.expanduser("~/.cache/macshell/apple_token.json")
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(ART_CACHE_DIR, exist_ok=True)
 
-MAX_CACHE_FILES = 25
-MAX_CACHE_BYTES = 120 * 1024 * 1024
+MAX_CACHE_FILES = 4  # Keep only last 3-4 songs to save disk space
+MAX_CACHE_BYTES = 20 * 1024 * 1024  # 20 MB max (ultra lean, prevents any disk bloat)
 
 FALLBACK_APPLE_TOKEN = (
     "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiIsImtpZCI6IldlYlBsYXlLaWQifQ."
@@ -60,7 +60,10 @@ def prune_cache():
                     pass
                 continue
             if f.endswith(".mp4") and os.path.isfile(fp) and not os.path.islink(fp):
-                files.append((fp, os.path.getmtime(fp), os.path.getsize(fp)))
+                try:
+                    files.append((fp, os.path.getmtime(fp), os.path.getsize(fp)))
+                except Exception:
+                    pass
 
         files.sort(key=lambda x: x[1])
         total_size = sum(x[2] for x in files)
@@ -71,6 +74,15 @@ def prune_cache():
                 total_size -= sz
             except Exception:
                 pass
+
+        # Cleanup any newly orphaned symlinks
+        for f in os.listdir(CACHE_DIR):
+            fp = os.path.join(CACHE_DIR, f)
+            if os.path.islink(fp) and not os.path.exists(fp):
+                try:
+                    os.remove(fp)
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -562,6 +574,9 @@ def main():
     track_id = args[4] if len(args) > 4 else ""
 
     mode = get_configured_mode(cli_mode)
+
+    # Prune cache right away to keep disk space under 20MB
+    prune_cache()
 
     # If canvas is turned off, stop cleanly
     if mode in ("off", "none", "false", "disabled", "0"):
