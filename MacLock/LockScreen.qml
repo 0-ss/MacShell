@@ -1170,12 +1170,21 @@ Item {
     // lyrics for the current track: LRCLIB (free, synced LRC), cached in ~/.cache/maclock/lyrics
     property var lyrLines: []              // [{ t: seconds (-1 = unsynced), text }]
     property string lyrStatus: "idle"      // idle | loading | synced | plain | none
+    property string lastCoverUrl: ""
     readonly property string trackKey: (media.pl ? (media.pl.trackArtist || "") + "\u0001" + (media.pl.trackTitle || "") : "") + "\u0001" + ls.coverUrl
     onTrackKeyChanged: {
-        ls.canvasVideo = "";
-        ls.canvasSource = "";
-        ls.canvasOfficial = false;
-        ls.localCoverUrl = "";
+        var currentCover = ls.coverUrl || "";
+        var sameArt = currentCover !== "" && currentCover === ls.lastCoverUrl;
+        ls.lastCoverUrl = currentCover;
+
+        // If the next track uses the exact same album artwork, keep playing the current
+        // cached canvas video seamlessly instead of blanking out while fetching!
+        if (!sameArt) {
+            ls.canvasVideo = "";
+            ls.canvasSource = "";
+            ls.canvasOfficial = false;
+            ls.localCoverUrl = "";
+        }
         lyrFetchDelay.restart();
         canvasFetchDelay.restart();
     }

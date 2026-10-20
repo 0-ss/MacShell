@@ -33,11 +33,12 @@ import subprocess
 CACHE_DIR = os.path.expanduser("~/.cache/macshell/canvas")
 ART_CACHE_DIR = os.path.expanduser("~/.cache/macshell/art")
 APPLE_TOKEN_CACHE = os.path.expanduser("~/.cache/macshell/apple_token.json")
+ART_MAPPING_FILE = os.path.join(CACHE_DIR, "art_mapping.json")
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(ART_CACHE_DIR, exist_ok=True)
 
-MAX_CACHE_FILES = 4  # Keep only last 3-4 songs to save disk space
-MAX_CACHE_BYTES = 20 * 1024 * 1024  # 20 MB max (ultra lean, prevents any disk bloat)
+MAX_CACHE_FILES = 12  # Generous cache (holds full albums & recent favorites)
+MAX_CACHE_BYTES = 120 * 1024 * 1024  # 120 MB max (fast, reusable, instant)
 
 FALLBACK_APPLE_TOKEN = (
     "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiIsImtpZCI6IldlYlBsYXlLaWQifQ."
@@ -45,6 +46,32 @@ FALLBACK_APPLE_TOKEN = (
     "InJvb3RfaHR0cHNfb3JpZ2luIjpbImFwcGxlLmNvbSJdfQ."
     "3x-70iwl8xfaZvlRoH-4_Z_kBmfaFrEYW6Pqa9u0vJKZHwq1iYdw_LJs1LA8mxQpyxeHcmuHPXdq6pjBO41_kA"
 )
+
+def load_art_mapping():
+    if os.path.exists(ART_MAPPING_FILE):
+        try:
+            with open(ART_MAPPING_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_art_mapping(mapping):
+    try:
+        with open(ART_MAPPING_FILE, "w", encoding="utf-8") as f:
+            json.dump(mapping, f, indent=2)
+    except Exception:
+        pass
+
+def get_art_hash(art_url):
+    if not art_url:
+        return ""
+    # Extract clean art identifier from Spotify URL if available
+    # e.g., https://i.scdn.co/image/ab67616d0000b273bc18bdade69ec5ef0bb25b17 -> ab67616d0000b273bc18bdade69ec5ef0bb25b17
+    parts = art_url.strip().split("/")[-1].split("?")[0]
+    if len(parts) >= 20 and re.match(r'^[a-zA-Z0-9_\-]+$', parts):
+        return parts.lower()
+    return hashlib.md5(art_url.strip().encode("utf-8")).hexdigest()
 
 def prune_cache():
     """Keep the canvas cache lean and prevent disk bloating."""
@@ -83,6 +110,22 @@ def prune_cache():
                     os.remove(fp)
                 except Exception:
                     pass
+
+        # Cleanup art mapping entries whose target video no longer exists
+        mapping = load_art_mapping()
+        changed = False
+        valid_mapping = {}
+        for k, v in mapping.items():
+            if isinstance(v, dict):
+                v_path = v.get("videoPath", "")
+            else:
+                v_path = str(v)
+            if os.path.exists(v_path) and os.path.getsize(v_path) > 10000:
+                valid_mapping[k] = v
+            else:
+                changed = True
+        if changed:
+            save_art_mapping(valid_mapping)
     except Exception:
         pass
 
@@ -433,11 +476,11 @@ def fetch_apple_music_motion(artist, title, album, target_path):
             continue
 
     if not candidate_url:
-        return False
+        return False, []
 
     m = re.search(r'music\.apple\.com/(?:([a-z]{2})/)?album/(?:[^/]+/)?(\d+)', candidate_url)
     if not m:
-        return False
+        return False, []
     sf = m.group(1) or "us"
     aid = m.group(2)
 
@@ -458,11 +501,20 @@ def fetch_apple_music_motion(artist, title, album, target_path):
         tall = ev.get('motionDetailTall') or ev.get('motionTallVideo3x4')
         square = ev.get('motionDetailSquare') or ev.get('motionSquareVideo1x1')
         master_m3u8 = (tall or square or {}).get('video')
+        album_tracks = item.get('relationships', {}).get('tracks', {}).get('data', [])
     except Exception:
-        return False
+        return False, []
 
     if not master_m3u8:
-        return False
+        return False, []
+
+    # Extract all track titles from this album to associate with this video
+    sibling_titles = []
+    for tr in album_tracks:
+        t_attrs = tr.get('attributes', {})
+        t_name = t_attrs.get('name')
+        if t_name:
+            sibling_titles.append(t_name)
 
     # 3. Stream download and remux
     try:
@@ -492,7 +544,8 @@ def fetch_apple_music_motion(artist, title, album, target_path):
                 elif os.path.exists(temp_raw):
                     try: os.remove(temp_raw)
                     except Exception: pass
-                return os.path.exists(target_path) and os.path.getsize(target_path) > 10000
+                ok = os.path.exists(target_path) and os.path.getsize(target_path) > 10000
+                return ok, sibling_titles
 
         # Fallback: ffmpeg stream remux
         subprocess.run([
@@ -500,10 +553,11 @@ def fetch_apple_music_motion(artist, title, album, target_path):
             '-i', chosen_stream, '-c', 'copy', '-movflags', '+faststart', '-t', '30',
             target_path
         ], timeout=12)
-        return os.path.exists(target_path) and os.path.getsize(target_path) > 10000
+        ok = os.path.exists(target_path) and os.path.getsize(target_path) > 10000
+        return ok, sibling_titles
 
     except Exception:
-        return False
+        return False, []
 
 # ═══════════════════════════ MAIN ═══════════════════════════
 
@@ -605,9 +659,30 @@ def main():
     allow_spotify = mode in ("both", "auto", "spotify", "all")
 
     # 1. Instant Cache Hit Check (< 0.001s response time)
+    # Check art_hash mapping first (shared album artwork / canvas reuse)
+    art_hash = get_art_hash(art_url)
+    if art_hash:
+        art_map = load_art_mapping()
+        if art_hash in art_map:
+            cached_info = art_map[art_hash]
+            mapped_video = cached_info.get("videoPath", "") if isinstance(cached_info, dict) else str(cached_info)
+            mapped_source = cached_info.get("source", "applemusic") if isinstance(cached_info, dict) else "applemusic"
+            mapped_official = cached_info.get("isOfficial", True) if isinstance(cached_info, dict) else True
+            if mapped_video and os.path.exists(mapped_video) and os.path.getsize(mapped_video) > 10000:
+                mark_used(mapped_video)
+                print(json.dumps({"type": "video", "success": True, "videoPath": mapped_video, "isOfficial": mapped_official, "source": mapped_source}), flush=True)
+                local_art = fetch_local_art(art_url, artist, title)
+                if local_art:
+                    print(json.dumps({"type": "art", "localArt": local_art}), flush=True)
+                return
+
     # Check Apple Music cache hit
     if allow_apple and name_path and os.path.exists(name_path) and not os.path.islink(name_path) and os.path.getsize(name_path) > 10000:
         mark_used(name_path)
+        if art_hash:
+            art_map = load_art_mapping()
+            art_map[art_hash] = {"videoPath": name_path, "source": "applemusic", "isOfficial": True}
+            save_art_mapping(art_map)
         print(json.dumps({"type": "video", "success": True, "videoPath": name_path, "isOfficial": True, "source": "applemusic"}), flush=True)
         local_art = fetch_local_art(art_url, artist, title)
         if local_art:
@@ -623,6 +698,10 @@ def main():
             hit_path = name_path
         if hit_path:
             mark_used(hit_path)
+            if art_hash:
+                art_map = load_art_mapping()
+                art_map[art_hash] = {"videoPath": hit_path, "source": "spotify", "isOfficial": True}
+                save_art_mapping(art_map)
             print(json.dumps({"type": "video", "success": True, "videoPath": hit_path, "isOfficial": True, "source": "spotify"}), flush=True)
             local_art = fetch_local_art(art_url, artist, title)
             if local_art:
@@ -641,7 +720,8 @@ def main():
             try: os.remove(target_apple_path)
             except Exception: pass
 
-        if fetch_apple_music_motion(artist, title, album, target_apple_path):
+        ok, sibling_tracks = fetch_apple_music_motion(artist, title, album, target_apple_path)
+        if ok:
             mark_used(target_apple_path)
             prune_cache()
             if track_id and not os.path.exists(os.path.join(CACHE_DIR, f"{track_id}.mp4")):
@@ -649,6 +729,23 @@ def main():
                     os.symlink(target_apple_path, os.path.join(CACHE_DIR, f"{track_id}.mp4"))
                 except Exception:
                     pass
+            # Create symlinks for all other tracks in the same album for 0ms instant playback
+            if artist and sibling_tracks:
+                for sib_title in sibling_tracks:
+                    sib_clean = clean_song_title(sib_title)
+                    for st in (sib_title, sib_clean):
+                        sib_key = sanitize(f"{artist} - {st}".strip(" -"))
+                        if sib_key and sib_key != sanitized_name:
+                            sib_path = os.path.join(CACHE_DIR, f"{sib_key}.mp4")
+                            try:
+                                if not os.path.exists(sib_path) and not os.path.islink(sib_path):
+                                    os.symlink(target_apple_path, sib_path)
+                            except Exception:
+                                pass
+            if art_hash:
+                art_map = load_art_mapping()
+                art_map[art_hash] = {"videoPath": target_apple_path, "source": "applemusic", "isOfficial": True}
+                save_art_mapping(art_map)
             print(json.dumps({"type": "video", "success": True, "videoPath": target_apple_path, "isOfficial": True, "source": "applemusic", "localArt": local_art}), flush=True)
             return
 
@@ -681,6 +778,10 @@ def main():
                         os.symlink(save_path, name_path)
                 except Exception:
                     pass
+            if art_hash:
+                art_map = load_art_mapping()
+                art_map[art_hash] = {"videoPath": save_path, "source": "spotify", "isOfficial": True}
+                save_art_mapping(art_map)
             print(json.dumps({"type": "video", "success": True, "videoPath": save_path, "isOfficial": True, "source": "spotify", "localArt": local_art}), flush=True)
             return
 
