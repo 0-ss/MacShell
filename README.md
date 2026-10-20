@@ -279,7 +279,7 @@ Run the installer (`./install.sh` in your clone, or `macshell-install` from anyw
 ```
 MacShell (installed: a1b2c3d4e5f6)
 
-  1) Install shell
+  1) Install shell (Best for install and updating)
   2) Check for updates
   3) Uninstall shell
   4) Bind help
