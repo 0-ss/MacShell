@@ -14,6 +14,9 @@
 // togglePlaying() / nextTrack() / previousTrack().
 import QtQuick
 import QtQuick.Effects
+import QtMultimedia
+import Quickshell
+import Quickshell.Io
 import "I18n.js" as I18n
 
 Item {
@@ -40,6 +43,47 @@ Item {
     property bool playing: false
     property real position: 0                // seconds
     property real length: 0                  // seconds (0 = unknown)
+    // ── background resource throttling / occlusion (macOS App Nap) ──
+    property bool desktopCovered: false
+    property bool appFocused: false
+    readonly property bool isHovered: hoverHandler.hovered
+    readonly property bool occluded: (desktopCovered || appFocused) && !isHovered && !editing
+
+    HoverHandler { id: hoverHandler }
+
+    property real livePos: position
+    property real liveAt: Date.now()
+    onPositionChanged: { livePos = position; liveAt = Date.now(); }
+    Timer {
+        id: lyricsTick
+        interval: 40
+        repeat: true
+        running: w.playing && w.lyricsOn && !w.occluded
+        onTriggered: {
+            if (w.playing) {
+                var delta = (Date.now() - w.liveAt) / 1000;
+                w.livePos = w.position + delta;
+            }
+        }
+    }
+    readonly property real evalPos: (w.playing && w.lyricsOn) ? w.livePos : w.position
+
+    onOccludedChanged: {
+        if (!occluded) {
+            if (w.playing) {
+                var delta = (Date.now() - w.liveAt) / 1000;
+                w.livePos = w.position + delta;
+            }
+            if (w.lyricsView && w.lyricsSynced) {
+                Qt.callLater(() => {
+                    var idx = w.lyricIdx;
+                    if (idx >= 0 && typeof lyrList !== "undefined" && lyrList) {
+                        lyrList.positionViewAtIndex(idx, ListView.Center);
+                    }
+                });
+            }
+        }
+    }
 
     property bool shuffle: false
     property int loop: 0                     // 0 = off, 1 = repeat song, 2 = repeat all
@@ -158,7 +202,11 @@ Item {
         }
     }
     onArtSrcChanged: sampler.load(String(artSrc))
-    Component.onCompleted: sampler.load(String(artSrc))
+    Component.onCompleted: {
+        sampler.load(String(artSrc));
+        colCur = topCol;
+        colPrev = topCol;
+    }
 
     // card colours
     readonly property color topCol: style === "light" ? mix(ac, Qt.rgba(1, 1, 1, 1), 0.70) : mix(ac, Qt.rgba(0, 0, 0, 1), 0.42)
@@ -177,16 +225,52 @@ Item {
         return Qt.rgba(c.r, c.g, c.b, 0.9);
     }
 
+    // ───────────────────────── album colour spread ─────────────────────────
+    property color colPrev: topCol
+    property color colCur: topCol
+    property real spreadProg: 1.0
+
+    NumberAnimation {
+        id: spreadAnim
+        target: w
+        property: "spreadProg"
+        from: 0
+        to: 1
+        duration: 1000
+        easing.type: Easing.InOutCubic
+        onFinished: w.colPrev = w.colCur
+    }
+
+    function triggerSpread() {
+        colPrev = spreadProg > 0.5 ? colCur : colPrev;
+        colCur = w.topCol;
+        spreadAnim.restart();
+    }
+
     // ───────────────────────── background ─────────────────────────
-    // Light / Dark: card tinted with the artwork colour
+    // Light / Dark: card tinted with the artwork colour spreading out from cover
+    ShaderEffect {
+        anchors.fill: parent
+        visible: w.style !== "liquid"
+        fragmentShader: Qt.resolvedUrl("tintcard.frag.qsb")
+        property vector2d itemSize: Qt.vector2d(width, height)
+        property real radius: w.radiusPx
+        property vector2d center: Qt.vector2d(w.artX * w.k + (w.artS * w.k) / 2, w.artY * w.k + (w.artS * w.k) / 2)
+        property real soft: 70
+        property real spreadR: w.spreadProg * (Math.sqrt(width * width + height * height) + 2 * soft)
+        property color colOld: w.colPrev
+        property color colNew: w.colCur
+        property real alpha: 0.94
+    }
+
     Rectangle {
         anchors.fill: parent
         visible: w.style !== "liquid"
         radius: w.radiusPx
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: w.topCol }
-            GradientStop { position: 1.0; color: w.botCol }
-        }
+        color: "transparent"
+        border.width: 1
+        border.color: w.borderCol
+
         Rectangle {   // soft top sheen
             anchors.fill: parent
             radius: parent.radius
@@ -219,6 +303,29 @@ Item {
             readonly property real ds: w.glassBlur >= 8 ? 0.5 : 1.0
             readonly property real bn: Math.min(1.0, w.glassBlur * 1.4 * ds / 64.0)
 
+            property bool updating: true
+            Timer {
+                id: settleTimer
+                interval: 350
+                onTriggered: gl.updating = false
+            }
+            function triggerUpdate() {
+                gl.updating = true;
+                settleTimer.restart();
+            }
+            Connections {
+                target: w
+                function onScreenXChanged() { gl.triggerUpdate(); }
+                function onScreenYChanged() { gl.triggerUpdate(); }
+                function onWallUrlChanged() { gl.triggerUpdate(); }
+                function onGlassBlurChanged() { gl.triggerUpdate(); }
+                function onGlassLiquidChanged() { gl.triggerUpdate(); }
+                function onWidthChanged() { gl.triggerUpdate(); }
+                function onHeightChanged() { gl.triggerUpdate(); }
+                function onEditingChanged() { if (!w.editing) gl.triggerUpdate(); }
+            }
+            Component.onCompleted: gl.triggerUpdate()
+
             Item {
                 id: backdrop
                 width: w.width + 2 * (gl.padPx + gl.margin)
@@ -233,6 +340,7 @@ Item {
                     }
                 }
                 Image {
+                    id: bgImg
                     x: -(w.screenX - gl.padPx - gl.margin)
                     y: -(w.screenY - gl.padPx - gl.margin)
                     width: w.screenW
@@ -242,13 +350,14 @@ Item {
                     asynchronous: true
                     sourceSize.width: w.screenW
                     smooth: true
+                    onStatusChanged: if (status === Image.Ready) gl.triggerUpdate()
                 }
             }
             ShaderEffectSource {
                 id: bsrc
                 sourceItem: backdrop
                 hideSource: true
-                live: true
+                live: (w.editing || gl.updating) && !w.occluded
                 visible: false
                 textureSize: Qt.size(Math.max(1, Math.round(backdrop.width * gl.ds)),
                                      Math.max(1, Math.round(backdrop.height * gl.ds)))
@@ -267,7 +376,7 @@ Item {
             ShaderEffectSource {
                 id: blurred
                 sourceItem: blurFx
-                live: true
+                live: (w.editing || gl.updating) && !w.occluded
                 visible: false
             }
             ShaderEffect {
@@ -335,7 +444,7 @@ Item {
     readonly property int lyricIdx: {
         var L = lyrics;
         if (!lyricsSynced || !L || L.length === 0) return -1;
-        var p = position + 0.3, lo = 0, hi = L.length - 1, r = -1;
+        var p = evalPos + 0.25, lo = 0, hi = L.length - 1, r = -1;
         while (lo <= hi) {
             var mid = (lo + hi) >> 1;
             if (L[mid].t <= p) { r = mid; lo = mid + 1; } else hi = mid - 1;
@@ -459,9 +568,9 @@ Item {
         Item {
             id: lyr
             x: w.mx * w.k
-            y: 16 * w.k
-            width: (w.wr - 2 * w.mx - 52) * w.k
-            height: ((w.lyricsView ? w.ctlCY - 40 : w.barCY - 14) - 16) * w.k
+            y: 12 * w.k
+            width: (w.wr - 2 * w.mx - 44) * w.k
+            height: Math.max(86, (w.ctlCY - 30 - 12)) * w.k
             Behavior on height { NumberAnimation { duration: 480; easing.type: Easing.OutCubic } }
             opacity: w.lyricsView ? 1 : 0
             visible: opacity > 0
@@ -479,17 +588,12 @@ Item {
                 anchors.fill: lyrList
                 visible: false
                 layer.enabled: true
-                readonly property real fp: Math.min(0.32, 46 * w.k / Math.max(1, height))      // feather depth: 46 reference px at each end (raise for a longer fade)
+                readonly property real fpTop: Math.min(0.12, 14 * w.k / Math.max(1, height))
+                readonly property real fpBot: Math.min(0.22, 26 * w.k / Math.max(1, height))
                 gradient: Gradient {
                     GradientStop { position: 0.0;                  color: Qt.rgba(0, 0, 0, 0.0) }
-                    GradientStop { position: lyrMask.fp * 0.25;    color: Qt.rgba(0, 0, 0, 0.04) }
-                    GradientStop { position: lyrMask.fp * 0.50;    color: Qt.rgba(0, 0, 0, 0.30) }
-                    GradientStop { position: lyrMask.fp * 0.75;    color: Qt.rgba(0, 0, 0, 0.72) }
-                    GradientStop { position: lyrMask.fp;           color: Qt.rgba(0, 0, 0, 1.0) }
-                    GradientStop { position: 1 - lyrMask.fp;       color: Qt.rgba(0, 0, 0, 1.0) }
-                    GradientStop { position: 1 - lyrMask.fp * 0.75; color: Qt.rgba(0, 0, 0, 0.72) }
-                    GradientStop { position: 1 - lyrMask.fp * 0.50; color: Qt.rgba(0, 0, 0, 0.30) }
-                    GradientStop { position: 1 - lyrMask.fp * 0.25; color: Qt.rgba(0, 0, 0, 0.04) }
+                    GradientStop { position: lyrMask.fpTop;        color: Qt.rgba(0, 0, 0, 1.0) }
+                    GradientStop { position: 1.0 - lyrMask.fpBot;  color: Qt.rgba(0, 0, 0, 1.0) }
                     GradientStop { position: 1.0;                  color: Qt.rgba(0, 0, 0, 0.0) }
                 }
             }
@@ -502,9 +606,9 @@ Item {
                 model: w.lyrics
                 currentIndex: Math.max(0, w.lyricIdx)
                 highlightRangeMode: w.lyricsSynced ? ListView.StrictlyEnforceRange : ListView.NoHighlightRange
-                preferredHighlightBegin: height * 0.30
-                preferredHighlightEnd: height * 0.30
-                highlightMoveDuration: 650
+                preferredHighlightBegin: w.isLarge ? Math.round(height * 0.24) : Math.round(height * 0.18)
+                preferredHighlightEnd: preferredHighlightBegin
+                highlightMoveDuration: 550
                 highlightMoveVelocity: -1
                 layer.enabled: true
                 layer.effect: MultiEffect { maskEnabled: true; maskSource: lyrMask }
@@ -515,34 +619,111 @@ Item {
                     required property int index
                     readonly property real dist: w.lyricsSynced ? Math.abs(index - w.lyricIdx) : 0
                     readonly property bool cur: w.lyricsSynced && index === w.lyricIdx
-                    property real bl: (!w.lyricsSynced || cur) ? 0 : Math.min(1, 0.22 + dist * 0.16)
-                    Behavior on bl { NumberAnimation { duration: 480; easing.type: Easing.OutCubic } }
+                    readonly property bool hovered: mouseArea.containsMouse
+                    readonly property bool isGap: !modelData.text || modelData.text.trim() === ""
+                    readonly property var words: !isGap ? modelData.text.trim().split(/\s+/) : []
+                    readonly property real lineStart: modelData.t
+                    readonly property real lineEnd: (index + 1 < w.lyrics.length && w.lyrics[index + 1].t > lineStart)
+                                                    ? w.lyrics[index + 1].t
+                                                    : (lineStart + Math.max(2.8, words.length * 0.45))
+                    readonly property real lineDur: Math.max(0.6, lineEnd - lineStart)
+
+                    property real bl: (!w.lyricsSynced || cur || hovered) ? 0 : Math.min(1, 0.18 + dist * 0.14)
+                    Behavior on bl { NumberAnimation { duration: 420; easing.type: Easing.OutCubic } }
+
                     width: ListView.view.width
-                    height: txt.implicitHeight + 12 * w.k
-                    Text {
-                        id: txt
+                    height: isGap ? (22 * w.k) : (flowWrap.implicitHeight + 8 * w.k)
+
+                    Item {
+                        id: lineContent
                         width: parent.width
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: ln.modelData.text !== "" ? ln.modelData.text : "\u266A"
-                        wrapMode: Text.Wrap
-                        color: w.fg
-                        font.family: w.fam
-                        font.pixelSize: 25 * w.k
-                        font.weight: Font.Bold
-                        opacity: !w.lyricsSynced ? 0.9 : (ln.cur ? 1 : Math.max(0.16, 0.46 - ln.dist * 0.08))
-                        scale: (!w.lyricsSynced || ln.cur) ? 1 : 0.86
+                        anchors.top: parent.top
+                        anchors.topMargin: 4 * w.k
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 4 * w.k
+                        x: cur ? 6 * w.k : 0
+                        scale: cur ? 1.0 : (ln.hovered ? 0.96 : 0.92)
                         transformOrigin: Item.Left
-                        Behavior on opacity { NumberAnimation { duration: 480; easing.type: Easing.OutCubic } }
-                        Behavior on scale { NumberAnimation { duration: 480; easing.type: Easing.OutCubic } }
-                        layer.enabled: ln.bl > 0.01
+                        Behavior on x { NumberAnimation { duration: 450; easing.type: Easing.OutBack } }
+                        Behavior on scale { NumberAnimation { duration: 420; easing.type: Easing.OutQuint } }
+
+                        // ── Apple Music style Word-by-word karaoke illumination ──
+                        Flow {
+                            id: flowWrap
+                            visible: !ln.isGap
+                            width: parent.width
+                            spacing: 6 * w.k
+
+                            Repeater {
+                                model: ln.words
+                                delegate: Text {
+                                    id: wTxt
+                                    required property var modelData
+                                    required property int index
+
+                                    readonly property real wFrac: ln.words.length > 0 ? (index / ln.words.length) : 0
+                                    readonly property real wStart: ln.lineStart + wFrac * ln.lineDur
+                                    readonly property real wDur: ln.words.length > 0 ? (ln.lineDur / ln.words.length) : 0.35
+                                    readonly property real rawProg: ln.cur ? ((w.evalPos - wStart) / Math.max(0.16, wDur)) : (ln.index < w.lyricIdx ? 1.0 : 0.0)
+                                    readonly property real prog: Math.max(0.0, Math.min(1.0, rawProg))
+                                    readonly property bool activeNow: ln.cur && prog > 0.05 && prog < 0.96
+
+                                    text: modelData
+                                    font.family: w.fam
+                                    font.pixelSize: (w.isLarge ? (ln.cur ? 26 : 21) : (ln.cur ? 21 : 17)) * w.k
+                                    font.weight: ln.cur ? (prog > 0.1 ? Font.Bold : Font.DemiBold) : Font.DemiBold
+
+                                    color: (!w.lyricsSynced || !ln.cur) ? w.fg : (prog > 0.05 ? "#FFFFFF" : Qt.rgba(1, 1, 1, 0.42))
+                                    opacity: {
+                                        if (!w.lyricsSynced) return 0.9;
+                                        if (!ln.cur) return ln.hovered ? 0.88 : Math.max(0.12, 0.42 - ln.dist * 0.10);
+                                        return 0.40 + 0.60 * prog;
+                                    }
+
+                                    scale: activeNow ? 1.06 : 1.0
+                                    transformOrigin: Item.Left
+                                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+                                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutQuad } }
+                                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
+                                }
+                            }
+                        }
+
+                        // ── Instrumental break: 3 breathing / pulsing rhythm dots ──
+                        Row {
+                            visible: ln.isGap
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 8 * w.k
+                            Repeater {
+                                model: 3
+                                delegate: Rectangle {
+                                    required property int index
+                                    width: 8 * w.k; height: width; radius: width / 2
+                                    color: ln.cur ? "#FFFFFF" : Qt.rgba(1, 1, 1, 0.35)
+                                    opacity: ln.cur ? 0.95 : 0.35
+                                    SequentialAnimation on scale {
+                                        running: ln.cur; loops: Animation.Infinite
+                                        PauseAnimation { duration: index * 160 }
+                                        NumberAnimation { from: 0.75; to: 1.25; duration: 480; easing.type: Easing.InOutSine }
+                                        NumberAnimation { from: 1.25; to: 0.75; duration: 480; easing.type: Easing.InOutSine }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Depth of field blur on distant lines
+                        layer.enabled: ln.bl > 0.05
                         layer.sourceRect: Qt.rect(-12, -8, width + 24, height + 16)
-                        layer.effect: MultiEffect { blurEnabled: true; blurMax: 24; blur: ln.bl }
+                        layer.effect: MultiEffect { blurEnabled: true; blurMax: 20; blur: ln.bl }
                     }
+
                     MouseArea {
+                        id: mouseArea
                         anchors.fill: parent
+                        hoverEnabled: true
                         enabled: w.lyricsSynced && w.canSeek && !w.preview && !w.editing
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: w.seek(ln.modelData.t)       // tap a line to jump to it
+                        onClicked: w.seek(ln.modelData.t)
                     }
                 }
             }

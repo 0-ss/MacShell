@@ -272,7 +272,9 @@ OPTIONAL=(
     "notify-send:libnotify:notifications from scripts, update notices"
     "awww:awww:setting the wallpaper"
     "mpvpaper:mpvpaper:animated (video) wallpapers"
-    "ffmpeg:ffmpeg:video wallpaper thumbnails and previews"
+    "ffmpeg:ffmpeg:video wallpaper thumbnails, animated canvas remuxing and previews"
+    "python3:python:helper daemons (system monitor, stocks, lyrics, sound generator)"
+    "pip:python-pip:Python package installer for syncedlyrics"
     "zenity:zenity:file pickers (image widgets, Settings folders)"
     "magick:imagemagick:profile picture conversion"
     "fastfetch:fastfetch:About This Linux"
@@ -323,6 +325,7 @@ pkg_for() {
         pacman) printf '%s' "$p" ;;
         dnf) case "$p" in
                 pipewire) echo pipewire-utils ;; pipewire-pulse) echo pipewire-pulseaudio ;;
+                python) echo python3 ;; python-pip) echo python3-pip ;;
                 qt6-shadertools) echo qt6-qtshadertools ;; qt6-declarative) echo qt6-qtdeclarative ;;
                 qt6-wayland) echo qt6-qtwayland ;; qt6-svg) echo qt6-qtsvg ;; networkmanager) echo NetworkManager ;;
                 bluez-utils) echo bluez ;; "inter-font|ttf-inter") echo rsms-inter-fonts ;;
@@ -331,6 +334,7 @@ pkg_for() {
              esac ;;
         apt) case "$p" in
                 pipewire) echo pipewire-bin ;; pipewire-pulse) echo pipewire-pulse ;; qt6-shadertools) echo qt6-shader-baker ;;
+                python) echo python3 ;; python-pip) echo python3-pip ;;
                 networkmanager) echo network-manager ;; bluez-utils) echo bluez ;; libnotify) echo libnotify-bin ;;
                 "inter-font|ttf-inter") echo fonts-inter ;; noto-fonts) echo fonts-noto-core ;;
                 noto-fonts-emoji) echo fonts-noto-color-emoji ;; qt6-declarative|qt6-wayland|qt6-svg) echo "" ;;
@@ -1052,6 +1056,34 @@ install_extras() {
     fi
 }
 
+setup_python_deps() {
+    [ "$SKIP_DEPS" = 1 ] && return 0
+    if have python3; then
+        step "Python dependencies"
+        if python3 -c "import syncedlyrics" >/dev/null 2>&1; then
+            ok "syncedlyrics is already installed"
+            return 0
+        fi
+        say "Installing syncedlyrics for enhanced multi-source synchronized lyrics..."
+        local pip_cmd=""
+        if have pip3; then pip_cmd="pip3"
+        elif have pip; then pip_cmd="pip"
+        elif python3 -m pip --version >/dev/null 2>&1; then pip_cmd="python3 -m pip"
+        fi
+
+        if [ -n "$pip_cmd" ]; then
+            if $pip_cmd install --user --upgrade syncedlyrics --break-system-packages >/dev/null 2>&1 \
+               || $pip_cmd install --user --upgrade syncedlyrics >/dev/null 2>&1; then
+                ok "syncedlyrics installed successfully"
+            else
+                warn "could not install syncedlyrics automatically (lyrics will fall back to LRCLIB online API)"
+            fi
+        else
+            warn "pip is not installed: install python-pip to enable multi-source lyrics (syncedlyrics)"
+        fi
+    fi
+}
+
 write_state() {
     mkdir -p "$STATE_DIR"
     {
@@ -1178,6 +1210,7 @@ if [ -n "$LOCK_ROOT" ]; then
     ok "MacLock files copied"
 fi
 install_extras "$SRC_ROOT"
+setup_python_deps
 build_shaders "$DEST"
 write_env_template
 ensure_dirs
