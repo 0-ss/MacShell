@@ -219,9 +219,11 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    ```sh
    curl -fsSL https://raw.githubusercontent.com/0-ss/MacShell/main/install.sh | bash
    ```
+   The installer will create a new .lua file in your /.config/hypr/ that have keybinds and auto start, so you don't need to to manually bind MacShell.
+   
    It installs **MacShell** to `~/.config/quickshell/MacShell` and **MacLock** to `~/.config/quickshell/MacLock`,
-   and adds the autostart to your Hyprland config: a block in `hyprland.lua` (Hyprland 0.55+), or an `exec-once`
-   line in `hyprland.conf` when there is no Lua config. The block runs `~/.local/bin/macshell-start`, which waits for
+   and adds the autostart and heybinds to your Hyprland config: a block in `macshell.lua` which is located here `/.config/hypr/` (Hyprland 0.55+),
+   when there is no Lua config. The block runs `~/.local/bin/macshell-start`, which waits for
    the compositor, never starts a second copy and restarts the shell if it crashes. Remove the block between the
    `MacShell (added by install.sh)` markers to undo it. Your settings are never touched, and the previous
    install is backed up first (last 3 kept in `~/.local/share/macshell/backups/`).
@@ -230,13 +232,13 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    no uncommitted changes) it downloads and installs that one automatically.
 
    Don't reach the install folders through a symlink; Quickshell ≥ 0.3 derives its state folders from the link path.
-3. Try it:
+4. Try it:
    ```sh
    qs -c MacShell
    ```
    On first run with the Liquid Glass style, `liquidglass.frag` is compiled with `qsb` and cached in
    `~/.config/macdock/liquidglass.frag.qsb`. Watch for `[macbar-glass] state: ready` in the log.
-4. Add the Hyprland config below, then autostart it.
+5. Add the Hyprland config below, then autostart it.
 
 ### Installer options
 
