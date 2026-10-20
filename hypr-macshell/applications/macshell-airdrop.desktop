@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=AirDrop
-Comment=Send files to devices nearby
-Exec=qs -c MacShell ipc call airdrop open
-Icon=macshell-airdrop
-Categories=Network;FileTransfer;
-Keywords=airdrop;share;send;localsend;nearby;
-StartupNotify=false

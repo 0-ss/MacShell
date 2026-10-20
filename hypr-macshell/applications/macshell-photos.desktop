@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Photos
-Comment=Your pictures, by day
-Exec=qs -c MacShell ipc call photos open
-Icon=gnome-photos
-Categories=Graphics;Photography;Viewer;
-Keywords=photo;picture;image;gallery;library;
-StartupNotify=false
