@@ -1544,7 +1544,7 @@ Scope {
     }
     component PSwitch: GlassSwitch {
         required property var t
-        accentColor: t.accent
+        accentColor: "#30D158"
         offColor: t.switchOff
         dark: t.dark
         baseColor: t.dark ? "#2B2B2D" : "#FFFFFF"
@@ -5503,7 +5503,8 @@ Scope {
                                     debug: root.glassDebug
                                     onShaderError: root.glassState = "failed"
                                     rimTint: 1
-                                    ringW: 1.4
+                                    ringW: 0.9
+                                    shadowAmt: 0.35
                                 }
                                 MenuBorder {
                                     z: 2
@@ -5511,6 +5512,7 @@ Scope {
                                     cornerR: Math.min(24 + (1 - toast.tc) * 40, height / 2)
                                     dark: root.effDark
                                     tint: root.menuBorderColor
+                                    amount: 0.5
                                 }
                                 MouseArea {
                                     anchors.fill: parent
@@ -5621,7 +5623,8 @@ Scope {
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
                         rimTint: 1
-                        ringW: 1.4
+                        ringW: 0.9
+                        shadowAmt: 0.35
                     }
                     MenuBorder {
                         z: 2
@@ -5629,6 +5632,7 @@ Scope {
                         cornerR: Math.min(26, 8 + 18 * notifPop.t)
                         dark: root.effDark
                         tint: root.menuBorderColor
+                        amount: 0.5
                     }
                     CornerBorder {                  // same border as the Wi-Fi / Bluetooth / audio popovers: even on all four corners
                         z: 2
@@ -5636,7 +5640,7 @@ Scope {
                         cornerR: Math.min(26, 8 + 18 * notifPop.t)
                         dark: root.effDark
                         tint: root.menuBorderColor
-                        amount: 1
+                        amount: 0.5
                         lineW: 0.8
                         fade: false
                     }
@@ -5678,7 +5682,7 @@ Scope {
                     Item {
                         x: 12; y: 46; width: parent.width - 24; height: 36
                         opacity: notifPop.chrome
-                        Rectangle { anchors.fill: parent; radius: 12; color: pal.tile; border.width: 1; border.color: pal.tileBorder }
+                        Rectangle { anchors.fill: parent; radius: 12; color: pal.tile; border.width: 1; border.color: Qt.rgba(pal.tileBorder.r, pal.tileBorder.g, pal.tileBorder.b, pal.tileBorder.a * 0.4) }
                         Glyph { x: 12; anchors.verticalCenter: parent.verticalCenter; width: 15; height: 15; kind: "moon"; color: pal.fg }
                         Text {
                             x: 36; anchors.verticalCenter: parent.verticalCenter
@@ -5686,17 +5690,12 @@ Scope {
                             color: pal.fg
                             font.family: pal.fam; font.pixelSize: 13
                         }
-                        Rectangle {
-                            anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter
-                            width: 38; height: 22; radius: 11
-                            color: root.notifDnd ? pal.accent : pal.switchOff
-                            Behavior on color { ColorAnimation { duration: 120 } }
-                            Rectangle {
-                                y: 2; width: 18; height: 18; radius: 9; color: "white"
-                                x: root.notifDnd ? 18 : 2
-                                Behavior on x { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                            }
-                            MouseArea { anchors.fill: parent; onClicked: root.notifDnd = !root.notifDnd }
+                        // the same Liquid Glass switch as everywhere else (see GlassSwitch.qml)
+                        PSwitch {
+                            t: pal
+                            anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter
+                            checked: root.notifDnd
+                            onToggled: v => root.notifDnd = v
                         }
                     }
                     Text {
@@ -5805,7 +5804,7 @@ Scope {
                                     height: hbody.height
                                     radius: 18
                                     color: pal.tile
-                                    border.width: 1; border.color: pal.tileBorder
+                                    border.width: 1; border.color: Qt.rgba(pal.tileBorder.r, pal.tileBorder.g, pal.tileBorder.b, pal.tileBorder.a * 0.4)
                                     HoverHandler { id: hhov }
                                     MouseArea {
                                         anchors.fill: parent
@@ -8450,7 +8449,7 @@ Scope {
                     strength: root.glassLiquid               // full refraction, like the Dock / Control Center
                     rim: root.glassRim                       // same wallpaper-coloured rim + border line as the top-bar menus
                     rimTint: 1
-                    ringW: 1.4
+                    ringW: 0.9
                     whiteEdge: false
                     grain: root.glassGrain
                     blur: 15                                // Spotlight has its own blur: it ignores the global blur slider
@@ -8517,10 +8516,10 @@ Scope {
                             id: spPill
                             width: spot.width - 5 * 60
                             height: 48
-                            GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 22; strengthMul: 1.0; shadowAmt: 0.18 }
+                            GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 22; strengthMul: 1.0; shadowAmt: 0.08 }
                             HoverHandler { id: pillHover }
                             ContourGlow { cornerR: 24; hovered: pillHover.hovered; at: pillHover.point.position; glowColor: root.panelDarkMode ? "white" : root.accent }
-                            MenuBorder { anchors.fill: parent; cornerR: 24; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                            MenuBorder { amount: 0.5; anchors.fill: parent; cornerR: 24; dark: root.panelDarkMode; tint: root.menuBorderColor }
                             Glyph {
                                 x: 18; anchors.verticalCenter: parent.verticalCenter
                                 width: 18; height: 18
@@ -8578,7 +8577,7 @@ Scope {
                                     }
                                 }
                                 ContourGlow { cornerR: 24; hovered: btnHover.hovered; at: btnHover.point.position; glowColor: root.panelDarkMode ? "white" : root.accent }
-                                MenuBorder { anchors.fill: parent; cornerR: width / 2; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                                MenuBorder { amount: 0.5; anchors.fill: parent; cornerR: width / 2; dark: root.panelDarkMode; tint: root.menuBorderColor }
                                 onClicked: {
                                     if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
                                     else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");
@@ -8604,8 +8603,8 @@ Scope {
                         Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
                         height: (items.length > 0 ? items.length : keep) * 46 + 16
                         Behavior on height { NumberAnimation { duration: 320; easing.type: Easing.OutQuint } }
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 26; thickness: 26; strengthMul: 1.0; shadowAmt: 0.22 }
-                        MenuBorder { anchors.fill: parent; cornerR: 26; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 26; thickness: 26; strengthMul: 1.0; shadowAmt: 0.10 }
+                        MenuBorder { amount: 0.5; anchors.fill: parent; cornerR: 26; dark: root.panelDarkMode; tint: root.menuBorderColor }
                         Item {
                             x: 8; y: 8
                             width: parent.width - 16
@@ -8704,8 +8703,8 @@ Scope {
                             : (ui.spQuery.trim() === "" && !root.clipLoading ? "Copy some text or an image and it will show up here" : ""))
                         height: 64 + (items.length > 0 ? shown * rowH + 14 : 118)
                         Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.5 }
-                        MenuBorder { anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.22 }
+                        MenuBorder { amount: 0.5; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
 
                         Item {
                             id: clipHeader
@@ -8917,8 +8916,8 @@ Scope {
                             y: 58
                             width: 250
                             height: 3 * 40 + 12
-                            GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 26; strengthMul: 1.0; shadowAmt: 0.6 }
-                            MenuBorder { anchors.fill: parent; cornerR: 20; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                            GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 26; strengthMul: 1.0; shadowAmt: 0.26 }
+                            MenuBorder { amount: 0.5; anchors.fill: parent; cornerR: 20; dark: root.panelDarkMode; tint: root.menuBorderColor }
                             Column {
                                 x: 6; y: 6
                                 width: parent.width - 12
@@ -8987,8 +8986,8 @@ Scope {
                         readonly property var items: ui.spMode === "emoji" ? ui.spResults : []
                         readonly property var cur: items[Math.min(ui.spSel, items.length - 1)]
                         height: 64 + 42 + gridRows * cell + 46
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.5 }
-                        MenuBorder { anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.22 }
+                        MenuBorder { amount: 0.5; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
 
                         Item {
                             x: 20
@@ -9153,8 +9152,8 @@ Scope {
                         Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                         width: spot.width
                         height: Math.min(64 + appsCol.height + 14, 520)
-                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.5 }
-                        MenuBorder { anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                        GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.22 }
+                        MenuBorder { amount: 0.5; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
 
                         Item {
                             id: appsHeader

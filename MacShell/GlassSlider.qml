@@ -28,6 +28,8 @@ Item {
     property string fontFamily: ""
     property color baseColor: "#2B2B2D"                 // what lies under the slider (the lens refracts it)
     property bool dark: true
+    property real knobSize: 1.0                         // knob size multiplier (the settings sliders use a bigger one)
+    property real pressGrow: 1.0                        // how much the knob grows (and turns to glass) while held
     property bool tileHover: false                      // the pointer is anywhere over the row that holds this slider
     // glass
     property bool glass: false                          // false: the knob stays a plain rounded square
@@ -133,8 +135,8 @@ Item {
     // ── knob: a rounded square on hover; held, it grows with a little spring and becomes Liquid Glass ──
     Item {
         id: knob
-        readonly property real kw: 21 + 6 * s.pressT
-        readonly property real kh: 14 + 3 * s.pressT
+        readonly property real kw: (21 + 6 * s.pressGrow * s.pressT) * s.knobSize
+        readonly property real kh: (14 + 3 * s.pressGrow * s.pressT) * s.knobSize
         width: Math.max(1, kw); height: Math.max(1, kh)
         x: s.trackX + s.pos * s.trackW - width / 2 - s.jig * 3        // trails a little behind when moving
         y: s.cy - height / 2

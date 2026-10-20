@@ -294,7 +294,7 @@ Scope {
     // macOS toggle switch: capsule knob, draggable, fluid slide, the knob turns into Liquid Glass while held (see GlassSwitch.qml)
     component SSwitch: GlassSwitch {
         required property var t
-        accentColor: t.accent
+        accentColor: "#30D158"
         offColor: t.switchOff
         knobColor: t.dark ? "#DCDDDA" : "white"
         dark: t.dark
@@ -315,6 +315,8 @@ Scope {
         fg: t.text
         fillColor: t.accent
         knobColor: "white"
+        knobSize: 1.2
+        pressGrow: 0.8
         trackColor: t.track
         labelColor: t.text2
         fontFamily: t.fam

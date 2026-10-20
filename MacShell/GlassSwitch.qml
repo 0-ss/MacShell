@@ -1,6 +1,7 @@
 import QtQuick
 
-// Toggle switch (macOS Tahoe look): a slim capsule track with a wide capsule knob inset 2 px from the edge.
+// Toggle switch (macOS Tahoe look): a capsule track with a big, wide capsule knob inset a couple of px from the edge,
+// and a small "|" mark on the empty side of the track while it is on.
 //
 //  * click anywhere on it to toggle, or press the knob and drag it left / right (it follows the mouse and snaps to the
 //    nearest side on release; a quick flick in either direction also works)
@@ -18,7 +19,7 @@ Item {
     signal glassFailed()
 
     // look
-    property color accentColor: "#0A84FF"
+    property color accentColor: "#30D158"      // "on" track colour: macOS green
     property color offColor: Qt.rgba(1, 1, 1, 0.22)
     property color knobColor: "#DCDDDA"      // soft light grey, like the reference (not pure white)
     property color baseColor: "#2B2B2D"      // what lies under the switch (the lens refracts it)
@@ -32,11 +33,11 @@ Item {
     property real glassTint: 0.42
     property color borderTint: "#8A9AB5"
 
-    width: 40; height: 18
+    width: 46; height: 21                     // compact size: about 20% smaller than 58 x 26, keeping the same proportions
     opacity: enabled ? 1 : 0.45
 
-    // ── geometry (measured from the reference: track about 2.2x as wide as tall, knob about 58 % of the width, inset about 10 % of the height) ──
-    readonly property real inset: 1.8
+    // ── geometry (measured from the reference: track about 2.2x as wide as tall, knob about 60 % of the width and 84 % of the height) ──
+    readonly property real inset: Math.max(2, height * 0.085)
     readonly property real kh0: height - 2 * inset
     readonly property real kw0: Math.round(kh0 * 1.6)
     readonly property real travel: width - 2 * inset - kw0
@@ -59,8 +60,8 @@ Item {
     Timer { id: holdT; interval: 480; onTriggered: s.hold = false }
 
     // knob grows a little while held
-    readonly property real gw: 3
-    readonly property real gh: 1.5
+    readonly property real gw: height * 0.14
+    readonly property real gh: height * 0.07
     readonly property real kw: kw0 + gw * pressT
     readonly property real kh: kh0 + gh * pressT
     readonly property real leftEdge: inset + pL * travel - (kw - kw0) / 2
@@ -147,7 +148,7 @@ Item {
                     shaderUrl: s.shaderUrl
                     dark: s.dark
                     cornerR: knob.rad
-                    thickness: 16
+                    thickness: Math.round(s.kh0 * 1.1)         // scales with the knob
                     strengthMul: 0.85
                     liquid: s.glassLiquid
                     rim: s.glassRim * 0.25
@@ -158,7 +159,7 @@ Item {
                     onFailed: s.glassFailed()
                 }
                 // same border as the Control Center buttons and sliders
-                CornerBorder { z: 2; anchors.fill: parent; cornerR: knob.rad; dark: s.dark; tint: s.borderTint; amount: 1; lineW: 0.8 }
+                CornerBorder { z: 2; anchors.fill: parent; cornerR: knob.rad; dark: s.dark; tint: s.borderTint; amount: 1; lineW: 0.9 }
                 // soft specular sheen along the top
                 Rectangle {
                     anchors.fill: parent
