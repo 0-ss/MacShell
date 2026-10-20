@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Player
+Comment=Play video
+Exec=qs -c MacShell ipc call player play %f
+Icon=mpv
+MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;
+Categories=AudioVideo;Player;
+NoDisplay=true
+StartupNotify=false

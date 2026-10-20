@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Clock
+Comment=World Clock, Alarms, Stopwatch and Timers
+Exec=qs -c MacShell ipc call clock open
+Icon=org.gnome.clocks
+Categories=Utility;Clock;
+Keywords=alarm;timer;stopwatch;world;time;
+StartupNotify=false

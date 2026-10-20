@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Finder
+Comment=Browse your files
+Exec=qs -c MacShell ipc call finder open
+Icon=system-file-manager
+Categories=System;FileTools;FileManager;
+Keywords=files;folder;browse;manager;
+StartupNotify=false

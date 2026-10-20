@@ -1,0 +1,1 @@
+-- Your own general overrides for the MacShell session (kept across updates)

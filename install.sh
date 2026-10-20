@@ -12,7 +12,12 @@
 #   3. installs the shell to   ~/.config/quickshell/MacShell        (start it with:  qs -c MacShell)
 #      the lock screen to      ~/.config/quickshell/MacLock         (lock with:  sh ~/.config/quickshell/MacLock/lock-via-ipc.sh)
 #      (MacShell and MacLock are two separate Quickshell configs; neither is placed inside the other)
-#      helper scripts to       ~/.config/hypr-macshell/scripts      (only if the repo ships them)
+#      the helper tree to      ~/.config/hypr-macshell              (scripts/ = Game Mode, video wallpapers, AirDrop, lock helper;
+#                                                                   plus the standalone Hyprland session config, hypridle / hyprlock files;
+#                                                                   your own custom/ folder is never overwritten)
+#      app launchers to        ~/.local/share/applications          (Finder, Photos, Clock ... entries for macshell-*.desktop)
+#      icons to                ~/.local/share/icons/hicolor/scalable/apps
+#      the Apple emoji font rule to ~/.config/fontconfig/conf.d
 #      sounds to               ~/.local/share/sounds/macshell       (shipped ones, plus the rest synthesized by macshell-make-sounds.py)
 #      the update tool to      ~/.local/share/macshell/bin/macshell-update  (+ ~/.local/bin/macshell-update)
 #      the start script to     ~/.local/share/macshell/bin/macshell-start   (+ ~/.local/bin/macshell-start)
@@ -70,7 +75,11 @@ LOCK_DEST="${MACLOCK_DEST:-$CONFIG_HOME/quickshell/$LOCK_NAME}"
 STATE_DIR="$DATA_HOME/macshell"
 BIN_DIR="$STATE_DIR/bin"
 BACKUP_DIR="$STATE_DIR/backups"
-SCRIPTS_DIR="$CONFIG_HOME/hypr-macshell/scripts"
+HYPR_MAC_DIR="$CONFIG_HOME/hypr-macshell"
+SCRIPTS_DIR="$HYPR_MAC_DIR/scripts"
+APPS_DIR="$DATA_HOME/applications"
+ICONS_DIR="$DATA_HOME/icons/hicolor/scalable/apps"
+FONTCONF_DIR="$CONFIG_HOME/fontconfig/conf.d"
 SOUNDS_DIR="$DATA_HOME/sounds/macshell"
 LINK_DIR="$HOME/.local/bin"
 HYPR_DIR="$CONFIG_HOME/hypr"
@@ -236,7 +245,7 @@ do_uninstall() {
     remove_hypr_blocks
     rm -f "$LINK_DIR/macshell-update" "$LINK_DIR/macshell-start" "$BIN_DIR/macshell-update" "$BIN_DIR/macshell-start" "$STATE_DIR/state.env"
     ok "removed the update and start tools"
-    say "Your settings were kept (~/.config/macbar, macdock, macshell, macwidgets)."
+    say "Your settings were kept (~/.config/macbar, macdock, macshell, macwidgets). The helper tree stays in $HYPR_MAC_DIR (remove it by hand if you like)."
     say "If you added them yourself, remove the MacShell autostart and the MacLock lock keybind from your Hyprland config."
     exit 0
 }
@@ -277,6 +286,8 @@ OPTIONAL=(
     "magick:imagemagick:profile picture conversion"
     "fastfetch:fastfetch:About This Linux"
     "rsync:rsync:faster, safer file sync in the installer"
+    "jq:jq:wallpaper helpers (reading the dock / shell settings)"
+    "python3:python:UI sound generation and AirDrop"
     "kitty:kitty:the default terminal"
     "hypridle:hypridle:lock on idle (optional)"
 )
@@ -327,13 +338,13 @@ pkg_for() {
                 qt6-wayland) echo qt6-qtwayland ;; qt6-svg) echo qt6-qtsvg ;; networkmanager) echo NetworkManager ;;
                 bluez-utils) echo bluez ;; "inter-font|ttf-inter") echo rsms-inter-fonts ;;
                 noto-fonts) echo google-noto-sans-fonts ;; noto-fonts-emoji) echo "google-noto-color-emoji-fonts|google-noto-emoji-fonts" ;;
-                imagemagick) echo ImageMagick ;; awww|mpvpaper|cliphist) echo "$p" ;; *) printf '%s' "${p%%|*}" ;;
+                imagemagick) echo ImageMagick ;; python) echo python3 ;; awww|mpvpaper|cliphist) echo "$p" ;; *) printf '%s' "${p%%|*}" ;;
              esac ;;
         apt) case "$p" in
                 pipewire) echo pipewire-bin ;; pipewire-pulse) echo pipewire-pulse ;; qt6-shadertools) echo qt6-shader-baker ;;
                 networkmanager) echo network-manager ;; bluez-utils) echo bluez ;; libnotify) echo libnotify-bin ;;
                 "inter-font|ttf-inter") echo fonts-inter ;; noto-fonts) echo fonts-noto-core ;;
-                noto-fonts-emoji) echo fonts-noto-color-emoji ;; qt6-declarative|qt6-wayland|qt6-svg) echo "" ;;
+                noto-fonts-emoji) echo fonts-noto-color-emoji ;; python) echo python3 ;; qt6-declarative|qt6-wayland|qt6-svg) echo "" ;;
                 *) printf '%s' "${p%%|*}" ;;
              esac ;;
     esac
@@ -703,6 +714,13 @@ run_doctor() {
     fi
     [ -e /etc/pam.d/hyprlock ] && d_ok "/etc/pam.d/hyprlock (MacLock passwords)" || d_bad "/etc/pam.d/hyprlock is missing: install hyprlock"
 
+    # helper scripts
+    for u in macshell-setwall.sh macshell-gaming.sh macshell-wallpause.sh macshell-wallpaper.sh maclock.sh; do
+        [ -x "$SCRIPTS_DIR/$u" ] && d_ok "helper: $u" || d_bad "helper script missing: $SCRIPTS_DIR/$u (video wallpapers / Game Mode / lock need it): run  bash install.sh"
+    done
+    have mpvpaper && d_ok "mpvpaper is installed" || say "  ${D}- mpvpaper is not installed (animated wallpapers)${N}"
+    have jq || d_bad "jq is missing (the wallpaper helpers read settings with it)"
+
     # wallpaper
     if have awww; then
         d_ok "awww is installed"
@@ -904,7 +922,7 @@ backup_current() { # backup_current <dest> <name>
 }
 
 # repository files that are not part of a Quickshell config (MacLock is excluded so it never ends up inside MacShell)
-EXCLUDES=(.git .github install.sh macshell-update macshell-start README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME")
+EXCLUDES=(.git .github install.sh macshell-update macshell-start hypr-macshell README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME")
 LOCK_EXCLUDES=(.git .github)
 
 sync_files() { # sync_files <source-folder> <dest> <exclude>...
@@ -1011,15 +1029,78 @@ START
     ln -sf "$BIN_DIR/macshell-start" "$LINK_DIR/macshell-start"
 }
 
-install_extras() {
-    local root="$1" f n
-    # helper scripts (Game Mode, wallpaper helpers)
+# Find the helper tree (a folder called hypr-macshell near the top of the source).
+find_hypr_root() { # find_hypr_root <source-root>
+    local d
+    d=$(find "$1" -maxdepth 3 -type d -name hypr-macshell -not -path '*/.git/*' 2>/dev/null \
+        | awk '{ print length($0) " " $0 }' | sort -n | head -n1 | cut -d' ' -f2-)
+    [ -n "$d" ] && printf '%s' "$d"
+}
+
+# Copy the helper tree into ~/.config/hypr-macshell. Files that ship with MacShell are updated; the user's own
+# custom/ folder is only filled in where files are missing, and extra files the user added are never deleted.
+install_hypr_tree() { # install_hypr_tree <hypr-macshell source folder>
+    local src="$1" f n
+    [ -d "$src/scripts" ] || return 1
+    backup_current "$HYPR_MAC_DIR" hypr-macshell
+    mkdir -p "$HYPR_MAC_DIR"
+    if have rsync; then
+        rsync -a --exclude=/custom/ "$src"/ "$HYPR_MAC_DIR"/
+        [ -d "$src/custom" ] && rsync -a --ignore-existing "$src/custom"/ "$HYPR_MAC_DIR/custom"/
+    else
+        tar -C "$src" --exclude=./custom -cf - . | tar -C "$HYPR_MAC_DIR" -xf -
+        if [ -d "$src/custom" ]; then
+            (cd "$src/custom" && find . -type f) | while IFS= read -r f; do
+                [ -e "$HYPR_MAC_DIR/custom/$f" ] || { mkdir -p "$(dirname "$HYPR_MAC_DIR/custom/$f")"; cp -p "$src/custom/$f" "$HYPR_MAC_DIR/custom/$f"; }
+            done
+        fi
+    fi
+    # the files ship with a __HOME__ placeholder for absolute paths
+    for f in hypridle.conf hyprlock/colors.conf; do
+        [ -f "$HYPR_MAC_DIR/$f" ] && sed -i "s|__HOME__|$HOME|g" "$HYPR_MAC_DIR/$f"
+    done
+    find "$HYPR_MAC_DIR" -type f \( -name '*.sh' -o -name '*.py' \) -exec chmod +x {} + 2>/dev/null || true
+    n=$(find "$HYPR_MAC_DIR/scripts" -maxdepth 1 -type f \( -name 'macshell-*.sh' -o -name 'macshell-*.py' \) | wc -l)
+    ok "$n helper script(s) -> $SCRIPTS_DIR"
+    ok "session config, hypridle / hyprlock files -> $HYPR_MAC_DIR"
+    # app launchers (Finder, Photos, Clock, ...)
     n=0
-    while IFS= read -r f; do
-        mkdir -p "$SCRIPTS_DIR"
-        cp -f "$f" "$SCRIPTS_DIR/$(basename "$f")"; chmod +x "$SCRIPTS_DIR/$(basename "$f")"; n=$((n+1))
-    done < <(find "$root" -type f \( -name 'macshell-*.sh' -o -name 'macshell-*.py' \) -not -path '*/.git/*' 2>/dev/null)
-    if [ "$n" -gt 0 ]; then ok "$n helper script(s) -> $SCRIPTS_DIR"; else warn "no helper scripts (macshell-*.sh) in the source: Game Mode and video wallpapers will not work"; fi
+    if [ -d "$src/applications" ]; then
+        mkdir -p "$APPS_DIR"
+        for f in "$src"/applications/*.desktop; do [ -f "$f" ] && { cp -f "$f" "$APPS_DIR/"; n=$((n+1)); }; done
+        [ "$n" -gt 0 ] && { ok "$n app launcher(s) -> $APPS_DIR"; have update-desktop-database && update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true; }
+    fi
+    # icons
+    n=0
+    if [ -d "$src/icons" ]; then
+        mkdir -p "$ICONS_DIR"
+        for f in "$src"/icons/*.svg; do [ -f "$f" ] && { cp -f "$f" "$ICONS_DIR/"; n=$((n+1)); }; done
+        [ "$n" -gt 0 ] && { ok "$n icon(s) -> $ICONS_DIR"; have gtk-update-icon-cache && gtk-update-icon-cache -q -t "$DATA_HOME/icons/hicolor" >/dev/null 2>&1 || true; }
+    fi
+    # Apple emoji font preference
+    if [ -f "$src/75-apple-emoji.conf" ]; then
+        mkdir -p "$FONTCONF_DIR"; cp -f "$src/75-apple-emoji.conf" "$FONTCONF_DIR/"
+        have fc-cache && fc-cache -f >/dev/null 2>&1 || true
+        ok "emoji font rule -> $FONTCONF_DIR"
+    fi
+    return 0
+}
+
+install_extras() {
+    local root="$1" f n hroot
+    # helper tree: scripts (Game Mode, video wallpapers, AirDrop, lock), session config, launchers, icons
+    hroot=$(find_hypr_root "$root" || true)
+    if [ -n "$hroot" ] && install_hypr_tree "$hroot"; then
+        :
+    else
+        # older layout: loose macshell-*.sh / macshell-*.py files somewhere in the source
+        n=0
+        while IFS= read -r f; do
+            mkdir -p "$SCRIPTS_DIR"
+            cp -f "$f" "$SCRIPTS_DIR/$(basename "$f")"; chmod +x "$SCRIPTS_DIR/$(basename "$f")"; n=$((n+1))
+        done < <(find "$root" -type f \( -name 'macshell-*.sh' -o -name 'macshell-*.py' \) -not -path '*/.git/*' 2>/dev/null)
+        if [ "$n" -gt 0 ]; then ok "$n helper script(s) -> $SCRIPTS_DIR"; else warn "no helper scripts (macshell-*.sh) and no hypr-macshell/ folder in the source: Game Mode and video wallpapers will not work (the repository is missing hypr-macshell/)"; fi
+    fi
     # sounds
     n=0
     while IFS= read -r f; do

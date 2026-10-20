@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Apple Music
+GenericName=Music
+Comment=Cider — an Apple Music client for Linux by the Cider Collective (cider.sh). MacShell only renames the launcher.
+Exec=sh -c 'flatpak run sh.cider.Cider || cider || flatpak run com.spotify.Client'
+Icon=multimedia-audio-player
+Categories=AudioVideo;Audio;Player;
+Keywords=apple;music;cider;songs;
+StartupNotify=true

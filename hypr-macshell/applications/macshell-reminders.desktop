@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Reminders
+Comment=Your reminders list
+Exec=qs -c MacShell ipc call reminders open
+Icon=gnome-todo
+Categories=Utility;Office;
+Keywords=reminders;todo;tasks;checklist;
+StartupNotify=false

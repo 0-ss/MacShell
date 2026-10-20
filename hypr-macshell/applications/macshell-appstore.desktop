@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=App Store
+Comment=Install apps from Flathub
+Exec=qs -c MacShell ipc call appstore open
+Icon=software-center
+Categories=System;PackageManager;
+Keywords=app;store;install;flatpak;flathub;software;
+StartupNotify=false
