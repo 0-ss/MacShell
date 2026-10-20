@@ -32,6 +32,7 @@ Item {
     property real glassBlur: 5
     property real glassLiquid: 1.0
     property real glassRim: 0.45
+    property color borderTint: "#8A9AB5"      // Control Center border colour
     property real glassGrain: 0.03
     property bool darkGlass: true
 
@@ -93,8 +94,6 @@ Item {
         anchors.fill: parent
         visible: w.style === "light"
         radius: w.radiusPx
-        border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.70)       // a brighter edge of the face's own colour
 
         gradient: Gradient {
             GradientStop { position: 0.0; color: "#E9EAEB" }
@@ -108,8 +107,6 @@ Item {
         anchors.fill: parent
         visible: w.style === "dark"
         radius: w.radiusPx
-        border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.22)
 
         gradient: Gradient {
             GradientStop { position: 0.0; color: "#38393D" }
@@ -293,23 +290,22 @@ Item {
                 property real saturation: 1.25
                 property real dark: w.dark ? 1 : 0
                 property real debug: 0
-                property real shadowAmt: 1
+                property real shadowAmt: 0           // no drop shadow
+                property real flatInner: 1           // no darker inner edge (needs the rebuilt liquidglass shader)
                 property real rimTint: 1
-                property real ringW: 1
+                property real ringW: 0
             }
         }
     }
 
-    // Static/fallback edge.
-    Rectangle {
+    // Control Center border (all styles)
+    CornerBorder {
+        z: 2
         anchors.fill: parent
-        visible: !w.glassOn
-        radius: w.radiusPx
-        color: "transparent"
-        border.width: 1
-        border.color:
-            w.dark ? Qt.rgba(1, 1, 1, 0.22)
-                   : Qt.rgba(1, 1, 1, 0.70)
+        cornerR: w.radiusPx
+        dark: w.dark
+        tint: w.borderTint
+        lineW: 0.8
     }
 
     // ── dial ticks ──

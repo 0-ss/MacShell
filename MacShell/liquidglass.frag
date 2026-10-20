@@ -37,6 +37,7 @@ layout(std140, binding = 0) uniform buf {
     float shadowAmt;    // drop-shadow strength (1 = original, 0 = none) - appended last so older layouts stay compatible
     float rimTint;      // 0 = white rim (Dock / Menu Bar), 1 = rim + border take a brighter shade of the glass's own colour (widgets)
     float ringW;        // width in px of a thin border line along the very edge (0 = none)
+    float flatInner;    // 1 = no inner edge shading (the darker inner rim); 0 = original. Appended last, unset = 0
 };
 
 layout(binding = 1) uniform sampler2D src;
@@ -161,8 +162,9 @@ void main()
     // ── depth: soft top sheen, darker lower inner edge ──
     float ty = clamp((q.y + hs.y) / glassSize.y, 0.0, 1.0);
     col += (1.0 - ty) * mix(0.040, 0.030, dark);
-    col *= 1.0 - 0.12 * exp(-t / 6.0) * clamp(g.y, 0.0, 1.0);
-    col *= 1.0 - 0.10 * exp(-t / (bz * 0.45));          // thick glass absorbs light toward the edge (heavier feel)
+    float innerK = 1.0 - clamp(flatInner, 0.0, 1.0);
+    col *= 1.0 - 0.12 * exp(-t / 6.0) * clamp(g.y, 0.0, 1.0) * innerK;
+    col *= 1.0 - 0.10 * exp(-t / (bz * 0.45)) * innerK;          // thick glass absorbs light toward the edge (heavier feel)
 
     // colour of the rim / border: white, or (rimTint) a brighter shade of what the glass looks like at this spot
     vec3 rimCol = mix(vec3(0.96, 0.98, 1.0), clamp(col * 1.5 + 0.12, 0.0, 1.0), rimTint);

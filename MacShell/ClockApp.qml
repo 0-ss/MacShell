@@ -12,6 +12,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
+import "I18n.js" as I18n
 
 Scope {
     id: root
@@ -305,8 +306,8 @@ Scope {
                 x: 66; anchors.verticalCenter: parent.verticalCenter
                 width: parent.width - 66 - btns.width - 16
                 spacing: 1
-                Text { text: root.ringing ? (root.ringing.kind === "timer" ? "Timer" : "Alarm") : ""; color: bannerCard.fg; font.family: root.fam; font.pixelSize: 14; font.weight: Font.DemiBold }
-                Text { width: parent.width; elide: Text.ElideRight; text: root.ringing ? (root.ringing.kind === "timer" ? (root.ringing.label === "Timer" ? "Done" : root.ringing.label) : root.ringing.time + (root.ringing.label && root.ringing.label !== "Alarm" ? " · " + root.ringing.label : "")) : ""; color: bannerCard.fg2; font.family: root.fam; font.pixelSize: 13 }
+                Text { text: root.ringing ? (root.ringing.kind === "timer" ? I18n.tr("Timer") : I18n.tr("Alarm")) : ""; color: bannerCard.fg; font.family: root.fam; font.pixelSize: 14; font.weight: Font.DemiBold }
+                Text { width: parent.width; elide: Text.ElideRight; text: root.ringing ? (root.ringing.kind === "timer" ? (root.ringing.label === "Timer" ? I18n.tr("Done") : root.ringing.label) : root.ringing.time + (root.ringing.label && root.ringing.label !== "Alarm" ? " · " + root.ringing.label : "")) : ""; color: bannerCard.fg2; font.family: root.fam; font.pixelSize: 13 }
             }
             Column {
                 id: btns
@@ -318,7 +319,7 @@ Scope {
                         required property string modelData
                         width: 78; height: 28; radius: 14
                         color: modelData === "Stop" ? root.orange : (bma.pressed ? Qt.rgba(0.5, 0.5, 0.5, 0.45) : Qt.rgba(0.5, 0.5, 0.5, 0.28))
-                        Text { anchors.centerIn: parent; text: parent.modelData; color: parent.modelData === "Stop" ? "black" : bannerCard.fg; font.family: root.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                        Text { anchors.centerIn: parent; text: I18n.tr(parent.modelData); color: parent.modelData === "Stop" ? "black" : bannerCard.fg; font.family: root.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
                         MouseArea {
                             id: bma; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: {
@@ -564,7 +565,7 @@ Scope {
                 Text {
                     visible: root.cities.length === 0
                     anchors.centerIn: parent
-                    text: "No World Clocks"; color: pal.text3; font.family: root.fam; font.pixelSize: 22
+                    text: I18n.tr("No World Clocks"); color: pal.text3; font.family: root.fam; font.pixelSize: 22
                 }
             }
         }
@@ -633,8 +634,8 @@ Scope {
                     parent: alPage
                     anchors.centerIn: parent
                     spacing: 8
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "No Alarms"; color: pal.text3; font.family: root.fam; font.pixelSize: 22 }
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Click + to add an alarm."; color: pal.text3; font.family: root.fam; font.pixelSize: 13 }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: I18n.tr("No Alarms"); color: pal.text3; font.family: root.fam; font.pixelSize: 22 }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: I18n.tr("Click + to add an alarm."); color: pal.text3; font.family: root.fam; font.pixelSize: 13 }
                 }
             }
             }
@@ -659,13 +660,13 @@ Scope {
                     y: swTxt.y + swTxt.height + 26
                     spacing: parent.width * 0.32
                     RoundBtn {
-                        label: root.sw.running ? "Lap" : "Reset"
+                        label: root.sw.running ? I18n.tr("Lap") : I18n.tr("Reset")
                         enabledBtn: root.sw.running || root.sw.acc > 0
                         fill: Qt.rgba(0.5, 0.5, 0.5, 0.25); ink: pal.text
                         onClicked: root.sw.running ? root.swLap() : root.swReset()
                     }
                     RoundBtn {
-                        label: root.sw.running ? "Stop" : "Start"
+                        label: root.sw.running ? "Stop" : I18n.tr("Start")
                         fill: root.sw.running ? Qt.rgba(1, 0.27, 0.23, 0.28) : Qt.rgba(0.19, 0.82, 0.35, 0.28)
                         ink: root.sw.running ? "#FF453A" : "#30D158"
                         onClicked: root.sw.running ? root.swStop() : root.swStart()
@@ -695,7 +696,7 @@ Scope {
                         property color c: (index > 0 || !root.swActive) && t === laps.best ? "#30D158" : ((index > 0 || !root.swActive) && t === laps.worst ? "#FF453A" : pal.text)
                         Behavior on c { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
                         Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: pal.sep }
-                        Text { anchors.verticalCenter: parent.verticalCenter; text: "Lap " + (laps.count - parent.index); color: parent.c; font.family: root.fam; font.pixelSize: 15 }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: I18n.tr("Lap ") + (laps.count - parent.index); color: parent.c; font.family: root.fam; font.pixelSize: 15 }
                         Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: root.fmtSw(parent.t); color: parent.c; font.family: root.fam; font.pixelSize: 15; font.features: { "tnum": 1 } }
                     }
                 }
@@ -748,7 +749,7 @@ Scope {
                         anchors.horizontalCenter: parent.horizontalCenter
                         y: wheels.y + wheels.height + 14
                         width: 300; height: 34; radius: 8; color: pal.ctrl
-                        Text { x: 12; anchors.verticalCenter: parent.verticalCenter; text: "Label"; color: pal.text; font.family: root.fam; font.pixelSize: 13 }
+                        Text { x: 12; anchors.verticalCenter: parent.verticalCenter; text: I18n.tr("Label"); color: pal.text; font.family: root.fam; font.pixelSize: 13 }
                         TextInput {
                             id: tLabel
                             anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
@@ -761,7 +762,7 @@ Scope {
                     RoundBtn {
                         anchors.horizontalCenter: parent.horizontalCenter
                         y: wheels.y + wheels.height + 66
-                        label: "Start"
+                        label: I18n.tr("Start")
                         fill: Qt.rgba(0.19, 0.82, 0.35, 0.28); ink: "#30D158"
                         onClicked: root.startTimer(((tp.parts[0] || 0) * 3600 + (tp.parts[1] || 0) * 60 + (tp.parts[2] || 0)) * 1000, tLabel.text)
                     }
@@ -771,7 +772,7 @@ Scope {
                         anchors.bottom: parent.bottom; anchors.bottomMargin: 18
                         spacing: 10
                         visible: root.recents.length > 0
-                        Text { anchors.verticalCenter: parent.verticalCenter; text: "Recents"; color: pal.text2; font.family: root.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: I18n.tr("Recents"); color: pal.text2; font.family: root.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
                         Repeater {
                             model: root.recents
                             delegate: Rectangle {
@@ -820,9 +821,9 @@ Scope {
                         anchors.horizontalCenter: parent.horizontalCenter
                         y: ring.y + ring.height + 22
                         spacing: Math.max(80, ring.width - 160)
-                        RoundBtn { label: "Cancel"; fill: Qt.rgba(0.5, 0.5, 0.5, 0.25); ink: pal.text; onClicked: root.cancelTimer() }
+                        RoundBtn { label: I18n.tr("Cancel"); fill: Qt.rgba(0.5, 0.5, 0.5, 0.25); ink: pal.text; onClicked: root.cancelTimer() }
                         RoundBtn {
-                            label: root.timer.state === "running" ? "Pause" : "Resume"
+                            label: root.timer.state === "running" ? I18n.tr("Pause") : I18n.tr("Resume")
                             fill: root.timer.state === "running" ? Qt.rgba(1, 0.62, 0.04, 0.26) : Qt.rgba(0.19, 0.82, 0.35, 0.28)
                             ink: root.timer.state === "running" ? root.orange : "#30D158"
                             onClicked: root.timer.state === "running" ? root.pauseTimer() : root.resumeTimer()
@@ -845,7 +846,7 @@ Scope {
                 readonly property var ed: win.editing
                 property var days: ed ? ed.days.slice() : []
                 property bool pm: ed ? ed.h >= 12 : false
-                Text { x: 20; y: 16; text: sa.ed ? "Edit Alarm" : "Add Alarm"; color: pal.text; font.family: root.fam; font.pixelSize: 15; font.weight: Font.DemiBold }
+                Text { x: 20; y: 16; text: sa.ed ? I18n.tr("Edit Alarm") : I18n.tr("Add Alarm"); color: pal.text; font.family: root.fam; font.pixelSize: 15; font.weight: Font.DemiBold }
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: tw.y + tw.height / 2 - 18
@@ -896,7 +897,7 @@ Scope {
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: tw.y + tw.height + 58
                     width: 320; height: 32; radius: 8; color: pal.ctrl
-                    Text { x: 12; anchors.verticalCenter: parent.verticalCenter; text: "Label"; color: pal.text; font.family: root.fam; font.pixelSize: 13 }
+                    Text { x: 12; anchors.verticalCenter: parent.verticalCenter; text: I18n.tr("Label"); color: pal.text; font.family: root.fam; font.pixelSize: 13 }
                     TextInput {
                         id: aLabel
                         anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
@@ -916,7 +917,7 @@ Scope {
                             required property string modelData
                             width: 84; height: 28; radius: 7
                             color: modelData === "Save" ? root.accent : pal.ctrl
-                            Text { anchors.centerIn: parent; text: parent.modelData; color: parent.modelData === "Save" ? "white" : pal.text; font.family: root.fam; font.pixelSize: 13 }
+                            Text { anchors.centerIn: parent; text: I18n.tr(parent.modelData); color: parent.modelData === "Save" ? "white" : pal.text; font.family: root.fam; font.pixelSize: 13 }
                             MouseArea {
                                 anchors.fill: parent
                                 onClicked: {
@@ -950,7 +951,7 @@ Scope {
                         color: pal.text; font.family: root.fam; font.pixelSize: 13
                         focus: true
                         Component.onCompleted: forceActiveFocus()
-                        Text { visible: parent.text === ""; text: "Search cities"; color: pal.text3; font: parent.font }
+                        Text { visible: parent.text === ""; text: I18n.tr("Search cities"); color: pal.text3; font: parent.font }
                     }
                 }
                 ListView {
@@ -972,22 +973,22 @@ Scope {
     // ═════════════ small parts ═════════════
     function range(n, padded) { var a = []; for (var i = 0; i < n; i++) a.push(padded ? pad(i) : String(i)); return a; }
 
-    component CSwitch: Rectangle {
+    component CSwitch: GlassSwitch {
         id: csw
         property bool on: false
-        signal toggled(bool v)
-        width: 38; height: 22; radius: 11
-        color: on ? "#30D158" : (root.darkMode ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.14))
-        Behavior on color { ColorAnimation { duration: 200 } }
-        Rectangle {
-            width: 18; height: 18; radius: 9; y: 2
-            x: csw.on ? csw.width - width - 2 : 2
-            Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutQuint } }
-            color: "white"
-            layer.enabled: true
-            layer.effect: MultiEffect { shadowEnabled: true; shadowBlur: 0.3; shadowOpacity: 0.3; shadowVerticalOffset: 1 }
-        }
-        MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: csw.toggled(!csw.on) }
+        checked: on
+        accentColor: "#30D158"
+        offColor: root.darkMode ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.14)
+        dark: root.darkMode
+        baseColor: root.darkMode ? "#2C2C2E" : "#FFFFFF"
+        glass: root.dock ? root.dock.settingsGlass : false
+        shaderUrl: root.dock ? root.dock.glassShaderUrl : ""
+        glassLiquid: root.dock ? root.dock.glassLiquid : 1
+        glassRim: root.dock ? root.dock.glassRim : 0.45
+        glassGrain: root.dock ? root.dock.glassGrain : 0.03
+        glassTint: root.dock ? root.dock.glassOpacity : 0.42
+        borderTint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
+        Component.onCompleted: if (root.dock && root.dock.glassState === "idle") root.dock.startGlass()
     }
     component RoundBtn: Item {
         id: rb

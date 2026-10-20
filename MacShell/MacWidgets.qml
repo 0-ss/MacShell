@@ -15,6 +15,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Mpris
+import "I18n.js" as I18n
 
 Scope {
     id: root
@@ -42,6 +43,8 @@ Scope {
     readonly property real glassRim: dock ? dock.glassRim : 0.45
     readonly property real glassGrain: dock ? dock.glassGrain : 0.03
     readonly property bool darkGlass: dock ? dock.darkMode : true
+    // Control Center border colour (follows the wallpaper's dominant colour)
+    readonly property color borderTint: (hub && hub.bar) ? hub.bar.menuBorderColor : "#8A9AB5"
 
     // placed widgets: roles wid, wtype (weather | calendar | clock | player), wstyle, wsize, wmode (calendar: auto | light | dark), wx, wy
     property alias model: wmodel
@@ -862,7 +865,7 @@ Scope {
                             color: chooseMa.pressed ? "#D8D8DC" : "#F2F2F5"
                             border.width: 1
                             border.color: Qt.rgba(0, 0, 0, 0.18)
-                            Text { id: chooseText; anchors.centerIn: parent; text: ww.wtype === "gif" ? "Choose GIF\u2026" : "Choose Image\u2026"; color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
+                            Text { id: chooseText; anchors.centerIn: parent; text: ww.wtype === "gif" ? "Choose GIF\u2026" : I18n.tr("Choose Image\u2026"); color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
                             MouseArea { id: chooseMa; anchors.fill: parent; onClicked: ww.wtype === "gif" ? root.pickGif(ww.wid, "small") : root.pickImage(ww.wid, "small") }
                         }
                         Rectangle {   // "−" remove badge

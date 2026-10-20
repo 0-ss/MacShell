@@ -210,6 +210,7 @@ ShellRoot {
             + "[ \"$(jq -r '.uiSounds' \"$HOME/.config/macbar/settings.json\" 2>/dev/null)\" != false ] && [ ! -f \"${XDG_RUNTIME_DIR:-/tmp}/macshell-gaming.state\" ] && echo snd || echo -; "
             + "jq -r '.lockArtBackground' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.use24h' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
+            + "jq -r '.language // \"auto\"' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo auto; "
             + "jq -c '{f: .lockClockFont, w: .lockClockWeight, m: .lockClockMaterial, t: .lockClockTall, d: .lockClockDate, i: .lockClockIntensity, c: .lockClockTint}' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo '{}'"]
         stdout: StdioCollector {
             onStreamFinished: {
@@ -225,7 +226,9 @@ ShellRoot {
                 lockState.sounds = (l[7] || "").trim() === "snd";
                 lockState.artBg = (l[8] || "true").trim() !== "false";
                 lockState.use24h = (l[9] || "true").trim() !== "false";
-                if (!Quickshell.env("MACLOCK_CLOCK")) { try { lockState.clockCfg = JSON.parse((l[10] || "{}").trim() || "{}"); } catch (e) { } }
+                var lang = (l[10] || "auto").trim();
+                Qt.uiLanguage = (lang === "auto" || lang === "null") ? "" : lang;
+                if (!Quickshell.env("MACLOCK_CLOCK")) { try { lockState.clockCfg = JSON.parse((l[11] || "{}").trim() || "{}"); } catch (e) { } }
                 if (!root.preview) lockState.sound("lock");
             }
         }
