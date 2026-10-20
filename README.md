@@ -60,7 +60,7 @@ Best icon pack for the shell: https://github.com/Scrimas/MacOS-Like
 **Control Center**
 
 <p align="center">
-  <img width="371" alt="MacShell Control Center" src="https://github.com/user-attachments/assets/681238c7-a661-44a4-8b37-6cbb0b162c87" />
+  <img width="313" height="510" alt="image" src="https://github.com/user-attachments/assets/cb6c5708-5786-4328-89bd-24737d39e482" />
 </p>
 
 ### MacLock
