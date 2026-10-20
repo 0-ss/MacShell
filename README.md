@@ -8,7 +8,7 @@
 <p align="center">
   <img width="854" alt="MacShell quick showcase" src="https://github.com/user-attachments/assets/b75da31c-73a3-4830-af70-2e0b74f85bf0" />
   <br>
-  <sub>Quick showcase</sub>
+  <sub>Quick showcase (OLD)</sub>
 </p>
 
 <p align="center">
