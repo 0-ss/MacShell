@@ -1174,6 +1174,7 @@ write_macshell_lua() {
 -- autostart (remove other bars / docks / notification daemons first).
 -- install.sh adds this for you; macshell-start waits for the compositor and restarts the shell if it crashes.
 hl.on("hyprland.start", function()
+    hl.exec_cmd("awww-daemon")
     hl.exec_cmd("sh ~/.local/bin/macshell-start")
 end)
 -- The Settings window floats and centres itself when it opens, so it needs no window rule.
