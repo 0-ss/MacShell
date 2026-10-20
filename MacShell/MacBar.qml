@@ -3824,9 +3824,20 @@ Scope {
     function hhmmToMin(t) { var m = /T(\d+):(\d+)/.exec(t || ""); return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : -1; }
     // Sets a picture as the real desktop wallpaper: awww first (its daemon is started if needed), then the other daemons.
     // $1 = image path. Also stops a running animated wallpaper (mpvpaper) so it does not stay on top of the picture.
+    // Clear the watched state before stopping mpvpaper; otherwise the live-wallpaper supervisor respawns it.
+    readonly property string stopVideoScript: [
+        'state="$HOME/.config/macshell/wallpaper-video"',
+        'rm -f "$state" "$HOME/.config/macshell/wallpaper-video-play" "$HOME/.config/macshell/wallpaper-video-glass"',
+        'supfile="$HOME/.cache/macshell/wallsup.pid"',
+        'if [ -f "$supfile" ]; then g=$(cat "$supfile" 2>/dev/null); case "$g" in ""|*[!0-9]*) ;; *) kill -TERM -- "-$g" 2>/dev/null ;; esac; rm -f "$supfile"; fi',
+        'pkill -CONT -x mpvpaper >/dev/null 2>&1',
+        'pkill -TERM -x mpvpaper >/dev/null 2>&1',
+        'for i in 1 2 3 4 5; do pgrep -x mpvpaper >/dev/null || break; sleep 0.1; done',
+        'pkill -KILL -x mpvpaper >/dev/null 2>&1'
+    ].join("\n")
     readonly property string awwwScript: [
         'p="$1"',
-        'pkill -x mpvpaper >/dev/null 2>&1',
+        root.stopVideoScript,
         'if command -v awww >/dev/null 2>&1; then',
         '  if ! awww query >/dev/null 2>&1; then',
         '    if command -v awww-daemon >/dev/null 2>&1; then setsid awww-daemon >/dev/null 2>&1 & fi',
@@ -3893,7 +3904,7 @@ Scope {
         root.wallpaperPath = path;                                            // the glass refracts the new image straight away
         try { if (root.hub && root.hub.dock) root.hub.dock.wallpaperPath = path; } catch (e) {}
         var cmd = (root.wallpaperCmd || "").trim();
-        var script = cmd !== "" ? cmd.split("{}").join('"$1"') : root.awwwScript;
+        var script = cmd !== "" ? root.stopVideoScript + "\n" + cmd.split("{}").join('"$1"') : root.awwwScript;
         wpApplyProc.command = ["sh", "-c", script, "sh", path];
         wpApplyProc.running = true;
     }
@@ -3909,7 +3920,7 @@ Scope {
         var p = wpRestorePath;
         if (p === "") return;
         var cmd = (wallpaperCmd || "").trim();
-        var script = cmd !== "" ? '[ -f "$1" ] || exit 0\n' + cmd.split("{}").join('"$1"')
+        var script = cmd !== "" ? '[ -f "$1" ] || exit 0\n' + root.stopVideoScript + "\n" + cmd.split("{}").join('"$1"')
                                 : '[ -f "$1" ] || exit 0\nif command -v awww >/dev/null 2>&1 && awww query 2>/dev/null | grep -qF -- "$1"; then exit 0; fi\n' + root.awwwScript;
         wpApplyProc.command = ["sh", "-c", script, "sh", p];
         wpApplyProc.running = true;
