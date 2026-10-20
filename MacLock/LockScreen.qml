@@ -1082,63 +1082,42 @@ Item {
     Timer { id: lyrFetchDelay; interval: 400; onTriggered: { ls.lyrTries = 0; ls.fetchLyrics(); } }
     property int lyrTries: 0
     Timer { id: lyrRetry; interval: 12000; onTriggered: ls.fetchLyrics() }
+    readonly property string lyricsScript: decodeURIComponent(Qt.resolvedUrl("lyrics_fetcher.py").toString().replace(/^file:\/\//, ""))
     function fetchLyrics() {
         if (!ls.isPrimary || !media.pl || !(media.pl.trackTitle || "")) { lyrLines = []; lyrStatus = "idle"; return; }
         lyrLines = []; lyrStatus = "loading";
         var len = media.pl.lengthSupported ? Math.round(media.pl.length) : 0;
         lyrProc.running = false;
-        lyrProc.command = ["sh", "-c", ls.lyrScript, "sh", media.pl.trackArtist || "", media.pl.trackTitle || "", media.pl.trackAlbum || "", len > 0 ? String(len) : ""];
+        lyrProc.command = ["python3", ls.lyricsScript, media.pl.trackTitle || "", media.pl.trackArtist || "", media.pl.trackAlbum || "", len > 0 ? String(len) : "0"];
         lyrProc.running = true;
     }
-    readonly property string lyrScript: [
-        'a="$1"; t="$2"; al="$3"; d="${4:-0}"; c="$HOME/.cache/maclock/lyrics"; mkdir -p "$c"',
-        'k=$(printf "%s|%s" "$a" "$t" | md5sum | cut -c1-16); f="$c/$k.json"',
-        '[ -s "$f" ] && { cat "$f"; exit 0; }',
-        'tmp=$(mktemp); answered=0; r=""',
-        // titles like "Song (feat. X)" / "Song - Remastered 2011": also try the bare title
-        'bare=$(printf "%s" "$t" | sed -E "s/ *[(\\[][^)\\]]*[)\\]]//g; s/ +- +(.*[Rr]emaster.*|[Ll]ive.*|[Rr]adio [Ee]dit.*)$//")',
-        // ── 1. NetEase Cloud Music: fast, not rate-limited. Same title + same length (±4 s) or it doesn't count.
-        'ne() { code=$(curl -s --max-time 6 -A "Mozilla/5.0" -o "$tmp" -w "%{http_code}" -G "https://music.163.com/api/search/get" --data-urlencode "s=$1" -d type=1 -d limit=10); [ "$code" = 200 ] || return 1; answered=1',
-        '  id=$(jq -r --arg t "$bare" --argjson d "$d" \'def n: ascii_downcase | gsub("[^\\\\p{L}\\\\p{N}]"; ""); ($t | n) as $q | [.result.songs[]? | select((.name | n) as $nm | ($nm == $q) or ($nm | startswith($q)) or ($q | startswith($nm))) | select($d == 0 or (((.duration / 1000) - $d) | fabs) <= 4)][0].id // empty\' "$tmp")',
-        '  [ -n "$id" ] || return 1',
-        '  curl -s --max-time 6 -A "Mozilla/5.0" -o "$tmp" "https://music.163.com/api/song/lyric?id=$id&lv=1" || return 1',
-        '  l=$(jq -r ".lrc.lyric // empty" "$tmp"); case "$l" in *"[0"*|*"[1"*) ;; *) return 1;; esac',
-        '  r=$(jq -nc --arg l "$l" "{syncedLyrics: \\$l}"); }',
-        'ne "$a $bare" || ne "$bare"',
-        // ── 2. LRCLIB (rate-limited per second: wait and retry briefly), length-checked too
-        'ua="MacLock/1.0 (https://github.com/0-ss/Macshell)"; api=https://lrclib.net/api',
-        'req() { n=0; while [ $n -lt 2 ]; do code=$(curl -s --max-time 8 -A "$ua" -o "$tmp" -w "%{http_code}" -G "$@"); case "$code" in 200) answered=1; return 0;; 404) answered=1; return 1;; 429) n=$((n+1)); sleep 1.5;; *) return 1;; esac; done; return 1; }',
-        'pick=\'[.[] | select(.syncedLyrics != null or .plainLyrics != null) | select($d == 0 or (((.duration // 0) - $d) | fabs) <= 4)] | ([.[] | select(.syncedLyrics != null)][0] // .[0]) // empty\'',
-        'lsearch() { req "$api/search" "$@" && r=$(jq -c --argjson d "$d" "$pick" "$tmp"); }',
-        '[ -z "$r" ] && lsearch --data-urlencode "track_name=$t" --data-urlencode "artist_name=$a"',
-        '[ -z "$r" ] && [ "$bare" != "$t" ] && lsearch --data-urlencode "track_name=$bare" --data-urlencode "artist_name=$a"',
-        '[ -z "$r" ] && lsearch --data-urlencode "q=$a $bare"',
-        'rm -f "$tmp"',
-        'if [ -n "$r" ]; then printf "%s" "$r" | jq -c "{synced: .syncedLyrics, plain: .plainLyrics, instrumental: .instrumental}" | tee "$f"',
-        // a source really answered and nobody has it: remember; otherwise (offline / still limited) let the UI retry
-        'elif [ "$answered" = 1 ]; then echo "{}" | tee "$f"',
-        'else echo "{\\"retry\\":true}"; fi'
-    ].join("\n")
     Process {
         id: lyrProc
         stdout: StdioCollector {
             onStreamFinished: {
                 var o = {};
-                try { o = JSON.parse(text || "{}"); } catch (e) { o = {}; }
+                try {
+                    var s = String(text || "{}").trim();
+                    var b1 = s.indexOf("{"), b2 = s.lastIndexOf("}");
+                    if (b1 >= 0 && b2 > b1) o = JSON.parse(s.substring(b1, b2 + 1));
+                    else o = JSON.parse(s);
+                } catch (e) { o = {}; }
                 var out = [], i, m;
-                if (o.synced) {
-                    var ls2 = o.synced.split("\n");
+                var syncedText = o.synced || o.syncedLyrics;
+                var plainText = o.plain || o.plainLyrics;
+                if (syncedText) {
+                    var ls2 = syncedText.split("\n");
                     for (i = 0; i < ls2.length; i++) {
                         var line = ls2[i], tags = [], re = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
                         while ((m = re.exec(line)) !== null) tags.push(parseInt(m[1]) * 60 + parseFloat(m[2]));
-                        var txt = line.replace(/\[[^\]]*\]/g, "").trim();
+                        var txt = line.replace(/\[[^\]]*\]/g, "").replace(/<[^>]*>/g, "").trim();
                         if (/^(制作人|作词|作曲|编曲|混音|母带|制作|和声|吉他|贝斯|鼓|录音|监制|出品|发行|OP|SP|Producer|Lyricist|Composer|Lyrics|Composed|Written)\s*[:：]/i.test(txt)) continue;
                         for (var j = 0; j < tags.length; j++) out.push({ t: tags[j], text: txt });
                     }
                     out.sort(function (a, b) { return a.t - b.t; });
                     ls.lyrLines = out; ls.lyrStatus = out.length > 0 ? "synced" : "none";
-                } else if (o.plain) {
-                    var pl = o.plain.split("\n");
+                } else if (plainText) {
+                    var pl = plainText.split("\n");
                     for (i = 0; i < pl.length; i++) out.push({ t: -1, text: pl[i].trim() });
                     ls.lyrLines = out; ls.lyrStatus = "plain";
                 } else if (o.retry) {
@@ -1222,33 +1201,83 @@ Item {
                         id: ln
                         required property var modelData
                         required property int index
-                        readonly property int rel: ls.lyrCur < 0 ? 0 : index - ls.lyrCur
                         readonly property bool cur: ls.lyrStatus === "synced" && index === ls.lyrCur
+                        readonly property int rel: ls.lyrCur < 0 ? 0 : index - ls.lyrCur
+                        readonly property bool hovered: hov.hovered
                         readonly property bool gap: (modelData.text || "") === ""
+                        readonly property var words: !gap ? modelData.text.trim().split(/\s+/) : []
+                        readonly property real lineStart: modelData.t
+                        readonly property real lineEnd: (index + 1 < ls.lyrLines.length && ls.lyrLines[index + 1].t > lineStart)
+                                                        ? ls.lyrLines[index + 1].t
+                                                        : (lineStart + Math.max(2.8, words.length * 0.45))
+                        readonly property real lineDur: Math.max(0.6, lineEnd - lineStart)
+
                         width: lyrCol.width
-                        height: gap ? 34 * ls.u : lt.implicitHeight
+                        height: gap ? 34 * ls.u : (flowWrap.implicitHeight + 12 * ls.u)
                         // Apple Music's wave: every line follows the scroll on its own spring, lines further down a little later
                         transform: Translate {
                             id: lnTr
                             y: -lyr.target
                             Behavior on y { NumberAnimation { duration: 500 + Math.max(0, Math.min(8, ln.rel)) * 20; easing.type: Easing.OutQuint } }
                         }
-                        opacity: ls.lyrStatus !== "synced" ? 0.9 : (cur ? 1 : (Math.abs(rel) === 1 ? 0.42 : 0.26))
+                        opacity: ls.lyrStatus !== "synced" ? 0.9 : (ln.cur ? 1 : (hovered ? 0.85 : (Math.abs(rel) === 1 ? 0.42 : 0.22)))
                         Behavior on opacity { NumberAnimation { duration: 380 } }
-                        Text {
-                            id: lt
+
+                        Item {
+                            id: lineWrap
                             visible: !ln.gap
                             width: parent.width
-                            text: ln.modelData.text
-                            wrapMode: Text.WordWrap
-                            color: "white"
-                            font.family: ls.fam; font.pixelSize: 31 * ls.u; font.weight: Font.Bold
-                            lineHeight: 1.08
+                            height: flowWrap.implicitHeight
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: ln.cur ? 8 * ls.u : 0
+                            scale: ln.cur || ls.lyrStatus !== "synced" ? 1.0 : (ln.hovered ? 0.98 : 0.94)
                             transformOrigin: Item.Left
-                            scale: ln.cur || ls.lyrStatus !== "synced" ? 1 : 0.965
+                            Behavior on x { NumberAnimation { duration: 450; easing.type: Easing.OutBack } }
                             Behavior on scale { NumberAnimation { duration: 420; easing.type: Easing.OutQuint } }
+
+                            Flow {
+                                id: flowWrap
+                                width: parent.width
+                                spacing: 8 * ls.u
+
+                                Repeater {
+                                    model: ln.words
+                                    delegate: Text {
+                                        id: wTxt
+                                        required property var modelData
+                                        required property int index
+
+                                        readonly property real wFrac: ln.words.length > 0 ? (index / ln.words.length) : 0
+                                        readonly property real wStart: ln.lineStart + wFrac * ln.lineDur
+                                        readonly property real wDur: ln.words.length > 0 ? (ln.lineDur / ln.words.length) : 0.4
+                                        readonly property real rawProg: ln.cur ? ((ls.estPos - wStart) / Math.max(0.18, wDur)) : (ln.index < ls.lyrCur ? 1.0 : 0.0)
+                                        readonly property real prog: Math.max(0.0, Math.min(1.0, rawProg))
+                                        readonly property bool activeNow: ln.cur && prog > 0.05 && prog < 0.96
+
+                                        text: modelData
+                                        font.family: ls.fam
+                                        font.pixelSize: (ln.cur ? 33 : 30) * ls.u
+                                        font.weight: ln.cur ? (prog > 0.1 ? Font.Bold : Font.DemiBold) : Font.DemiBold
+
+                                        color: (ls.lyrStatus !== "synced" || !ln.cur) ? "white" : (prog > 0.05 ? "#FFFFFF" : Qt.rgba(1, 1, 1, 0.42))
+                                        opacity: {
+                                            if (ls.lyrStatus !== "synced") return 0.9;
+                                            if (!ln.cur) return ln.hovered ? 0.90 : 1.0;
+                                            return 0.42 + 0.58 * prog;
+                                        }
+
+                                        scale: activeNow ? 1.06 : 1.0
+                                        transformOrigin: Item.Left
+                                        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+                                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutQuad } }
+                                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutQuad } }
+                                    }
+                                }
+                            }
+
                             // lines away from the current one go soft, like Apple Music (only near lines get a blur layer)
-                            layer.enabled: ls.lyrStatus === "synced" && !ln.cur && Math.abs(ln.rel) <= 6
+                            layer.enabled: ls.lyrStatus === "synced" && !ln.cur && !ln.hovered && Math.abs(ln.rel) <= 6 && height > 0
+                            layer.sourceRect: Qt.rect(-12, -8, width + 24, height + 16)
                             layer.effect: MultiEffect { blurEnabled: true; blurMax: 16; blur: Math.min(0.55, 0.14 * Math.abs(ln.rel)) }
                         }
                         // instrumental break: three breathing dots
@@ -1284,7 +1313,7 @@ Item {
                                 lyr.manual = 0; ls.st.poke();
                             }
                         }
-                        HoverHandler { enabled: ln.inBand && ls.lyrStatus === "synced"; cursorShape: Qt.PointingHandCursor }
+                        HoverHandler { id: hov; enabled: ln.inBand && ls.lyrStatus === "synced"; cursorShape: Qt.PointingHandCursor }
                     }
                 }
             }

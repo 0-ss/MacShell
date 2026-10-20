@@ -364,6 +364,7 @@ Scope {
     property string lrcArtist: ""
     property string lrcAlbum: ""
     property string lrcDur: ""
+    readonly property string lyricsScript: decodeURIComponent(Qt.resolvedUrl("lyrics_fetcher.py").toString().replace(/^file:\/\//, ""))
     readonly property string trackKey: player ? (player.trackTitle + "|" + player.trackArtist + "|" + player.trackAlbum + "|"
                                                   + Math.round(player.lengthSupported ? player.length : 0)) : ""
     onTrackKeyChanged: {
@@ -388,7 +389,7 @@ Scope {
             var line = lines[i], re = /\[(\d+):(\d+(?:\.\d+)?)\]/g, times = [], m;
             while ((m = re.exec(line)) !== null) times.push(parseInt(m[1]) * 60 + parseFloat(m[2]));
             if (times.length === 0) continue;
-            var text = line.replace(/\[[^\]]*\]/g, "").trim();
+            var text = line.replace(/\[[^\]]*\]/g, "").replace(/<[^>]*>/g, "").trim();
             for (var j = 0; j < times.length; j++) out.push({ t: times[j], text: text });
         }
         out.sort(function (a, b) { return a.t - b.t; });
@@ -396,22 +397,29 @@ Scope {
     }
     function applyLyrics(raw) {
         var o = null;
-        try { o = JSON.parse(raw); } catch (err) { }
+        try {
+            var s = String(raw).trim();
+            var b1 = s.indexOf("{"), b2 = s.lastIndexOf("}");
+            if (b1 >= 0 && b2 > b1) o = JSON.parse(s.substring(b1, b2 + 1));
+            else o = JSON.parse(s);
+        } catch (err) { }
         if (Array.isArray(o)) {                           // search fallback: prefer a result with synced lyrics
             var pick = null;
             for (var i = 0; i < o.length; i++) {
-                if (o[i].syncedLyrics) { pick = o[i]; break; }
-                if (!pick && o[i].plainLyrics) pick = o[i];
+                if (o[i].syncedLyrics || o[i].synced) { pick = o[i]; break; }
+                if (!pick && (o[i].plainLyrics || o[i].plain)) pick = o[i];
             }
             o = pick;
         }
-        if (!o || o.instrumental) { lyricsLines = []; lyricsSynced = false; lyricsState = "none"; return; }
-        if (o.syncedLyrics) {
-            var l = parseLrc(o.syncedLyrics);
+        if (!o || o.instrumental || o.error) { lyricsLines = []; lyricsSynced = false; lyricsState = "none"; return; }
+        var syncedText = o.synced || o.syncedLyrics;
+        if (syncedText) {
+            var l = parseLrc(syncedText);
             if (l.length > 0) { lyricsLines = l; lyricsSynced = true; lyricsState = "ok"; return; }
         }
-        if (o.plainLyrics) {
-            var ps = String(o.plainLyrics).split(/\r?\n/), pl = [];
+        var plainText = o.plain || o.plainLyrics;
+        if (plainText) {
+            var ps = String(plainText).split(/\r?\n/), pl = [];
             for (var k = 0; k < ps.length; k++) if (ps[k].trim() !== "") pl.push({ t: -1, text: ps[k].trim() });
             if (pl.length > 0) { lyricsLines = pl; lyricsSynced = false; lyricsState = "ok"; return; }
         }
@@ -419,12 +427,7 @@ Scope {
     }
     Process {
         id: lrcProc
-        command: ["sh", "-c",
-            "UA='macshell-widgets (quickshell)'; "
-            + "curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/get --data-urlencode \"track_name=$1\" --data-urlencode \"artist_name=$2\" "
-            + "--data-urlencode \"album_name=$3\" -d \"duration=$4\" 2>/dev/null "
-            + "|| curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/search --data-urlencode \"q=$2 $1\"",
-            "sh", root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur]
+        command: ["python3", root.lyricsScript, root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur]
         stdout: StdioCollector {
             onStreamFinished: {
                 if (root.lyricsReqKey !== root.trackKey) {            // the song changed while we were asking
@@ -770,7 +773,7 @@ Scope {
 
     IpcHandler {
         target: "widgets"
-        function refresh(): void { root.refresh(); }
-        function edit(on: bool): void { root.editing = on; }
+        function refresh() { root.refresh(); }
+        function edit(on: bool) { root.editing = on; }
     }
 }
