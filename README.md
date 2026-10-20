@@ -222,7 +222,7 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    The installer will create a new .lua file in your /.config/hypr/ that have keybinds and auto start, so you don't need to to manually bind MacShell.
    
    It installs **MacShell** to `~/.config/quickshell/MacShell` and **MacLock** to `~/.config/quickshell/MacLock`,
-   and adds the autostart and heybinds to your Hyprland config: a block in `macshell.lua` which is located here `/.config/hypr/` (Hyprland 0.55+),
+   and adds the autostart and keybinds to your Hyprland config: a .lua file called `macshell.lua` which is located here `/.config/hypr/` (Hyprland 0.55+),
    when there is no Lua config. The block runs `~/.local/bin/macshell-start`, which waits for
    the compositor, never starts a second copy and restarts the shell if it crashes. Remove the block between the
    `MacShell (added by install.sh)` markers to undo it. Your settings are never touched, and the previous
