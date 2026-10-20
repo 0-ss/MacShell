@@ -21,8 +21,8 @@
 #      sounds to               ~/.local/share/sounds/macshell       (shipped ones, plus the rest synthesized by macshell-make-sounds.py)
 #      the update tool to      ~/.local/share/macshell/bin/macshell-update  (+ ~/.local/bin/macshell-update)
 #      the start script to     ~/.local/share/macshell/bin/macshell-start   (+ ~/.local/bin/macshell-start)
-#   4. adds the autostart to your Hyprland config: a Lua block in hyprland.lua (Hyprland 0.55+), or an exec-once line
-#      in hyprland.conf. It never writes to a config Hyprland is not using.
+#   4. installs ~/.config/hypr/macshell.lua with the autostart and keybinds, then loads it from hyprland.lua
+#      (Hyprland 0.55+), or adds an exec-once line to hyprland.conf. It never writes to a config Hyprland is not using.
 #   5. optionally sets up automatic updates (a daily systemd user timer)
 #
 # Updates
@@ -85,6 +85,8 @@ LINK_DIR="$HOME/.local/bin"
 HYPR_DIR="$CONFIG_HOME/hypr"
 MARK_BEGIN="-- >>> MacShell (added by install.sh) >>>"
 MARK_END="-- <<< MacShell <<<"
+MACLUA_BEGIN="-- >>> MacShell module (added by install.sh) >>>"
+MACLUA_END="-- <<< MacShell module <<<"
 CONF_BEGIN="# >>> MacShell (added by install.sh) >>>"
 CONF_END="# <<< MacShell <<<"
 
@@ -224,6 +226,11 @@ remove_hypr_blocks() {
     for f in "$HYPR_DIR/hyprland.lua"; do
         [ -f "$f" ] && grep -qF -- "$MARK_BEGIN" "$f" && { sed -i "\|$MARK_BEGIN|,\|$MARK_END|d" "$f"; ok "removed the MacShell block from $f"; }
     done
+    f="$HYPR_DIR/macshell.lua"
+    if [ -f "$f" ] && grep -qF -- "$MACLUA_BEGIN" "$f"; then
+        if [ -f "$f.macshell-backup" ]; then mv -f "$f.macshell-backup" "$f"; else rm -f "$f"; fi
+        ok "removed the generated MacShell module from $f"
+    fi
     f="$HYPR_DIR/hyprland.conf"
     [ -f "$f" ] && grep -qF -- "$CONF_BEGIN" "$f" && { sed -i "\|$CONF_BEGIN|,\|$CONF_END|d" "$f"; ok "removed the MacShell block from $f"; }
     return 0
@@ -1125,6 +1132,7 @@ install_extras() {
     fi
     write_start_script
     ok "start script -> $BIN_DIR/macshell-start"
+    if [ "$SKIP_AUTOSTART" != 1 ] || [ "$UPDATE_MODE" = 1 ]; then write_macshell_lua; fi
     # a copy of this installer: run  macshell-install  any time to update, check dependencies or run the doctor
     if [ -f "$root/install.sh" ]; then
         cp -f "$root/install.sh" "$BIN_DIR/.macshell-install.new" && chmod +x "$BIN_DIR/.macshell-install.new" \
@@ -1153,10 +1161,45 @@ write_state() {
 # actually looks. (The old installer always wrote "exec-once" into hyprland.conf, which a Lua session never reads.)
 START_CMD() { printf 'sh %s' "$LINK_DIR/macshell-start"; }
 
+write_macshell_lua() {
+    mkdir -p "$HYPR_DIR"
+    local f="$HYPR_DIR/macshell.lua"
+    if [ -f "$f" ] && ! grep -qF -- "$MACLUA_BEGIN" "$f" && [ ! -e "$f.macshell-backup" ]; then
+        cp -p "$f" "$f.macshell-backup"
+        ok "saved the existing $f to $f.macshell-backup"
+    fi
+    {
+        printf '%s\n' "$MACLUA_BEGIN"
+        cat <<'MACSHELL_LUA'
+-- autostart (remove other bars / docks / notification daemons first).
+-- install.sh adds this for you; macshell-start waits for the compositor and restarts the shell if it crashes.
+hl.on("hyprland.start", function()
+    hl.exec_cmd("sh ~/.local/bin/macshell-start")
+end)
+-- The Settings window floats and centres itself when it opens, so it needs no window rule.
+
+-- keybinds (the name after -c is the config folder name, case-sensitive)
+local qs = "qs -c MacShell ipc call "
+
+hl.bind("SUPER + V",          hl.dsp.exec_cmd(qs .. "spotlight clipboard"))
+hl.bind("SUPER + period",     hl.dsp.exec_cmd(qs .. "spotlight emoji"))
+hl.bind("SUPER + Space",      hl.dsp.exec_cmd(qs .. "spotlight toggle"))
+hl.bind("ALT + TAB",          hl.dsp.exec_cmd(qs .. "switcher next"))
+hl.bind("CTRL + ALT + W",     hl.dsp.exec_cmd(qs .. "wallpapers toggle"))
+hl.bind("PRINT",              hl.dsp.exec_cmd(qs .. "screenshot region"))
+
+-- MacLock (lock screen)
+hl.bind("SUPER + L",          hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"))
+MACSHELL_LUA
+        printf '%s\n' "$MACLUA_END"
+    } > "$f"
+    ok "MacShell autostart and keybinds -> $f"
+}
+
 lua_block() { # lua_block <with-rules 0|1>
     printf '%s\n' "$MARK_BEGIN"
-    printf '%s\n' '-- autostart: waits for the compositor, restarts MacShell if it crashes (remove this block to undo)'
-    printf 'hl.on("hyprland.start", function()\n    hl.exec_cmd("%s")\nend)\n' "$(START_CMD)"
+    printf '%s\n' '-- Load the generated MacShell autostart and keybind module.'
+    printf '%s\n' 'require("macshell")'
     if [ "${1:-0}" = 1 ]; then
         printf '%s\n' '-- Liquid Glass: blur behind the shell surfaces'
         printf '%s\n' 'hl.layer_rule({ name = "macdock",  match = { namespace = "macdock"  }, blur = true, ignore_alpha = 0.2,  no_anim = true })'
@@ -1179,17 +1222,21 @@ add_autostart() {
             { echo; lua_block "$had_rules"; } >> "$lua"
             ok "autostart block in $lua refreshed"
         elif grep -Eq "macshell-start|(qs|quickshell)[[:space:]]+(-c|--config)[[:space:]]+$NAME" "$lua"; then
-            ok "$lua already starts MacShell"
-        elif confirm "Start MacShell automatically with Hyprland (adds a block to $lua)?" y; then
+            if ! grep -qF 'require("macshell")' "$lua" && ! grep -qF 'macshell.lua' "$lua"; then
+                cp -f "$lua" "$lua.macshell-backup"
+                { echo; lua_block 0; } >> "$lua"
+                ok "added the MacShell module loader to $lua (backup: $lua.macshell-backup)"
+                have hyprctl && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl reload >/dev/null 2>&1 && ok "Hyprland config reloaded"
+            else
+                ok "$lua already loads the MacShell module"
+            fi
+        else
             if [ "$SKIP_RULES" != 1 ] && ! grep -q 'namespace *= *"macdock"' "$lua" \
                && confirm "Also add the Liquid Glass layer rules (blur behind the Dock and menus)?" y; then rules=1; fi
             cp -f "$lua" "$lua.macshell-backup"
             { echo; lua_block "$rules"; } >> "$lua"
             ok "added the autostart to $lua (backup: $lua.macshell-backup)"
             have hyprctl && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl reload >/dev/null 2>&1 && ok "Hyprland config reloaded"
-        else
-            say "  To start MacShell with Hyprland, add this to $lua:"
-            lua_block 0 | sed 's/^/      /'
         fi
     elif [ -f "$conf" ]; then
         if grep -qF -- "$CONF_BEGIN" "$conf"; then
@@ -1198,7 +1245,7 @@ add_autostart() {
             ok "autostart line in $conf refreshed"
         elif grep -Eq "macshell-start|(qs|quickshell)[[:space:]]+(-c|--config)[[:space:]]+$NAME" "$conf"; then
             ok "$conf already starts MacShell"
-        elif confirm "Start MacShell automatically with Hyprland (adds a line to $conf)?" y; then
+        else
             cp -f "$conf" "$conf.macshell-backup"
             { echo; printf '%s\nexec-once = %s\n%s\n' "$CONF_BEGIN" "$(START_CMD)" "$CONF_END"; } >> "$conf"
             ok "added the autostart to $conf (backup: $conf.macshell-backup)"
@@ -1206,7 +1253,7 @@ add_autostart() {
         fi
     else
         say "  No Hyprland config found in $HYPR_DIR. Start MacShell from your autostart with:"
-        say "      Lua:   hl.on(\"hyprland.start\", function() hl.exec_cmd(\"$(START_CMD)\") end)"
+        say '      Lua:   require("macshell")'
         say "      conf:  exec-once = $(START_CMD)"
     fi
     if pgrep -x waybar >/dev/null 2>&1 || pgrep -x hyprpanel >/dev/null 2>&1; then
