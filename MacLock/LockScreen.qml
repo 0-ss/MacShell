@@ -106,9 +106,44 @@ Item {
                     saturation: 0.25
                     brightness: -0.16
                     // new: fades in with the hand-over; old: only there while it's being covered
-                    opacity: index === 1 ? ls.bgProg : (ls.bgProg < 1 ? 1 : 0)
+                    opacity: (ls.canvasVideo !== "" ? 0 : 1) * (index === 1 ? ls.bgProg : (ls.bgProg < 1 ? 1 : 0))
+                    Behavior on opacity { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
                     visible: img.status === Image.Ready && opacity > 0.003
                     z: index
+                }
+            }
+        }
+        // ── Fullscreen Animated Canvas Background ──
+        Loader {
+            id: canvasBgLoader
+            anchors.fill: parent
+            active: ls.canvasVideo !== "" && ls.artT > 0.005
+            opacity: ls.canvasVideo !== "" ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 550; easing.type: Easing.OutCubic } }
+            z: 3
+            sourceComponent: Item {
+                MediaPlayer {
+                    id: bgMp
+                    source: ls.canvasVideo !== "" ? "file://" + ls.canvasVideo : ""
+                    loops: MediaPlayer.Infinite
+                    videoOutput: bgVo
+                    audioOutput: null
+                    Component.onCompleted: play()
+                    onSourceChanged: {
+                        if (source !== "") {
+                            play();
+                        }
+                    }
+                }
+                VideoOutput {
+                    id: bgVo
+                    anchors.fill: parent
+                    fillMode: VideoOutput.PreserveAspectCrop
+                }
+                // Cinematic dark overlay so clock and text stay perfectly readable
+                Rectangle {
+                    anchors.fill: parent
+                    color: Qt.rgba(0, 0, 0, 0.20)
                 }
             }
         }
@@ -130,13 +165,13 @@ Item {
         sourceItem: scene
         // with a video wallpaper the scene changes every frame: the glass copy refreshes at 12 fps instead
         // (blur + every glass shader re-running 30-60x a second was the main GPU cost on the lock screen)
-        live: !wallVideo.active
+        live: !wallVideo.active && !(ls.canvasVideo !== "" && ls.artT > 0.05)
         visible: false
         textureSize: Qt.size(Math.max(1, Math.round(ls.width / 2)), Math.max(1, Math.round(ls.height / 2)))
     }
     Timer {
         interval: 83; repeat: true
-        running: wallVideo.active && ls.shown && !ls.leaving
+        running: (wallVideo.active || (ls.canvasVideo !== "" && ls.artT > 0.05)) && ls.shown && !ls.leaving
         onTriggered: sceneTex.scheduleUpdate()
     }
     MultiEffect {
@@ -604,7 +639,8 @@ Item {
     // ═════════════ COVER HAND-OVER ═════════════
     // Two picture slots. A new cover loads into the back slot; once it's there (or after 1.5 s) the bubble's cover
     // "burns" over to it (burn.frag) and the blurred album background cross-fades, both in step.
-    readonly property string coverUrl: media.pl && media.pl.trackArtUrl ? media.pl.trackArtUrl : ""
+    property string localCoverUrl: ""
+    readonly property string coverUrl: localCoverUrl !== "" ? localCoverUrl : (media.pl && media.pl.trackArtUrl ? media.pl.trackArtUrl : "")
     property int coverIdx: 0
     property real coverProg: 1
     property real coverSeed: 0
@@ -824,8 +860,10 @@ Item {
             // the cover leaves the glass bubble: it is drawn on the screen itself, above the bubble
             parent: ls
             z: media.z + 1
-            visible: media.visible
-            opacity: media.opacity
+            readonly property bool hideCenterArt: ls.canvasVideo !== "" && (ls.canvasSource === "applemusic" || ls.canvasOfficial)
+            visible: media.visible && opacity > 0.001
+            opacity: media.opacity * (hideCenterArt ? (1 - ls.artT) : 1)
+            Behavior on opacity { NumberAnimation { duration: 400; easing.type: Easing.OutQuint } }
             readonly property real r: (11 * ls.u) + ((28 * ls.u) - (11 * ls.u)) * ls.artT
             x: (media.x + 16 * ls.u) + ((media.x) - (media.x + 16 * ls.u)) * ls.artT
             y: (media.y + 16 * ls.u) + ((media.y - media.bigArt - 24 * ls.u) - (media.y + 16 * ls.u)) * ls.artT
@@ -1062,6 +1100,61 @@ Item {
         }
     }
 
+    // ═════════════ CANVAS VIDEO (Animated Album / Spotify Canvas / Apple Music Motion) ═════════════
+    property string canvasVideo: ""
+    property bool canvasOfficial: false
+    property string canvasSource: ""
+    readonly property string canvasScript: decodeURIComponent(Qt.resolvedUrl("canvas_fetcher.py").toString().replace(/^file:\/\//, ""))
+    function fetchCanvas() {
+        if (!ls.isPrimary || !media.pl || !(media.pl.trackTitle || "")) {
+            canvasVideo = "";
+            canvasSource = "";
+            return;
+        }
+        var cm = (ls.st && ls.st.canvasMode) ? ls.st.canvasMode : "both";
+        if (cm === "off" || cm === "none") {
+            canvasVideo = "";
+            canvasSource = "";
+            return;
+        }
+        var art = ls.coverUrl || "";
+        canvasProc.running = false;
+        canvasProc.command = ["python3", ls.canvasScript, media.pl.trackTitle || "", media.pl.trackArtist || "", media.pl.trackAlbum || "", art, "", "--mode", cm];
+        canvasProc.running = true;
+    }
+    Process {
+        id: canvasProc
+        stdout: SplitParser {
+            onRead: line => {
+                var s = line.trim();
+                if (s === "") return;
+                var o;
+                try {
+                    var b1 = s.indexOf("{"), b2 = s.lastIndexOf("}");
+                    o = (b1 >= 0 && b2 > b1) ? JSON.parse(s.substring(b1, b2 + 1)) : JSON.parse(s);
+                } catch (e) { return; }
+                if (!o) return;
+
+                if (o.type === "art" || o.localArt) {
+                    if (o.localArt) {
+                        ls.localCoverUrl = "file://" + o.localArt;
+                    }
+                }
+                if (o.type === "video" || o.videoPath !== undefined) {
+                    if (o.success && o.videoPath) {
+                        ls.canvasVideo = o.videoPath;
+                        ls.canvasOfficial = !!o.isOfficial;
+                        ls.canvasSource = o.source || "";
+                    } else {
+                        ls.canvasVideo = "";
+                        ls.canvasOfficial = false;
+                        ls.canvasSource = "";
+                    }
+                }
+            }
+        }
+    }
+
     // ═════════════ LYRICS (Apple Music style) ═════════════
     // estimated playback position: MPRIS is polled twice a second, the lyrics need it smooth
     property real posBase: 0
@@ -1077,9 +1170,17 @@ Item {
     // lyrics for the current track: LRCLIB (free, synced LRC), cached in ~/.cache/maclock/lyrics
     property var lyrLines: []              // [{ t: seconds (-1 = unsynced), text }]
     property string lyrStatus: "idle"      // idle | loading | synced | plain | none
-    readonly property string trackKey: media.pl ? (media.pl.trackArtist || "") + "\u0001" + (media.pl.trackTitle || "") : ""
-    onTrackKeyChanged: lyrFetchDelay.restart()
+    readonly property string trackKey: (media.pl ? (media.pl.trackArtist || "") + "\u0001" + (media.pl.trackTitle || "") : "") + "\u0001" + ls.coverUrl
+    onTrackKeyChanged: {
+        ls.canvasVideo = "";
+        ls.canvasSource = "";
+        ls.canvasOfficial = false;
+        ls.localCoverUrl = "";
+        lyrFetchDelay.restart();
+        canvasFetchDelay.restart();
+    }
     Timer { id: lyrFetchDelay; interval: 400; onTriggered: { ls.lyrTries = 0; ls.fetchLyrics(); } }
+    Timer { id: canvasFetchDelay; interval: 20; onTriggered: ls.fetchCanvas() }
     property int lyrTries: 0
     Timer { id: lyrRetry; interval: 12000; onTriggered: ls.fetchLyrics() }
     function fetchLyrics() {

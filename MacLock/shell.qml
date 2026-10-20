@@ -68,6 +68,7 @@ ShellRoot {
         property string mediaSlot: "top"    // "top" (under the clock) | "bottom" (above the password field)
         property bool capsLock: false
         property bool use24h: true          // MacShell → Menu Bar → "24-hour clock"
+        property string canvasMode: "both"
         // Settings → Lock Screen → Clock (MACLOCK_CLOCK='{"f":"serif",...}' overrides it, for previews)
         property var clockCfg: { try { return JSON.parse(Quickshell.env("MACLOCK_CLOCK") || "{}"); } catch (e) { return {}; } }
         property bool artBg: true           // blurred album art behind everything while the cover is enlarged (MacShell setting)
@@ -190,6 +191,7 @@ ShellRoot {
             + "[ -n \"$s\" ] && printf '%s' \"$s\" || printf 0; else printf -- -1; fi; echo; "
             + "nmcli -t -f TYPE,STATE dev 2>/dev/null | grep -q '^ethernet:connected$' && echo eth || echo -; "
             + "jq -r '.mediaSlot // \"top\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo top; "
+            + "jq -r '.canvasMode // \"both\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo both; "
             + "[ \"$(jq -r '.uiSounds' \"$HOME/.config/macbar/settings.json\" 2>/dev/null)\" != false ] && [ ! -f \"${XDG_RUNTIME_DIR:-/tmp}/macshell-gaming.state\" ] && echo snd || echo -; "
             + "jq -r '.lockArtBackground' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.use24h' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
@@ -204,12 +206,13 @@ ShellRoot {
                 lockState.wifiLevel = isNaN(s) || s < 0 ? -1 : (s === 0 ? 0 : (s > 66 ? 3 : (s > 33 ? 2 : 1)));
                 lockState.ethernet = (l[3] || "").trim() === "eth";
                 lockState.mediaSlot = (l[4] || "top").trim() === "bottom" ? "bottom" : "top";
-                lockState.sounds = (l[5] || "").trim() === "snd";
-                lockState.artBg = (l[6] || "true").trim() !== "false";
-                lockState.use24h = (l[7] || "true").trim() !== "false";
-                var lang = (l[8] || "auto").trim();
+                lockState.canvasMode = (l[5] || "both").trim();
+                lockState.sounds = (l[6] || "").trim() === "snd";
+                lockState.artBg = (l[7] || "true").trim() !== "false";
+                lockState.use24h = (l[8] || "true").trim() !== "false";
+                var lang = (l[9] || "auto").trim();
                 Qt.uiLanguage = (lang === "auto" || lang === "null") ? "" : lang;
-                if (!Quickshell.env("MACLOCK_CLOCK")) { try { lockState.clockCfg = JSON.parse((l[9] || "{}").trim() || "{}"); } catch (e) { } }
+                if (!Quickshell.env("MACLOCK_CLOCK")) { try { lockState.clockCfg = JSON.parse((l[10] || "{}").trim() || "{}"); } catch (e) { } }
                 if (!root.preview) lockState.sound("lock");
             }
         }
