@@ -1,1 +1,0 @@
--- Your own keybinds overrides for the MacShell session (kept across updates)

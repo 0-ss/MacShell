@@ -1,1 +1,0 @@
--- Your own rules overrides for the MacShell session (kept across updates)
