@@ -39,6 +39,11 @@
 #   -y, --yes             do not ask questions (answer yes)
 #       --no-deps         skip the dependency check
 #       --deps-only       only check / install dependencies, then stop
+#       --hotspot         let Internet Sharing share your connection WITHOUT dropping Wi-Fi: installs a small root
+#                         helper (/usr/local/bin/macshell-ap, it can only add / remove one virtual AP interface) and,
+#                         if you agree, a sudoers line for that one file (Settings → Internet Sharing → Set Up…)
+#       --deps-plan       print what --deps-only would install as one line of JSON (System Settings → Install
+#                         Dependencies reads it), then stop; nothing is installed
 #       --no-services     do not enable system services (bluetooth, NetworkManager, power profiles, PipeWire)
 #       --doctor          check the whole setup (environment, services, wallpaper, shaders, Hyprland) and explain problems
 #       --low-power       settings for older computers (no live window capture, no magnification, plain blur)
@@ -144,6 +149,8 @@ while [ $# -gt 0 ]; do
         -y|--yes) ASSUME_YES=1 ;;
         --no-deps) SKIP_DEPS=1 ;;
         --deps-only) DEPS_ONLY=1; MODE_FLAG=1 ;;
+        --deps-plan) DEPS_PLAN=1; MODE_FLAG=1 ;;
+        --hotspot) HOTSPOT=1; MODE_FLAG=1 ;;
         --no-services) SKIP_SERVICES=1 ;;
         --doctor) DOCTOR=1; MODE_FLAG=1 ;;
         --low-power) LOW_POWER=1 ;;
@@ -286,6 +293,7 @@ OPTIONAL=(
     "powerprofilesctl:power-profiles-daemon:power profiles / Game Mode"
     "inotifywait:inotify-tools:live wallpaper watching, Trash watching"
     "hyprsunset:hyprsunset:Night Shift"
+    "iw:iw:Internet Sharing (the hotspot keeps your Wi-Fi connected)"
     "notify-send:libnotify:notifications from scripts, update notices"
     "awww:awww:setting the wallpaper"
     "mpvpaper:mpvpaper:animated (video) wallpapers"
@@ -377,6 +385,57 @@ pkg_available() { # in the distro's repositories?
 # first alternative of "a|b" that is installed / available (empty if none)
 first_installed() { local a; IFS='|' read -ra alts <<<"$1"; for a in "${alts[@]}"; do pkg_installed "$a" && { printf '%s' "$a"; return 0; }; done; return 1; }
 first_available() { local a; IFS='|' read -ra alts <<<"$1"; for a in "${alts[@]}"; do pkg_available "$a" && { printf '%s' "$a"; return 0; }; done; return 1; }
+
+# --deps-plan: the same lists as check_deps, as JSON for the Install Dependencies window
+#   pacman: {"pacman":true,"have":[…],"repo":[…],"aur":[…],"skipped":[],"upgrades":[…]}   otherwise {"pacman":false,"all":[…]}
+deps_plan() {
+    detect_pm
+    local entry cmd pkg why dp pick have=() repo=() aur=() all=() seen=" "
+    local libs=("${LIBS[@]}" "${LIBS_LOCK[@]}")
+    jarr() { local x out="" ; for x in "$@"; do [ -n "$x" ] && out="$out${out:+,}\"$x\""; done; printf '[%s]' "$out"; }
+    add() { # add <arch-package> <present 0|1>
+        dp=$(pkg_for "$1"); [ -n "$dp" ] || return 0
+        case "$seen" in *" ${dp%%|*} "*) return 0 ;; esac; seen="$seen${dp%%|*} "
+        all+=("${dp%%|*}")
+        if [ "$2" = 1 ] || { [ -n "$PM" ] && first_installed "$dp" >/dev/null; }; then have+=("${dp%%|*}")
+        elif [ -n "$PM" ] && pick=$(first_available "$dp"); then repo+=("$pick")
+        else aur+=("${dp%%|*}"); fi
+    }
+    for entry in "${REQUIRED[@]}" "${OPTIONAL[@]}"; do IFS=: read -r cmd pkg why <<<"$entry"; if have "$cmd"; then add "$pkg" 1; else add "$pkg" 0; fi; done
+    for entry in "${libs[@]}"; do IFS=: read -r pkg why <<<"$entry"; add "$pkg" 0; done
+    if [ "$PM" != pacman ]; then printf '{"pacman":false,"all":%s}\n' "$(jarr "${all[@]}")"; return 0; fi
+    local up=() n
+    if [ "${#repo[@]}" -gt 0 ]; then
+        while read -r n; do pacman -Qq "$n" >/dev/null 2>&1 && up+=("$n"); done < <(pacman -Sp --print-format '%n' "${repo[@]}" 2>/dev/null)
+    fi
+    printf '{"pacman":true,"have":%s,"repo":%s,"aur":%s,"skipped":[],"upgrades":%s}\n' \
+        "$(jarr "${have[@]}")" "$(jarr "${repo[@]}")" "$(jarr "${aur[@]}")" "$(jarr "${up[@]}")"
+}
+[ "${DEPS_PLAN:-0}" = 1 ] && { deps_plan; exit 0; }
+
+# --hotspot: the one privileged piece Internet Sharing needs to keep your Wi-Fi up while it shares it
+do_hotspot() {
+    local src="$HYPR_MAC_DIR/scripts/macshell-ap.sh"
+    [ -f "$src" ] || die "missing $src (install MacShell first)"
+    if [ "$(sh "$src" check 2>/dev/null)" != yes ]; then
+        warn "This Wi-Fi adapter can't run a hotspot and stay connected at the same time."
+        say "  Internet Sharing still works; it takes the adapter over while it is on."
+        return 0
+    fi
+    step "Installing the Internet Sharing helper"
+    say "  It can only add or remove one virtual AP interface, nothing else."
+    sudo install -m 755 "$src" /usr/local/bin/macshell-ap || die "could not install /usr/local/bin/macshell-ap"
+    if confirm "Let it run without asking for a password each time (adds a sudoers line for that one file)?" y; then
+        printf '%%wheel ALL=(root) NOPASSWD: /usr/local/bin/macshell-ap\n' | sudo tee /etc/sudoers.d/macshell-ap >/dev/null
+        sudo chmod 440 /etc/sudoers.d/macshell-ap
+        sudo visudo -cf /etc/sudoers.d/macshell-ap >/dev/null || { sudo rm -f /etc/sudoers.d/macshell-ap; die "sudoers line rejected; nothing was changed"; }
+        ok "/etc/sudoers.d/macshell-ap (remove that file to undo it)"
+    else
+        say "  Settings will ask for your password when you switch Internet Sharing on."
+    fi
+    ok "Internet Sharing now keeps your Wi-Fi connection while it shares it."
+}
+[ "${HOTSPOT:-0}" = 1 ] && { do_hotspot; exit 0; }
 
 install_packages() { # install_packages <distro package names...>
     [ "$#" -gt 0 ] || return 0
@@ -1261,6 +1320,14 @@ hl.window_rule({
 
 -- MacLock (lock screen)
 hl.bind("SUPER + L",          hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"))
+
+
+-- the Install Dependencies window floats in the middle, like Settings
+hl.window_rule({ match = { class = "^org\\.quickshell$", title = "^Install Dependencies$" }, float = true, size = "720 480", center = true })
+-- MacShell animates its own surfaces (the minimise effect, a dragged Dock icon, the window buttons)
+hl.layer_rule({ match = { namespace = "^(macshell-minimize|macdock-drag|macwinbar|macbar|macwidgets)$" }, no_anim = true })
+-- apps' own menus and right-click menus open at once, like on macOS
+hl.animation({ leaf = "fadePopups", enabled = false })
 MACSHELL_LUA
         printf '%s\n' "$MACLUA_END"
     } > "$f"
@@ -1274,7 +1341,8 @@ lua_block() { # lua_block <with-rules 0|1>
     if [ "${1:-0}" = 1 ]; then
         printf '%s\n' '-- Liquid Glass: blur behind the shell surfaces'
         printf '%s\n' 'hl.layer_rule({ name = "macdock",  match = { namespace = "macdock"  }, blur = true, ignore_alpha = 0.2,  no_anim = true })'
-        printf '%s\n' 'hl.layer_rule({ name = "macspot",  match = { namespace = "macspot"  }, blur = true, ignore_alpha = 0.05, no_anim = true })'
+        # Spotlight draws its own Liquid Glass (compositor blur behind it stayed solid while it faded)
+        printf '%s\n' 'hl.layer_rule({ name = "macspot",  match = { namespace = "macspot"  }, blur = false, no_anim = true })'
         printf '%s\n' 'hl.layer_rule({ name = "macbarbg", match = { namespace = "macbarbg" }, blur = true, ignore_alpha = 0.05, no_anim = true })'
         printf '%s\n' 'hl.layer_rule({ name = "macshot",  match = { namespace = "macshot"  }, no_anim = true })'
     fi
