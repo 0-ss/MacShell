@@ -738,12 +738,12 @@ Scope {
             readonly property color contentSolid: dark ? "#1E1E1E" : "#F5F5F7"
             readonly property color sidebarGlass: dark ? Qt.rgba(0.17, 0.17, 0.18, 0.55) : Qt.rgba(0.94, 0.94, 0.96, 0.60)
             readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
-            readonly property color cardBorder: dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.07)
+            readonly property color cardBorder: dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.12)
             readonly property color windowBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.22)
             // two-tone macOS window edge: a thin dark line outside, a soft highlight just inside it
-            readonly property color edgeOuter: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0, 0, 0, 0.28)
+            readonly property color edgeOuter: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0, 0, 0, 0.40)
             readonly property color edgeInner: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.65)
-            readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.09)
+            readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.12)
             readonly property color text: dark ? "#F5F5F7" : "#1D1D1F"
             readonly property color text2: dark ? Qt.rgba(1, 1, 1, 0.56) : Qt.rgba(0, 0, 0, 0.52)
             readonly property color text3: dark ? Qt.rgba(1, 1, 1, 0.32) : Qt.rgba(0, 0, 0, 0.30)
@@ -753,10 +753,11 @@ Scope {
             readonly property color ctrlSel: dark ? "#636366" : "#FFFFFF"
             readonly property color button: dark ? Qt.rgba(1, 1, 1, 0.13) : "#FFFFFF"
             readonly property color buttonPressed: dark ? Qt.rgba(1, 1, 1, 0.24) : "#E4E4E7"
-            readonly property color buttonBorder: dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.14)
+            readonly property color buttonBorder: dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.20)
             readonly property color field: dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.06)
             readonly property color hover: dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.05)
             readonly property color selInactive: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.12)
+            function lightBorder(active, c) { return active ? Qt.darker(c, dark ? 1.12 : 1.22) : (dark ? Qt.rgba(0, 0, 0, 0.14) : Qt.rgba(0, 0, 0, 0.26)); }
             readonly property color lightOff: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.15)
             readonly property color danger: "#FF453A"
         }
@@ -933,7 +934,7 @@ Scope {
                                 color: (modelData.on && (prefsWindow.active || lightsMa.containsMouse))
                                        ? modelData.c : pal.lightOff
                                 border.width: 1
-                                border.color: Qt.rgba(0, 0, 0, 0.14)
+                                border.color: pal.lightBorder(modelData.on && (prefsWindow.active || lightsMa.containsMouse), modelData.c)
                                 Canvas {
                                     anchors.fill: parent
                                     visible: lightsMa.containsMouse && parent.modelData.on
@@ -943,11 +944,11 @@ Scope {
                                         ctx.clearRect(0, 0, width, height);
                                         if (parent.modelData.g === "\u00D7") {
                                             ctx.strokeStyle = "rgba(0,0,0,0.58)";
-                                            ctx.lineWidth = 1.2;
+                                            ctx.lineWidth = 1.1;
                                             ctx.lineCap = "round";
                                             ctx.beginPath();
-                                            ctx.moveTo(4, 4); ctx.lineTo(10, 10);
-                                            ctx.moveTo(10, 4); ctx.lineTo(4, 10);
+                                            ctx.moveTo(4.9, 4.9); ctx.lineTo(9.1, 9.1);
+                                            ctx.moveTo(9.1, 4.9); ctx.lineTo(4.9, 9.1);
                                             ctx.stroke();
                                         } else if (parent.modelData.g === "\u2212") {
                                             ctx.strokeStyle = "rgba(0,0,0,0.58)";
@@ -3737,7 +3738,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.3.0\u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.3.1 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(font.weight, pal.fam)
                             font.pixelSize: 12

@@ -813,6 +813,42 @@ Scope {
                     line(9 + Math.cos(g2) * 5.6, 9 + Math.sin(g2) * 5.6, 9 + Math.cos(g2) * 7.6, 9 + Math.sin(g2) * 7.6);
                 }
                 circ(9, 9, 5.6); ctx.stroke();
+            } else if (k.indexOf("m_") === 0) {
+                // ── Apple-menu icons (drawn after the macOS ones; 18x18 grid, 1.5 px strokes) ──
+                ctx.lineWidth = 1.4;
+                var ell = function (cx, cy, rx, ry, fill) {
+                    ctx.save(); ctx.translate(cx, cy); ctx.scale(rx, ry); ctx.beginPath(); ctx.arc(0, 0, 1, 0, PI * 2); ctx.restore();
+                    if (fill) ctx.fill(); else ctx.stroke();
+                };
+                if (k === "m_about") {                       // Linux penguin (Tux), outline
+                    ell(9, 9.2, 4.6, 6.6, false);
+                    ctx.lineWidth = 1.1; ell(9, 11.6, 2.7, 3.5, false); ctx.lineWidth = 1.4;
+                    circ(7.5, 6.2, 0.85); ctx.fill(); circ(10.5, 6.2, 0.85); ctx.fill();
+                    poly([7.7, 7.6, 10.3, 7.6, 9, 9.1], true);
+                    ell(6.1, 16.3, 2.1, 0.95, true); ell(11.9, 16.3, 2.1, 0.95, true);
+                    line(4.5, 10, 3.1, 13.6); line(13.5, 10, 14.9, 13.6);
+                } else if (k === "m_settings") {             // System Settings: ring with a half-disc
+                    circ(9, 9, 6.7); ctx.stroke();
+                    ctx.beginPath(); ctx.arc(9, 9, 3.2, -PI / 2, PI / 2, false); ctx.closePath(); ctx.fill();
+                    line(9, 5.6, 9, 12.4);
+                } else if (k === "m_sleep") {                // Sleep: ring, lower half filled
+                    circ(9, 9, 6.7); ctx.stroke();
+                    ctx.beginPath(); ctx.arc(9, 9, 6.7, 0, PI, false); ctx.closePath(); ctx.fill();
+                } else if (k === "m_restart") {              // Restart: left-pointing triangle
+                    ctx.lineWidth = 1.5;
+                    poly([12.6, 3.6, 4.6, 9, 12.6, 14.4, 12.6, 3.6], false);
+                } else if (k === "m_power") {                // Shut Down
+                    ctx.beginPath(); ctx.arc(9, 9.6, 5.8, -PI / 2 + 0.7, -PI / 2 - 0.7 + PI * 2, false); ctx.stroke();
+                    line(9, 2.6, 9, 8.4);
+                } else if (k === "m_lock") {                 // Lock Screen: padlock
+                    rrect(4, 8, 10, 7.6, 1.8); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(6.4, 8); ctx.lineTo(6.4, 6.4); ctx.arc(9, 6.4, 2.6, PI, 0, false); ctx.lineTo(11.6, 8); ctx.stroke();
+                    circ(9, 11.8, 1.1); ctx.fill();
+                } else if (k === "m_logout") {               // Log Out: ring with a person
+                    circ(9, 9, 6.7); ctx.stroke();
+                    circ(9, 7.2, 1.9); ctx.fill();
+                    ctx.beginPath(); ctx.arc(9, 14.4, 4.2, PI * 1.22, PI * 1.78, false); ctx.stroke();
+                }
             }
         }
     }
@@ -2448,6 +2484,7 @@ Scope {
     function mi(label, shortcut, run) { return { kind: "item", label: label, shortcut: shortcut || "", run: run }; }
     function mc(label, run) { return { kind: "item", label: label, shortcut: "", run: run, confirm: true }; }
     function msep() { return { kind: "sep" }; }
+    function ico(item, g) { item.glyph = g; return item; }
     // Hyprland 0.55+ is configured and driven in Lua: `hyprctl dispatch` takes a Lua expression (the old "killactive" style strings fail).
     function hlx(expr) { Quickshell.execDetached(["hyprctl", "dispatch", expr]); }
     function disp(expr) { return function () { root.hlx(expr); }; }
@@ -3005,20 +3042,19 @@ Scope {
     function menuModelFor(name) {
         var m = [], i;
         if (name === "apple") {
-            m.push(mi("About This Linux", "", function () {
+            m.push(ico(mi("About This Linux", "", function () {
                 if (hub && hub.about) hub.about.open();
                 else sh(terminal + " -e sh -c 'fastfetch || neofetch; echo; read -p \"Press Enter\" _'");
-            }));
+            }), "m_about"));
             m.push(msep());
-            m.push(mi("System Settings\u2026", "", function () { root.openSettings(); }));
+            m.push(ico(mi("System Settings\u2026", "", function () { root.openSettings(); }), "gear"));
             m.push(msep());
-            m.push(mi("Lock Screen", "", function () { root.lockScreen(); }));
-            m.push(mi("Sleep", "", function () { root.sleepMachine(); }));
+            m.push(ico(mi("Sleep", "", function () { root.sleepMachine(); }), "moon"));
+            m.push(ico(mc("Restart\u2026", function () { sh("systemctl reboot"); }), "m_restart"));
+            m.push(ico(mc("Shut Down\u2026", function () { sh("systemctl poweroff"); }), "m_power"));
             m.push(msep());
-            m.push(mc("Restart\u2026", function () { sh("systemctl reboot"); }));
-            m.push(mc("Shut Down\u2026", function () { sh("systemctl poweroff"); }));
-            m.push(msep());
-            m.push(mc("Log Out\u2026", function () { root.logOut(); }));
+            m.push(ico(mi("Lock Screen", "", function () { root.lockScreen(); }), "m_lock"));
+            m.push(ico(mc("Log Out\u2026", function () { root.logOut(); }), "m_logout"));
         } else {
             var id = activeAppId.toLowerCase(), kind = appKind(id), has = activeAppId !== "";
             var aw = (has && activeWin && String(activeWin["class"]).toLowerCase() === id) ? activeWin : null;
@@ -4131,7 +4167,17 @@ Scope {
     function hlWorkspace(sel) {      // Hyprland 0.55+ (Lua) workspace switch
         Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + sel + "\" })"]);
     }
-    property int wsMin: 4                    // always show at least workspaces 1..wsMin (set 0 to show only existing ones)
+    // The counter shows the workspaces Hyprland really has (0.55+ creates and destroys them on demand), nothing more.
+    // Set wsMin above 0 only if you want workspaces 1..wsMin to be shown even when they do not exist.
+    property int wsMin: 0
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            var n = event.name;
+            if (n === "createworkspacev2" || n === "destroyworkspacev2" || n === "workspacev2" || n === "moveworkspacev2" || n === "renameworkspace")
+                Hyprland.refreshWorkspaces();
+        }
+    }
     readonly property var wsIds: {
         var ids = [], vals = Hyprland.workspaces.values;
         for (var i = 1; i <= root.wsMin; i++) ids.push(i);
@@ -4141,6 +4187,7 @@ Scope {
         }
         var fw = Hyprland.focusedWorkspace;
         if (fw && fw.id > 0 && ids.indexOf(fw.id) < 0) ids.push(fw.id);
+        if (ids.length === 0) ids.push(1);                    // never an empty counter
         ids.sort(function (a, b) { return a - b; });
         return ids;
     }
@@ -4467,7 +4514,7 @@ Scope {
                 }
                 // gutter for check marks when any entry of the open menu has one
                 readonly property bool menuLead: {
-                    for (var i = 0; i < menuModel.length; i++) if (menuModel[i].checked !== undefined) return true;
+                    for (var i = 0; i < menuModel.length; i++) if (menuModel[i].checked !== undefined || menuModel[i].glyph !== undefined) return true;
                     return false;
                 }
                 Connections {
@@ -5273,9 +5320,12 @@ Scope {
                                 font.family: root.boldFontFamily
                                 font.pixelSize: 14
                                 font.weight: Font.DemiBold
-                                font.letterSpacing: -0.1
-                                font.features: { "tnum": 1 }
-                                renderType: Text.NativeRendering
+                                font.letterSpacing: 0.1
+                                font.hintingPreference: Font.PreferNoHinting    // hinting snapped the x-height down and made the text look flat
+                                font.kerning: true
+                                renderType: Text.QtRendering
+                                verticalAlignment: Text.AlignVCenter
+                                anchors.verticalCenterOffset: 0.5
                             }
                             MouseArea { anchors.fill: parent; onClicked: ui.openPop("cal", 0) }
                         }
@@ -5332,7 +5382,7 @@ Scope {
 
                     PopGlassCtx { id: volPopGlass; pop: volPop; frame: ui; source: ui.glassSrc; fullW: volPop.fullW; fullH: volPop.fullH }
                     GGlass { anchors.fill: parent; gx: volPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * volPop.t); thickness: 22; shadowAmt: 0; flatInner: 1 }
-                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * volPop.t); dark: volPopGlass.ctx.dark; tint: volPopGlass.ctx.borderTint; amount: volPopGlass.ctx.borderAmount; lineW: 0.8; fade: false }
+                    MenuBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * volPop.t); dark: volPopGlass.ctx.dark; tint: volPopGlass.ctx.borderTint; amount: 1 }   // same border as the top-bar menus
                     MouseArea { anchors.fill: parent }      // clicks inside don't close the popover
 
                     Item {
@@ -5779,26 +5829,17 @@ Scope {
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
                         rimTint: 1
-                        ringW: 0.9
+                        ringW: 0
                         shadowAmt: 0.35
                     }
+                    // same border as the top-bar menus (File, Edit, ...)
                     MenuBorder {
                         z: 2
                         anchors.fill: parent
                         cornerR: Math.min(26, 8 + 18 * notifPop.t)
                         dark: root.effDark
                         tint: root.menuBorderColor
-                        amount: 0.5
-                    }
-                    CornerBorder {                  // same border as the Wi-Fi / Bluetooth / audio popovers: even on all four corners
-                        z: 2
-                        anchors.fill: parent
-                        cornerR: Math.min(26, 8 + 18 * notifPop.t)
-                        dark: root.effDark
-                        tint: root.menuBorderColor
-                        amount: 0.5
-                        lineW: 0.8
-                        fade: false
+                        amount: 1
                     }
                     MouseArea { anchors.fill: parent }      // clicks inside the panel don't close it
 
@@ -6057,6 +6098,14 @@ Scope {
                                     radius: 6
                                     color: it.armedNow ? "#FF453A" : root.accent
                                 }
+                                Glyph {
+                                    visible: !it.isSep && it.modelData.glyph !== undefined
+                                    x: 10
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 15; height: 15
+                                    kind: it.modelData.glyph !== undefined ? it.modelData.glyph : ""
+                                    color: it.hot ? "white" : (it.off ? panelPal.fg2 : panelPal.fg)
+                                }
                                 Text {
                                     visible: !it.isSep && it.modelData.checked === true
                                     x: 11
@@ -6147,7 +6196,7 @@ Scope {
                         shadowAmt: 0
                         flatInner: 1
                         rimTint: 1
-                        ringW: 1.4
+                        ringW: 0
                         cornerR: 14
                         tint: root.glassOpacity
                         thickness: 22
@@ -6158,6 +6207,7 @@ Scope {
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
                     }
+                    // same border as the top-bar menus (File, Edit, ...)
                     MenuBorder {
                         id: trayBorder
                         z: 2
@@ -6165,6 +6215,7 @@ Scope {
                         cornerR: 14
                         dark: root.panelDarkMode
                         tint: root.menuBorderColor
+                        amount: 1
                     }
 
                     Flickable {
@@ -6611,7 +6662,7 @@ Scope {
 
                     PopGlassCtx { id: wifiPopGlass; pop: wifiPop; fromCC: wifiPop.fromCC; frame: ui; source: ui.glassSrc; fullW: wifiPop.fullW; fullH: wifiPop.fullH }
                     GGlass { anchors.fill: parent; gx: wifiPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * wifiPop.t); thickness: 22; shadowAmt: 0; flatInner: 1 }
-                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * wifiPop.t); dark: wifiPopGlass.ctx.dark; tint: wifiPopGlass.ctx.borderTint; amount: wifiPopGlass.ctx.borderAmount; lineW: 0.8; fade: false }
+                    MenuBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * wifiPop.t); dark: wifiPopGlass.ctx.dark; tint: wifiPopGlass.ctx.borderTint; amount: 1 }   // same border as the top-bar menus
                     MouseArea { anchors.fill: parent }          // swallow clicks on empty glass so the popover doesn't close
 
                     // the content keeps its full size and is revealed by the growing glass (clipped), fading in and settling
@@ -6910,7 +6961,7 @@ Scope {
 
                     PopGlassCtx { id: btPopGlass; pop: btPop; frame: ui; source: ui.glassSrc; fullW: btPop.fullW; fullH: btPop.fullH }
                     GGlass { anchors.fill: parent; gx: btPopGlass.ctx; cornerR: Math.min(26, 8 + 18 * btPop.t); thickness: 22; shadowAmt: 0; flatInner: 1 }
-                    CornerBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * btPop.t); dark: btPopGlass.ctx.dark; tint: btPopGlass.ctx.borderTint; amount: btPopGlass.ctx.borderAmount; lineW: 0.8; fade: false }
+                    MenuBorder { z: 2; anchors.fill: parent; cornerR: Math.min(26, 8 + 18 * btPop.t); dark: btPopGlass.ctx.dark; tint: btPopGlass.ctx.borderTint; amount: 1 }   // same border as the top-bar menus
                     MouseArea { anchors.fill: parent }
 
                     // the content keeps its full size and is revealed by the growing glass (clipped)

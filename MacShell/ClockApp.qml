@@ -362,6 +362,7 @@ Scope {
             readonly property color ctrl: dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06)
             readonly property color ctrlSel: dark ? "#636366" : "#FFFFFF"
             readonly property color border: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.2)
+            function lightBorder(active, c) { return active ? Qt.darker(c, dark ? 1.12 : 1.22) : (dark ? Qt.rgba(0, 0, 0, 0.14) : Qt.rgba(0, 0, 0, 0.26)); }
             readonly property color lightOff: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(0, 0, 0, 0.15)
         }
 
@@ -397,7 +398,7 @@ Scope {
                                 required property var modelData
                                 width: 14; height: 14; radius: 7
                                 color: (modelData.on && (win.active || tlMa.containsMouse)) ? modelData.c : pal.lightOff
-                                border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.14)
+                                border.width: 1; border.color: pal.lightBorder(modelData.on && (win.active || tlMa.containsMouse), modelData.c)
                                 Canvas {
                                     anchors.fill: parent
                                     visible: tlMa.containsMouse && parent.modelData.on
@@ -407,11 +408,11 @@ Scope {
                                         ctx.clearRect(0, 0, width, height);
                                         if (parent.modelData.g === "×") {
                                             ctx.strokeStyle = "rgba(0,0,0,0.58)";
-                                            ctx.lineWidth = 1.2;
+                                            ctx.lineWidth = 1.1;
                                             ctx.lineCap = "round";
                                             ctx.beginPath();
-                                            ctx.moveTo(4, 4); ctx.lineTo(10, 10);
-                                            ctx.moveTo(10, 4); ctx.lineTo(4, 10);
+                                            ctx.moveTo(4.9, 4.9); ctx.lineTo(9.1, 9.1);
+                                            ctx.moveTo(9.1, 4.9); ctx.lineTo(4.9, 9.1);
                                             ctx.stroke();
                                         } else if (parent.modelData.g === "−") {
                                             ctx.strokeStyle = "rgba(0,0,0,0.58)";
