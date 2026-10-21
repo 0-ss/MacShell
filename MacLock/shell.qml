@@ -66,6 +66,7 @@ ShellRoot {
         property string message: ""
         property bool engaged: false
         property bool unlocking: false
+        property string material: "liquid"      // the system-wide material: liquid | frosted | blur | opaque
         property string mediaSlot: "top"    // "top" (under the clock) | "bottom" (above the password field)
         property bool capsLock: false
         property bool use24h: true          // MacShell → Menu Bar → "24-hour clock"
@@ -142,7 +143,10 @@ ShellRoot {
             }
         }
     }
-    Timer { id: quitTimer; interval: 150; onTriggered: Qt.quit() }
+    Timer { id: quitTimer; interval: 150; onTriggered: { Qt.quit(); quitGuard.running = true; } }
+    // if quitting doesn't end the process within a second (it was seen to linger, so the next lock did nothing),
+    // it ends itself: this child's parent is this process
+    Process { id: quitGuard; command: ["sh", "-c", "sleep 1; kill -9 $PPID"] }
 
     PamContext {
         id: pam
@@ -195,7 +199,8 @@ ShellRoot {
             + "jq -r '.lockArtBackground' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.use24h' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.language // \"auto\"' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo auto; "
-            + "jq -c '{f: .lockClockFont, w: .lockClockWeight, m: .lockClockMaterial, t: .lockClockTall, d: .lockClockDate, i: .lockClockIntensity, c: .lockClockTint}' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo '{}'"]
+            + "jq -c '{f: .lockClockFont, w: .lockClockWeight, m: .lockClockMaterial, t: .lockClockTall, d: .lockClockDate, i: .lockClockIntensity, c: .lockClockTint}' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo '{}'; "
+            + "jq -r '.material // \"liquid\"' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo liquid"]
         stdout: StdioCollector {
             onStreamFinished: {
                 var l = text.split("\n");
@@ -211,6 +216,9 @@ ShellRoot {
                 var lang = (l[8] || "auto").trim();
                 Qt.uiLanguage = (lang === "auto" || lang === "null") ? "" : lang;
                 if (!Quickshell.env("MACLOCK_CLOCK")) { try { lockState.clockCfg = JSON.parse((l[9] || "{}").trim() || "{}"); } catch (e) { } }
+                // the system-wide material (Settings → Appearance) reaches the lock screen too
+                var mt = (l[10] || "liquid").trim();
+                lockState.material = (["liquid", "frosted", "blur", "opaque"].indexOf(mt) >= 0) ? mt : "liquid";
                 if (!root.preview) lockState.sound("lock");
             }
         }
