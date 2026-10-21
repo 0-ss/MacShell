@@ -297,7 +297,7 @@ Scope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.2.7"
+                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.2.8"
                     color: pal.text3
                     font.family: root.fam; font.pixelSize: 10
                     lineHeight: 1.1

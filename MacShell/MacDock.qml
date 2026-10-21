@@ -332,50 +332,26 @@ Scope {
         onGlassFailed: root.glassState = "failed"
     }
 
-    // macOS segmented control
-    component SSegmented: Item {
-        id: g
+    // macOS segmented control: capsule track, dividers between the options, and a marker that turns into Liquid Glass while it
+    // slides to the chosen option (see GlassSegmented.qml)
+    component SSegmented: GlassSegmented {
         required property var t
-        property var model: []
-        property int current: 0
-        property real segWidth: 72
-        signal picked(int index)
-        width: model.length * segWidth + 4
-        height: 26
-        Rectangle { anchors.fill: parent; radius: 7; color: g.t.ctrl }
-        Rectangle {
-            visible: g.current >= 0
-            y: 2
-            x: 2 + g.current * g.segWidth
-            width: g.segWidth
-            height: parent.height - 4
-            radius: 5
-            color: g.t.ctrlSel
-            border.width: g.t.dark ? 0 : 1
-            border.color: Qt.rgba(0, 0, 0, 0.10)
-            Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-        }
-        Row {
-            x: 2; y: 2
-            Repeater {
-                model: g.model
-                delegate: Item {
-                    required property var modelData
-                    required property int index
-                    width: g.segWidth
-                    height: g.height - 4
-                    Text {
-                        anchors.centerIn: parent
-                        text: I18n.tr(parent.modelData)
-                        color: g.t.text
-                        font.family: g.t.fam
-                        font.pixelSize: 12
-                        font.weight: parent.index === g.current ? Font.Medium : Font.Normal
-                    }
-                    MouseArea { anchors.fill: parent; onClicked: g.picked(parent.index) }
-                }
-            }
-        }
+        segWidth: 72
+        dark: t.dark
+        textColor: t.text
+        fontFamily: t.fam
+        fontSize: 12
+        trackColor: t.ctrl
+        pillColor: t.ctrlSel
+        baseColor: t.dark ? "#2B2B2D" : "#FFFFFF"
+        glass: root.settingsGlass
+        shaderUrl: root.glassShaderUrl
+        glassLiquid: root.glassLiquid
+        glassRim: root.glassRim
+        glassGrain: root.glassGrain
+        glassTint: root.glassOpacity
+        borderTint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
+        onGlassFailed: root.glassState = "failed"
     }
 
     // macOS push button
@@ -3694,7 +3670,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.2.7 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.2.8 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: pal.fam
                             font.pixelSize: 12

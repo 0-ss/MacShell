@@ -269,6 +269,7 @@ Scope {
             var i = ["world", "alarms", "stopwatch", "timers"].indexOf(tabName);
             if (i >= 0) win.tab = i;
         }
+        if (dock && dock.glassState === "idle") dock.startGlass();       // builds the Liquid Glass shader the tab marker uses
         win.visible = true; win.raise(); win.requestActivate();
     }
 
@@ -410,38 +411,29 @@ Scope {
                         }
                     }
                 }
-                // tabs (segmented control)
-                Rectangle {
+                // tabs (segmented control; the marker turns into Liquid Glass while it slides, see GlassSegmented.qml)
+                GlassSegmented {
                     id: seg
                     anchors.centerIn: parent
-                    width: segRow.width + 4; height: 26; radius: 7
-                    color: pal.ctrl
-                    Rectangle {
-                        y: 2; height: parent.height - 4; radius: 6
-                        readonly property Item cur: segRep.count > win.tab ? segRep.itemAt(win.tab) : null
-                        x: 2 + (cur ? cur.x : 0)
-                        width: cur ? cur.width : 0
-                        color: pal.ctrlSel
-                        layer.enabled: true
-                        layer.effect: MultiEffect { shadowEnabled: true; shadowBlur: 0.3; shadowOpacity: 0.25; shadowVerticalOffset: 1 }
-                        Behavior on x { NumberAnimation { duration: 320; easing.type: Easing.OutQuint } }
-                        Behavior on width { NumberAnimation { duration: 320; easing.type: Easing.OutQuint } }
-                    }
-                    Row {
-                        id: segRow
-                        x: 2; anchors.verticalCenter: parent.verticalCenter
-                        Repeater {
-                            id: segRep
-                            model: ["World Clock", "Alarms", "Stopwatch", "Timers"]
-                            delegate: Item {
-                                required property string modelData
-                                required property int index
-                                width: tl.implicitWidth + 28; height: 22
-                                Text { id: tl; anchors.centerIn: parent; text: parent.modelData; color: pal.text; font.family: root.fam; font.pixelSize: 13; font.weight: win.tab === parent.index ? Font.DemiBold : Font.Normal }
-                                MouseArea { anchors.fill: parent; onClicked: win.tab = parent.index }
-                            }
-                        }
-                    }
+                    model: ["World Clock", "Alarms", "Stopwatch", "Timers"]
+                    current: win.tab
+                    onPicked: i => win.tab = i
+                    height: 28
+                    dark: pal.dark
+                    textColor: pal.text
+                    fontFamily: root.fam
+                    fontSize: 13
+                    labelPad: 16
+                    trackColor: pal.ctrl
+                    pillColor: pal.ctrlSel
+                    baseColor: pal.bar
+                    glass: root.dock ? root.dock.settingsGlass : false
+                    shaderUrl: root.dock ? root.dock.glassShaderUrl : ""
+                    glassLiquid: root.dock ? root.dock.glassLiquid : 1.0
+                    glassRim: root.dock ? root.dock.glassRim : 0.45
+                    glassGrain: root.dock ? root.dock.glassGrain : 0.03
+                    glassTint: root.dock ? root.dock.glassOpacity : 0.42
+                    borderTint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
                 }
                 // + (add)
                 Rectangle {
