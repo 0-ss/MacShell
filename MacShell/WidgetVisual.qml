@@ -170,12 +170,28 @@ Item {
                 editing: host.editing
             }
         }
+        Component {
+            id: gifVisual
+            GifWidget {
+                size: wsize
+                scaleF: host.widgetScale
+                fam: host.fontFamily
+                screenX: v.sx; screenY: v.sy
+                source: host.fileUrl(v.wsrc)
+                darkGlass: host.darkGlass
+                editing: host.editing
+                screenName: v.sname
+                desktopCovered: false
+                appFocused: host.hub ? host.hub.appFocused : false
+            }
+        }
         Loader {
             id: visual
             anchors.fill: parent
             sourceComponent: wtype === "calendar" ? calendarVisual
                            : (wtype === "clock" ? clockVisual
                            : (wtype === "player" ? playerVisual
-                           : (wtype === "image" ? imageVisual : weatherVisual)))
+                           : (wtype === "image" ? imageVisual
+                           : (wtype === "gif" ? gifVisual : weatherVisual))))
         }
 }

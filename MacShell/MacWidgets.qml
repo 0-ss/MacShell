@@ -54,7 +54,7 @@ Scope {
     property int rev: 0                    // bumped on every change to the list, so Settings bindings can re-evaluate count()
 
     readonly property var styleNames: ({ liquid: "Liquid Glass", normal: "Normal", light: "Light", dark: "Dark" })
-    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image" })
+    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image", gif: "GIF" })
     readonly property var sizeNames: ({ small: "Small", medium: "Medium", large: "Large" })
     function dims(size) {
         var b = size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]);
@@ -267,6 +267,40 @@ Scope {
             }
         }
     }
+    function pickGif(id, size) {
+        if (gifPick.running) return;
+        pickTargetId = id || "";
+        pickTargetSize = size || "small";
+        pickError = "";
+        gifPick.running = true;
+    }
+    Process {
+        id: gifPick
+        command: ["sh", "-c",
+            "f=''; "
+            + "if command -v zenity >/dev/null 2>&1; then f=$(zenity --file-selection --title='Choose a GIF animation' --file-filter='GIF / WebP Animation | *.gif *.webp' 2>/dev/null); "
+            + "elif command -v kdialog >/dev/null 2>&1; then f=$(kdialog --getopenfilename \"$HOME/Pictures\" 'image/gif image/webp' 2>/dev/null); "
+            + "elif command -v yad >/dev/null 2>&1; then f=$(yad --file --title='Choose a GIF' 2>/dev/null); "
+            + "else echo 'ERR:no file chooser (install zenity, kdialog or yad)'; exit 0; fi; "
+            + "[ -n \"$f\" ] && [ -f \"$f\" ] || exit 0; "
+            + "d=\"$1/images\"; mkdir -p \"$d\" || { echo 'ERR:cannot create the images folder'; exit 0; }; "
+            + "n=\"$(date +%s)-$(printf '%s' \"$(basename \"$f\")\" | tr -c 'A-Za-z0-9._-' '_')\"; "
+            + "cp -f \"$f\" \"$d/$n\" && echo \"OK:$d/$n\" || echo 'ERR:could not copy the GIF'",
+            "sh", root.configDir]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var t = text.trim();
+                if (t.indexOf("OK:") === 0) {
+                    var p = t.substring(3);
+                    if (root.pickTargetId === "") { if (!root.addWidget("gif", "normal", root.pickTargetSize, p)) root.pickError = "No free space on the desktop for another widget."; }
+                    else root.setSource(root.pickTargetId, p);
+                } else if (t.indexOf("ERR:") === 0) {
+                    root.pickError = t.substring(4);
+                    console.log("[macwidgets] gif:", root.pickError);
+                }
+            }
+        }
+    }
 
     // ───────────── persistence ─────────────
     function scheduleSave() { if (ready) saveTimer.restart(); }
@@ -295,9 +329,9 @@ Scope {
             wmodel.clear();
             for (var i = 0; i < o.widgets.length; i++) {
                 var w = o.widgets[i];
-                if (!w || (w.type !== "weather" && w.type !== "calendar" && w.type !== "clock" && w.type !== "player" && w.type !== "image")) continue;
+                if (!w || !w.type || !(w.type in root.typeNames)) continue;
                 wmodel.append({ wid: String(w.id || ("w" + i)), wtype: w.type,
-                                wstyle: w.type === "image" ? "normal" : (w.type === "clock" || w.type === "player")
+                                wstyle: (w.type === "image" || w.type === "gif") ? "normal" : (w.type === "clock" || w.type === "player")
                                     ? ((w.style === "light" || w.style === "dark") ? w.style : "liquid")
                                     : (w.style === "normal" ? "normal" : "liquid"),
                                 wsize: (w.size === "medium" || w.size === "large") ? w.size : "small",
@@ -741,16 +775,16 @@ Scope {
                                 ww.dragDX = 0; ww.dragDY = 0;
                             }
                         }
-                        Rectangle {   // image widget: choose another picture
-                            visible: root.editing && ww.wtype === "image"
+                        Rectangle {   // image or gif widget: choose another picture
+                            visible: root.editing && (ww.wtype === "image" || ww.wtype === "gif")
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.bottom: parent.bottom; anchors.bottomMargin: 10
                             width: chooseText.width + 22; height: 26; radius: 13
                             color: chooseMa.pressed ? "#D8D8DC" : "#F2F2F5"
                             border.width: 1
                             border.color: Qt.rgba(0, 0, 0, 0.18)
-                            Text { id: chooseText; anchors.centerIn: parent; text: I18n.tr("Choose Image\u2026"); color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
-                            MouseArea { id: chooseMa; anchors.fill: parent; onClicked: root.pickImage(ww.wid, "small") }
+                            Text { id: chooseText; anchors.centerIn: parent; text: ww.wtype === "gif" ? "Choose GIF\u2026" : I18n.tr("Choose Image\u2026"); color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
+                            MouseArea { id: chooseMa; anchors.fill: parent; onClicked: ww.wtype === "gif" ? root.pickGif(ww.wid, "small") : root.pickImage(ww.wid, "small") }
                         }
                         Rectangle {   // "−" remove badge
                             visible: root.editing
