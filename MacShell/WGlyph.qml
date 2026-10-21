@@ -291,6 +291,21 @@ Canvas {
             ctx.beginPath(); ctx.arc(9, 14.3, 1.7, 0.25, PI - 0.25); ctx.stroke();
         } else if (k === "close") {
             line(5, 5, 13, 13); line(13, 5, 5, 13);
+        } else if (k === "command") {
+            // ⌘ — a square with a three-quarter loop at each corner
+            var sr = 2.2, lr = 1.85;
+            var sgn = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+            ctx.beginPath();
+            ctx.rect(9 - sr, 9 - sr, sr * 2, sr * 2);
+            ctx.stroke();
+            for (i2 = 0; i2 < 4; i2++) {
+                var sx = sgn[i2][0], sy = sgn[i2][1];
+                var cx2 = 9 + sx * (sr + lr), cy2 = 9 + sy * (sr + lr);
+                var a1 = sx > 0 ? PI : 0, a2 = -sy * PI / 2;
+                ctx.beginPath(); ctx.arc(cx2, cy2, lr, a1, a2, sx * sy > 0); ctx.stroke();
+                line(9 + sx * sr, 9 + sy * (sr + lr), 9 + sx * sr, 9 + sy * sr);
+                line(9 + sx * (sr + lr), 9 + sy * sr, 9 + sx * sr, 9 + sy * sr);
+            }
         } else if (k === "gear") {
             circ(9, 9, 2.6); ctx.stroke();
             for (i2 = 0; i2 < 8; i2++) {

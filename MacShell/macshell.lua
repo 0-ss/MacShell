@@ -47,4 +47,10 @@ end
 
 -- MacLock (lock screen)
 hl.bind("SUPER + L",          hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"))
+-- the Install Dependencies window floats in the middle, like Settings
+hl.window_rule({ match = { class = "^org\\.quickshell$", title = "^Install Dependencies$" }, float = true, size = "720 480", center = true })
+-- MacShell animates its own surfaces (the minimise effect, a dragged Dock icon, the window buttons)
+hl.layer_rule({ match = { namespace = "^(macshell-minimize|macdock-drag|macwinbar|macbar|macwidgets)$" }, no_anim = true })
+-- apps' own menus and right-click menus open at once, like on macOS
+hl.animation({ leaf = "fadePopups", enabled = false })
 -- <<< MacShell module <<<

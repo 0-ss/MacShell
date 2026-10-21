@@ -171,12 +171,41 @@ Item {
                 editing: host.editing
             }
         }
+        // Batteries, Notes, Photos, Reminders, Alarms, Stocks: a Calendar-style card with contents from ExtraWidgets.qml
+        Component {
+            id: cardVisual
+            CardWidget {
+                content: host.extra ? host.extra.comp(v.wtype) : null
+                scaleF: host.widgetScale
+                style: wstyle
+                size: wsize
+                mode: wmode
+                fam: host.fontFamily
+                screenX: v.sx; screenY: v.sy
+                glassReady: host.glassState === "ready"
+                shaderUrl: "file://" + host.glassShaderOut
+                wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
+                screenW: v.sw
+                screenH: v.sh
+                glassOpacity: host.glassOpacity
+                glassBlur: host.glassBlur
+                glassLiquid: host.glassLiquid
+                glassRim: host.glassRim
+                borderTint: host.borderTint
+                glassGrain: host.glassGrain
+                darkGlass: host.darkGlass
+                editing: host.editing
+                onGlassFailed: host.glassState = "failed"
+            }
+        }
+        readonly property bool extraType: ["batteries", "notes", "photos", "reminders", "alarms", "stocks"].indexOf(wtype) >= 0
         Loader {
             id: visual
             anchors.fill: parent
-            sourceComponent: wtype === "calendar" ? calendarVisual
+            sourceComponent: v.extraType ? cardVisual
+                           : (wtype === "calendar" ? calendarVisual
                            : (wtype === "clock" ? clockVisual
                            : (wtype === "player" ? playerVisual
-                           : (wtype === "image" ? imageVisual : weatherVisual)))
+                           : (wtype === "image" ? imageVisual : weatherVisual))))
         }
 }

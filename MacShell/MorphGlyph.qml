@@ -19,12 +19,13 @@ Item {
         morph.stop(); morph.inG = incoming; morph.outG = outgoing; morph.start();
     }
     component G: Item {
+        id: gItem
         property alias kind: gl.kind
         property real bl: 0
         anchors.fill: parent
         WGlyph { id: gl; anchors.fill: parent; color: mg.color }
         layer.enabled: bl > 0.001
-        layer.effect: MultiEffect { blurEnabled: true; blurMax: 16; blur: parent ? parent.bl : 0; autoPaddingEnabled: true }
+        layer.effect: MultiEffect { blurEnabled: true; blurMax: 16; blur: gItem.bl; autoPaddingEnabled: true }
     }
     G { id: ga; opacity: 1 }
     G { id: gb; opacity: 0 }

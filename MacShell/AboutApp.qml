@@ -126,9 +126,8 @@ Scope {
             readonly property color text2: dark ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.5)
             readonly property color text3: dark ? Qt.rgba(1, 1, 1, 0.38) : Qt.rgba(0, 0, 0, 0.42)
             readonly property color border: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.18)
-            readonly property color edgeOuter: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0, 0, 0, 0.40)     // thin dark line on the outside
+            readonly property color edgeOuter: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0, 0, 0, 0.28)     // thin dark line on the outside
             readonly property color edgeInner: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.65)      // soft highlight just inside it
-            function lightBorder(active, c) { return active ? Qt.darker(c, dark ? 1.12 : 1.22) : (dark ? Qt.rgba(0, 0, 0, 0.14) : Qt.rgba(0, 0, 0, 0.26)); }
             readonly property color lightOff: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(0, 0, 0, 0.15)
             readonly property color btn: dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.75)
             readonly property color btnDown: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(1, 1, 1, 0.5)
@@ -166,7 +165,7 @@ Scope {
                             required property var modelData
                             width: 14; height: 14; radius: 7
                             color: (modelData.on && (win.active || tl.containsMouse)) ? modelData.c : pal.lightOff
-                            border.width: 1; border.color: pal.lightBorder(modelData.on && (win.active || tl.containsMouse), modelData.c)
+                            border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.14)
                             Canvas {
                                 anchors.fill: parent
                                 visible: tl.containsMouse && parent.modelData.on
@@ -178,8 +177,8 @@ Scope {
                                     ctx.lineWidth = 1.2;
                                     ctx.lineCap = "round";
                                     ctx.beginPath();
-                                    ctx.moveTo(4.9, 4.9); ctx.lineTo(9.1, 9.1);
-                                    ctx.moveTo(9.1, 4.9); ctx.lineTo(4.9, 9.1);
+                                    ctx.moveTo(4, 4); ctx.lineTo(10, 10);
+                                    ctx.moveTo(10, 4); ctx.lineTo(4, 10);
                                     ctx.stroke();
                                 }
                             }
@@ -330,7 +329,7 @@ Scope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.3.1"
+                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.3.0"
                     color: pal.text3
                     font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 10
                     lineHeight: 1.1

@@ -22,11 +22,15 @@ import Quickshell.Io
 import Quickshell.Hyprland
 
 ShellRoot {
-    // The UI font ("Open Runde") ships with MacShell: registered here, first, so every Text below can use it
-    // without installing anything. (The installer also copies it to ~/.local/share/fonts.)
+    // No hot reload: reloading a running shell tears down its live window captures mid-frame, which crashed
+    // Quickshell (wl_proxy_marshal on a destroyed object). Updates restart the shell instead (Settings →
+    // Software Update, or Settings → About → Restart the shell).
+    settings.watchFiles: false
+
+    // The "Open Runde" UI font ships with MacShell (upstream 0-ss/MacShell): registered here, first, so Settings →
+    // Appearance can offer it without installing anything.
     FontLoader { id: uiFontLoader; source: Qt.resolvedUrl("assets/fonts/OpenRunde-Regular.otf") }
     FontLoader { id: uiBoldFontLoader; source: Qt.resolvedUrl("assets/fonts/OpenRunde-Semibold.otf") }
-
     Scope {
         id: sharedHub
 
@@ -40,12 +44,162 @@ ShellRoot {
         property var dock: macDock
         property var widgets: macWidgets
         property var clock: clockApp
+        // one way to open a folder or a file, and one way to put a window away — every part of the shell uses these
+        // (folders, pictures and movies open in whatever you have set as their default app)
+        function openFolder(path) { Quickshell.execDetached(["xdg-open", String(path || Quickshell.env("HOME"))]); }
+        function openPath(path) {
+            var p = String(path || "").replace(/^file:\/\//, "");
+            if (p !== "") Quickshell.execDetached(["xdg-open", p]);
+        }
+        // ── Closing one of the shell's own windows (Settings, Clock, About, …) ──
+        // The glass and the Dock previews capture every window, ours included. Destroying one of our windows while a
+        // capture frame of it was still in flight killed the whole Wayland connection ("wl_display: invalid object").
+        // So every close goes through here: the captures of that window are released first, the window hides a
+        // moment later, once nothing of it is in flight any more.
+        property var releasing: ({})          // address → true while a window of ours is on its way out
+        function hideWindow(w) {
+            if (!w || !w.visible) return;
+            var h = hyprWin(function (t) { return t.title === w.title && (t.lastIpcObject || {}).class === "org.quickshell"; });
+            if (!h) { w.visible = false; return; }
+            var a = String(h.address).replace(/^0x/, "");
+            var r = {}, c = {}, k;
+            for (k in releasing) r[k] = true;
+            for (k in closingWins) c[k] = true;
+            r[a] = true; c[a] = true;
+            releasing = r; closingWins = c;
+            tlTick++;
+            hideLater.wins = hideLater.wins.concat([w]);
+            hideLater.restart();
+            closingForget.restart();
+        }
+        Timer {
+            id: hideLater
+            property var wins: []
+            interval: 160
+            onTriggered: {
+                var l = wins; wins = [];
+                for (var i = 0; i < l.length; i++) l[i].visible = false;
+                releaseForget.restart();
+            }
+        }
+        Timer { id: releaseForget; interval: 3000; onTriggered: sharedHub.releasing = ({}) }
+        // ── Minimise / restore, with the effect from Settings → Desktop & Dock (genie, fade or instant) ──
+        // Every way of minimising goes through here, so they all animate the same way.
+        property var minimizedAt: ({})     // address → { win, screen }: where it was, so restoring puts it back
+        // newest first, and only windows that still exist: the list can still hold a window that was just
+        // destroyed (a shell reload recreates our own windows under the same title)
+        function hyprWin(match) {
+            var ts = Hyprland.toplevels.values;
+            for (var i = ts.length - 1; i >= 0; i--) if (ts[i].wayland && match(ts[i])) return ts[i];
+            return null;
+        }
+        function winRect(h, screenName) {
+            var o = h.lastIpcObject || {};
+            if (o.at && o.size && o.size[0] > 0) return { x: o.at[0], y: o.at[1], width: o.size[0], height: o.size[1] };
+            // not known yet: the middle of its screen, so the effect at least starts somewhere sensible
+            var ss = Quickshell.screens;
+            for (var i = 0; i < ss.length; i++) if (ss[i].name === screenName)
+                return { x: ss[i].x + ss[i].width * 0.2, y: ss[i].y + ss[i].height * 0.15, width: ss[i].width * 0.6, height: ss[i].height * 0.6 };
+            return { x: 0, y: 0, width: 800, height: 600 };
+        }
+        function monitorOf(h) {
+            if (h.monitor && h.monitor.name) return h.monitor.name;
+            var fm = Hyprland.focusedMonitor;
+            return fm ? fm.name : (Quickshell.screens.length ? Quickshell.screens[0].name : "");
+        }
+        function fallbackTarget(screenName) {
+            var ss = Quickshell.screens;
+            for (var i = 0; i < ss.length; i++) if (ss[i].name === screenName)
+                return { x: ss[i].x + ss[i].width / 2 - 26, y: ss[i].y + ss[i].height - 70, width: 52, height: 52 };
+            return { x: 0, y: 0, width: 52, height: 52 };
+        }
+        function minimizeHyprWin(h) {
+            if (!h) return;
+            var addr = "0x" + String(h.address).replace(/^0x/, "");
+            var mon = monitorOf(h);
+            try { Hyprland.refreshToplevels(); } catch (e) {}
+            minFx.play({
+                screen: mon, tl: h.wayland, reverse: false,
+                winFn: function () {
+                    var r = sharedHub.winRect(h, mon);
+                    var m = {}; for (var k in sharedHub.minimizedAt) m[k] = sharedHub.minimizedAt[k];
+                    m[addr] = { win: r, screen: mon };
+                    sharedHub.minimizedAt = m;
+                    return r;
+                },
+                targetFn: function () { return macDock.minimizeTarget(h.wayland, mon) || sharedHub.fallbackTarget(mon); },
+                before: function () {
+                    Hyprland.dispatch('hl.dsp.window.move({ workspace = "special:minimized", follow = false, window = "address:' + addr + '" })');
+                },
+                after: function () {}
+            });
+        }
+        function minimizeWindow(title) {
+            try {
+                try { Hyprland.refreshToplevels(); } catch (e0) {}
+                var h = hyprWin(function (t) { return t.title === title; });
+                minimizeHyprWin(h);
+            } catch (e) {
+                console.log("[minimize] failed: " + e + " " + (e.stack || ""));
+            }
+        }
+        function minimizeActive() {
+            var a = Hyprland.activeToplevel;
+            if (a) minimizeHyprWin(a);
+        }
+        // the live workspace, not lastIpcObject: that one is a snapshot and was still saying "minimised" afterwards
+        function isMinimized(h) {
+            if (!h) return false;
+            if (h.workspace && h.workspace.name) return String(h.workspace.name) === "special:minimized";
+            var o = h.lastIpcObject || {};
+            return !!(o.workspace && String(o.workspace.name || "") === "special:minimized");
+        }
+        function restoreHyprWin(h) {
+            if (!h) return;
+            var addr = "0x" + String(h.address).replace(/^0x/, "");
+            var fm = Hyprland.focusedMonitor;
+            var mon = fm ? fm.name : monitorOf(h);
+            var ws = fm && fm.activeWorkspace ? fm.activeWorkspace.id : 1;
+            var rec = minimizedAt[addr];
+            var win = rec && rec.screen === mon ? rec.win : winRect(h, mon);
+            minFx.play({
+                screen: mon, tl: h.wayland, win: win, reverse: true,
+                target: macDock.minimizeTarget(h.wayland, mon) || fallbackTarget(mon),
+                before: function () {},
+                after: function () {
+                    Hyprland.dispatch('hl.dsp.window.move({ workspace = "' + ws + '", follow = false, window = "address:' + addr + '" })');
+                    Hyprland.dispatch('hl.dsp.focus({ window = "address:' + addr + '" })');
+                    var m = {}; for (var k in sharedHub.minimizedAt) if (k !== addr) m[k] = sharedHub.minimizedAt[k];
+                    sharedHub.minimizedAt = m;
+                }
+            });
+        }
+        // the Dock calls this with a Wayland window: if it is minimised, bring it back with the effect
+        function restoreIfMinimized(waylandTl) {
+            var h = hyprWin(function (t) { return t.wayland === waylandTl; });
+            if (!h || !isMinimized(h)) return false;
+            restoreHyprWin(h);
+            return true;
+        }
+        function restoreAddr(addr) {
+            var a = String(addr).replace(/^0x/, "");
+            restoreHyprWin(hyprWin(function (t) { return String(t.address).replace(/^0x/, "") === a; }));
+        }
+        // the most recently minimised window comes back first
+        function restoreLast() {
+            try { Hyprland.refreshToplevels(); } catch (e) {}
+            var ts = Hyprland.toplevels.values;
+            for (var i = ts.length - 1; i >= 0; i--) if (ts[i].wayland && isMinimized(ts[i])) { restoreHyprWin(ts[i]); return; }
+        }
+        property var desktop: desktopIcons
+        property var installer: depsInstaller
         property var about: aboutApp
         function openSettings(pane) { macDock.openPrefs(pane); }
 
         // set by MacBar / MacDock (Binding elements) when their glass needs live data
         property bool barWantsGeo: false
         property bool dockWantsGeo: false
+        property bool winBarWantsGeo: false     // the window controls place themselves from the same feed
         property bool barWantsWallpaper: false
         property bool dockWantsWallpaper: false
         property bool widgetsWantWallpaper: false
@@ -73,15 +227,18 @@ ShellRoot {
         // windowCapture = false (Dock Preferences, or  qs -c <config> ipc call glass captures false) switches the window previews off.
         readonly property bool windowCapture: macDock.windowCapture      // Dock Preferences -> "Live window capture" (saved in macdock/settings.json)
         property bool churn: false
-        readonly property bool captureHold: churn || !windowCapture || macBar.gaming
+        // A build or a big install saturates the machine; the window captures are the first thing to give way,
+        // both for smoothness and because a pile of in-flight screencopy frames is what used to kill the
+        // Wayland connection outright.
+        readonly property bool captureHold: churn || !windowCapture || macBar.gaming || macBar.underLoad
         // Liquid Glass: only stage 1, and only while windows open / close. Live capture pauses (the glass keeps its last frame, the capture
         // source stays attached, so nothing goes blank), then resumes. Not tied to the previews switch, never cut.
-        readonly property bool glassHold: churn || macBar.gaming
+        readonly property bool glassHold: churn || macBar.gaming || macBar.underLoad
         property bool captureCut: false
         // Dock previews no longer pause as a whole while windows open / close (that froze every preview for ~1.5 s):
         // only the CLOSING window's own preview stops its live capture, the moment Hyprland announces the close
         // (before the toplevel is destroyed, so no frame is ever aborted in flight). Everything else keeps running.
-        readonly property bool previewHold: !windowCapture || macBar.gaming
+        readonly property bool previewHold: !windowCapture || macBar.gaming || macBar.underLoad
         property var closingWins: ({})
         onCaptureHoldChanged: { if (captureHold) cutDelay.restart(); else { cutDelay.stop(); captureCut = false; } }
         Timer { id: cutDelay; interval: 500; onTriggered: sharedHub.captureCut = true }
@@ -155,6 +312,7 @@ ShellRoot {
         function tlFor(addr) {
             var a = String(addr).replace(/^0x/, "");
             var ts = Hyprland.toplevels.values;
+            if (releasing[a]) return null;
             for (var i = 0; i < ts.length; i++) {
                 if (ts[i].address !== a) continue;
                 var st = tlState, now = Date.now();
@@ -174,7 +332,7 @@ ShellRoot {
         Timer {
             interval: sharedHub.geoHot ? 90 : 250
             repeat: true
-            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo) && !sharedHub.ipcOk
+            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo || sharedHub.winBarWantsGeo) && !sharedHub.ipcOk
             triggeredOnStart: true
             onTriggered: if (!geoProc.running) geoProc.running = true
         }
@@ -216,40 +374,20 @@ ShellRoot {
             // fast (60 Hz) for 1.5 s after any window event, otherwise a relaxed 2.5 Hz check (idle CPU)
             interval: sharedHub.geoHot ? 16 : 400
             repeat: true
-            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo) && !sharedHub.ipcBroken
+            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo || sharedHub.winBarWantsGeo) && !sharedHub.ipcBroken
             triggeredOnStart: true
             onTriggered: sharedHub.ipcPoll()
         }
 
-        // wallpaper the glass refracts (Noctalia settings.toml -> awww/swww/hyprpaper)
+        // wallpaper the glass refracts when MacShell has none of its own set yet: whatever the wallpaper daemon shows
         Process {
             id: wpProc
             command: ["sh", "-c",
-                ""
-                + "out=\"\"\n"
-                + "st=\"${XDG_STATE_HOME:-$HOME/.local/state}/noctalia\"; ns=\"${NOCTALIA_STATE_HOME:-/nonexistent}\"\n"
-                + "for f in \"$ns/settings.toml\" \"$st/settings.toml\" \"$HOME/.config/noctalia/settings.toml\" \"$HOME/.config/noctalia/config.toml\"; do\n"
-                + "  [ -f \"$f\" ] || continue\n"
-                + "  out=\"$out$(awk '\n"
-                + "    /^[ \\t]*\\[\\[/ { sec = \"\"; next }\n"
-                + "    /^[ \\t]*\\[/ { sec = $0; gsub(/[\\[\\] \\t\"]/, \"\", sec); next }\n"
-                + "    sec ~ /^wallpaper\\.(default|last|monitors\\..+)$/ && /^[ \\t]*path[ \\t]*=/ {\n"
-                + "      v = $0; sub(/^[^=]*=[ \\t]*\"/, \"\", v); sub(/\".*$/, \"\", v); print sec \"\\t\" v\n"
-                + "    }' \"$f\")\n"
-                + "\"\n"
-                + "done\n"
-                + "if [ -z \"$(printf %s \"$out\" | tr -d ' \\t\\n')\" ]; then\n"
-                + "  p=$(swww query 2>/dev/null | sed -n 's/.*image: //p' | head -n1)\n"
-                + "  [ -z \"$p\" ] && p=$(awww query 2>/dev/null | sed -n 's/.*image: //p' | head -n1)\n"
-                + "  [ -z \"$p\" ] && p=$(hyprctl hyprpaper listactive 2>/dev/null | head -n1 | sed 's/.*= //')\n"
-                + "  if [ -z \"$p\" ]; then f=\"$HOME/.config/hypr/hyprpaper.conf\"\n"
-                + "    [ -f \"$f\" ] && p=$(grep -E '^[[:space:]]*(path|wallpaper)[[:space:]]*=' \"$f\" | head -n1 | sed -E 's/^[^=]*=[[:space:]]*//; s/^[^,\\/]*,//')\n"
-                + "  fi\n"
-                + "  p=$(printf %s \"$p\" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')\n"
-                + "  [ -n \"$p\" ] && out=\"wallpaper.default$(printf '\\t')$p\"\n"
-                + "fi\n"
-                + "printf '%s' \"$out\"\n"
-            ]
+                "p=$(awww query 2>/dev/null | sed -n 's/.*image: //p' | head -n1); "
+                + "[ -z \"$p\" ] && p=$(swww query 2>/dev/null | sed -n 's/.*image: //p' | head -n1); "
+                + "[ -z \"$p\" ] && p=$(hyprctl hyprpaper listactive 2>/dev/null | head -n1 | sed 's/.*= //'); "
+                + "p=$(printf %s \"$p\" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'); "
+                + "[ -n \"$p\" ] && printf 'wallpaper.default\\t%s' \"$p\""]
             stdout: StdioCollector {
                 onStreamFinished: {
                     var m = {}, lines = text.split("\n");
@@ -276,6 +414,15 @@ ShellRoot {
     MacDock { id: macDock; hub: sharedHub; bar: macBar }
     MacWidgets { id: macWidgets; hub: sharedHub }
     ClockApp { id: clockApp; hub: sharedHub }
+    Desktop { id: desktopIcons; hub: sharedHub }
+    MinimizeFx { id: minFx; hub: sharedHub; effect: macDock.minimizeEffect; speed: macDock.minimizeSecs }
+    WindowBar { id: windowBar; hub: sharedHub }
+    Installer { id: depsInstaller; hub: sharedHub }
+    // qs -c MacShell ipc call deps open
+    IpcHandler {
+        target: "deps"
+        function open(): void { depsInstaller.open(); }
+    }
     AboutApp { id: aboutApp; hub: sharedHub }
 
     Component.onCompleted: {
@@ -301,7 +448,23 @@ ShellRoot {
         function stop(): void { clockApp.stopRing(); }
         function snooze(): void { clockApp.snooze(); }
     }
-    // qs -c MacShell ipc call about open | close | toggle      (the Apple menu's "About This Linux")
+    // qs -c MacShell ipc call desktop toggle | refresh
+    IpcHandler {
+        target: "desktop"
+        function toggle(): void { macDock.desktopIcons = !macDock.desktopIcons; }
+        function refresh(): void { desktopIcons.scan(); }
+    }
+    // qs -c MacShell ipc call window minimize | restore | restorelast
+    IpcHandler {
+        target: "window"
+        function minimize(): void { sharedHub.minimizeActive(); }
+        function minimizetitle(title: string): void { sharedHub.minimizeWindow(title); }
+        // genie | fade | instant  (the same as Settings → Desktop & Dock)
+        function effect(name: string): void { if (["genie", "fade", "instant"].indexOf(name) >= 0) macDock.minimizeEffect = name; }
+        function restore(addr: string): void { sharedHub.restoreAddr(addr); }
+        function restorelast(): void { sharedHub.restoreLast(); }
+    }
+    // qs -c MacShell ipc call about open | close | toggle      (the Apple menu's "About This Computer")
     IpcHandler {
         target: "about"
         function open(): void { aboutApp.open(); }
@@ -313,6 +476,7 @@ ShellRoot {
         function open(): void { macBar.notifPopRequest(true); }
         function close(): void { macBar.notifPopRequest(false); }
         function clear(): void { macBar.notifClearAnimated(); }
+        function dnd(state: string): void { macBar.notifDnd = state === "toggle" ? !macBar.notifDnd : (state === "on"); }
         // the lock screen: a notification swiped away
         function dismiss(id: int): void { macBar.notifDelete(id); macBar.notifUnread = Math.max(0, macBar.notifUnread - 1); }
     }

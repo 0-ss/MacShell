@@ -123,27 +123,10 @@ Item {
         visible: false
         renderTarget: Canvas.Image
         property url want: w.artSrc
-        property url loaded: ""
-        property int tries: 0
-        // A new cover always starts from scratch: the previous colour is dropped at once (never kept for the next song),
-        // the previous image is unloaded, and a cover that is not on disk / downloaded yet is retried a few times.
-        function startLoad() {
-            if (loaded != "") { try { unloadImage(loaded); } catch (e) {} loaded = ""; }
-            if (want == "") { w.tintKnown = false; retry.stop(); return; }
-            loaded = want;
-            if (isImageLoaded(want)) requestPaint(); else { loadImage(want); retry.restart(); }
-        }
-        onWantChanged: { w.tintKnown = false; tries = 0; retry.stop(); startLoad(); }
-        Component.onCompleted: startLoad()
-        onImageLoaded: { retry.stop(); requestPaint(); }
-        Timer {
-            id: retry
-            interval: 600
-            // Canvas has no "load failed" signal: if the cover still is not loaded, try again (up to 8 times)
-            onTriggered: { if (tintSampler.loaded != "" && !tintSampler.isImageLoaded(tintSampler.loaded) && ++tintSampler.tries <= 8) tintSampler.startLoad(); }
-        }
+        onWantChanged: { if (want != "") loadImage(want); else w.tintKnown = false; }
+        onImageLoaded: requestPaint()
         onPaint: {
-            if (want == "" || loaded != want || !isImageLoaded(want)) return;
+            if (want == "" || !isImageLoaded(want)) return;
             var ctx = getContext("2d");
             ctx.clearRect(0, 0, 16, 16);
             ctx.drawImage(want, 0, 0, 16, 16);
