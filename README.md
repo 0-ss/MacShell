@@ -5,8 +5,9 @@
   with a real-time <b>Liquid Glass</b> refraction shader, and a lock screen, <b>MacLock</b>.
 </p>
 
-<img width="512" height="512" alt="macshell-logo" src="https://github.com/user-attachments/assets/bc67b3fa-33a6-4326-9752-f0d271d0ed22" />
-
+<p align="center">
+  <img width="128" height="128" alt="macshell-logo" src="https://github.com/user-attachments/assets/bc67b3fa-33a6-4326-9752-f0d271d0ed22" />
+</p>
 
 <p align="center">
   <img width="854" alt="MacShell quick showcase" src="https://github.com/user-attachments/assets/b75da31c-73a3-4830-af70-2e0b74f85bf0" />
