@@ -1,4 +1,4 @@
-// macdock v2 — a macOS-style dock for Hyprland, built on Quickshell.
+// macdock v2 — a macOS-style dock for Hyprland, built on Quickshell. vSuol
 //
 // Part of the combined macbar + macdock shell (see shell.qml). Keep this file, MacBar.qml, shell.qml and
 // liquidglass.frag together in ~/.config/quickshell/macbar/ and run:  qs -c macbar
@@ -3655,11 +3655,14 @@ Scope {
                     Item {
                         width: parent.width
                         height: 176
-                        SGlyph {
+                        Image {
                             x: (parent.width - width) / 2
-                            y: 44
-                            kind: "dock"
-                            scale: 3.4
+                            y: 16
+                            width: 84; height: 84
+                            source: Qt.resolvedUrl("assets/macshell-logo.png")
+                            sourceSize.width: 256; sourceSize.height: 256
+                            fillMode: Image.PreserveAspectFit
+                            smooth: true; mipmap: true
                         }
                         Text {
                             y: 108
@@ -3675,7 +3678,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.2.4 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.2.6 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: pal.fam
                             font.pixelSize: 12
@@ -3748,9 +3751,9 @@ Scope {
                     Repeater {
                         model: [
                             { img: "assets/credits/0-ss.jpg", name: "Rickky", gh: "0-ss",
-                              role: "Owner — the menu bar, the Dock, the Liquid Glass and the widgets. The one who actually knew what he was doing" },
+                              role: "Owner — the menu bar, the Dock, the Liquid Glass the widgets and more... The one who actually knew what he was doing" },
                             { img: "assets/credits/vsoultann.png", name: "vSuol", gh: "vsoultann",
-                              role: "Collaborator — improved the Settings app and window, and every bug you will ever find" }
+                              role: "Contributors — improved the Settings app, and most of the bugs you would find" }
                         ]
                         delegate: Item {
                             id: cr
