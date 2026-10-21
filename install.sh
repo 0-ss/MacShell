@@ -1258,6 +1258,11 @@ hl.window_rule({
     border_size = 0,
     rounding = 18,
 })
+hl.window_rule({
+    name = "macshell-float-all",
+    match = {},
+    float = true,
+})
 
 -- MacLock (lock screen)
 hl.bind("SUPER + L",          hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"))
