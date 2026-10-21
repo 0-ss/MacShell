@@ -170,12 +170,27 @@ Item {
                 editing: host.editing
             }
         }
+        Component {
+            id: sysmonVisual
+            SystemMonitorWidget {
+                scaleF: host.widgetScale
+                style: wstyle
+                size: wsize
+                fam: host.fontFamily
+                screenX: v.sx; screenY: v.sy
+                borderTint: host.borderTint
+                darkGlass: host.darkGlass
+                editing: host.editing
+                onGlassFailed: host.glassState = "failed"
+            }
+        }
         Loader {
             id: visual
             anchors.fill: parent
             sourceComponent: wtype === "calendar" ? calendarVisual
                            : (wtype === "clock" ? clockVisual
                            : (wtype === "player" ? playerVisual
-                           : (wtype === "image" ? imageVisual : weatherVisual)))
+                           : (wtype === "image" ? imageVisual
+                           : (wtype === "sysmon" ? sysmonVisual : weatherVisual))))
         }
 }

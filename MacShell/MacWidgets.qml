@@ -54,7 +54,7 @@ Scope {
     property int rev: 0                    // bumped on every change to the list, so Settings bindings can re-evaluate count()
 
     readonly property var styleNames: ({ liquid: "Liquid Glass", normal: "Normal", light: "Light", dark: "Dark" })
-    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image" })
+    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image", sysmon: "System Monitor" })
     readonly property var sizeNames: ({ small: "Small", medium: "Medium", large: "Large" })
     function dims(size) {
         var b = size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]);
@@ -295,7 +295,7 @@ Scope {
             wmodel.clear();
             for (var i = 0; i < o.widgets.length; i++) {
                 var w = o.widgets[i];
-                if (!w || (w.type !== "weather" && w.type !== "calendar" && w.type !== "clock" && w.type !== "player" && w.type !== "image")) continue;
+                if (!w || !w.type || !(w.type in root.typeNames)) continue;
                 wmodel.append({ wid: String(w.id || ("w" + i)), wtype: w.type,
                                 wstyle: w.type === "image" ? "normal" : (w.type === "clock" || w.type === "player")
                                     ? ((w.style === "light" || w.style === "dark") ? w.style : "liquid")
@@ -770,7 +770,7 @@ Scope {
 
     IpcHandler {
         target: "widgets"
-        function refresh(): void { root.refresh(); }
-        function edit(on: bool): void { root.editing = on; }
+        function refresh() { root.refresh(); }
+        function edit(on: bool) { root.editing = on; }
     }
 }
