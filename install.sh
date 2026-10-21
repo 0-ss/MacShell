@@ -44,6 +44,7 @@
 #       --low-power       settings for older computers (no live window capture, no magnification, plain blur)
 #       --no-autostart    do not touch the Hyprland config
 #       --no-rules        do not add the Liquid Glass layer rules to the Hyprland config
+#       --no-float        do not make all windows float by default (saved, so updates keep it)
 #       --channel CH      release (default: latest release, else the main branch) or main (always the newest commit)
 #       --ref REF         install a specific tag / commit instead of the latest
 #       --from-dir DIR    install from a local folder instead of downloading
@@ -100,6 +101,7 @@ DEPS_ONLY=0
 SKIP_SERVICES=0
 SKIP_AUTOSTART=0
 SKIP_RULES=0
+SKIP_FLOAT=""
 SKIP_LOCK=0
 CHECK_ONLY=0
 LOCAL_ONLY=0
@@ -162,6 +164,7 @@ while [ $# -gt 0 ]; do
         --resolved-id) RESOLVED_ID="${2:-}"; shift ;;
         --resolved-type) RESOLVED_TYPE="${2:-}"; shift ;;
         -h|--help) usage; exit 0 ;;
+        --no-float) SKIP_FLOAT=1 ;;
         *) die "unknown option: $1 (try --help)" ;;
     esac
     shift
@@ -171,6 +174,10 @@ state_get() { [ -f "$STATE_DIR/state.env" ] && sed -n "s/^$1=//p" "$STATE_DIR/st
 [ -n "$CHANNEL" ] || CHANNEL="$(state_get channel_pref)"
 [ -n "$CHANNEL" ] || CHANNEL="release"
 case "$CHANNEL" in release|main) ;; *) die "--channel must be 'release' or 'main'" ;; esac
+# floating windows: an explicit --no-float wins, otherwise keep what was saved by a previous install
+if [ -z "$SKIP_FLOAT" ]; then
+    [ "$(state_get float)" = off ] && SKIP_FLOAT=1 || SKIP_FLOAT=0
+fi
 
 [ "$(id -u)" -eq 0 ] && warn "running as root: MacShell is installed per user, run this as your normal user instead."
 
@@ -1176,6 +1183,7 @@ write_state() {
         echo "dest=$DEST"
         echo "lock_dest=$LOCK_DEST"
         echo "lock_installed=$([ -n "${LOCK_ROOT:-}" ] && echo yes || echo no)"
+        echo "float=$([ "$SKIP_FLOAT" = 1 ] && echo off || echo on)"
     } > "$STATE_DIR/state.env"
 }
 
@@ -1258,15 +1266,18 @@ hl.window_rule({
     border_size = 0,
     rounding = 18,
 })
-hl.window_rule({
-    name = "macshell-float-all",
-    match = {},
-    float = true,
-})
 
 -- MacLock (lock screen)
 hl.bind("SUPER + L",          hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"))
+
 MACSHELL_LUA
+        if [ "$SKIP_FLOAT" != 1 ]; then
+            cat <<'FLOAT_LUA'
+-- Floating windows by default (macOS-like overlapping windows).
+-- Disable with: bash install.sh --no-float
+hl.window_rule({ name = "macshell-float-all", match = {}, float = true })
+FLOAT_LUA
+        fi
         printf '%s\n' "$MACLUA_END"
     } > "$f"
     ok "MacShell autostart and keybinds -> $f"
