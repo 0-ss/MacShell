@@ -298,6 +298,7 @@ OPTIONAL=(
     "python3:python:UI sound generation and AirDrop"
     "kitty:kitty:the default terminal"
     "hypridle:hypridle:lock on idle (optional)"
+    "wtype:wtype:menu bar keyboard shortcuts in browsers and apps"
 )
 # libraries / fonts / packages without a command to test: arch-package:what-for   (a|b = first one the repositories have)
 LIBS=(
@@ -1087,6 +1088,7 @@ install_hypr_tree() { # install_hypr_tree <hypr-macshell source folder>
     for f in hypridle.conf hyprlock/colors.conf; do
         [ -f "$HYPR_MAC_DIR/$f" ] && sed -i "s|__HOME__|$HOME|g" "$HYPR_MAC_DIR/$f"
     done
+    [ -f "$HYPR_MAC_DIR/hypridle.conf" ] && cp -f "$HYPR_MAC_DIR/hypridle.conf" "$HYPR_DIR/hypridle.conf"
     find "$HYPR_MAC_DIR" -type f \( -name '*.sh' -o -name '*.py' \) -exec chmod +x {} + 2>/dev/null || true
     n=$(find "$HYPR_MAC_DIR/scripts" -maxdepth 1 -type f \( -name 'macshell-*.sh' -o -name 'macshell-*.py' \) | wc -l)
     ok "$n helper script(s) -> $SCRIPTS_DIR"
@@ -1196,6 +1198,7 @@ write_macshell_lua() {
 -- install.sh adds this for you; macshell-start waits for the compositor and restarts the shell if it crashes.
 hl.on("hyprland.start", function()
     hl.exec_cmd("awww-daemon")
+    hl.exec_cmd("hypridle")
     hl.exec_cmd("sh ~/.local/bin/macshell-start")
 end)
 -- The Settings window floats and centres itself when it opens, so it needs no window rule.
@@ -1203,12 +1206,16 @@ end)
 -- keybinds (the name after -c is the config folder name, case-sensitive)
 local qs = "qs -c MacShell ipc call "
 
+hl.bind("SUPER + Z",          hl.dsp.exec_cmd(qs .. "settings toggle"))
 hl.bind("SUPER + V",          hl.dsp.exec_cmd(qs .. "spotlight clipboard"))
 hl.bind("SUPER + period",     hl.dsp.exec_cmd(qs .. "spotlight emoji"))
 hl.bind("SUPER + Space",      hl.dsp.exec_cmd(qs .. "spotlight toggle"))
 hl.bind("ALT + TAB",          hl.dsp.exec_cmd(qs .. "switcher next"))
 hl.bind("CTRL + ALT + W",     hl.dsp.exec_cmd(qs .. "wallpapers toggle"))
 hl.bind("PRINT",              hl.dsp.exec_cmd(qs .. "screenshot region"))
+
+-- Laptop lid switch: lock screen on screen shut
+hl.bind("", "switch:on:Lid Switch", hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"), { locked = true })
 
 -- Hardware keys (laptop buttons too): volume, mute, brightness, media. MacShell handles them itself and shows its
 -- on-screen display. If the shell is not running, wpctl / brightnessctl do the work instead.

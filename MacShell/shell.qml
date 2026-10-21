@@ -25,6 +25,7 @@ ShellRoot {
     // The UI font ("Open Runde") ships with MacShell: registered here, first, so every Text below can use it
     // without installing anything. (The installer also copies it to ~/.local/share/fonts.)
     FontLoader { id: uiFontLoader; source: Qt.resolvedUrl("assets/fonts/OpenRunde-Regular.otf") }
+    FontLoader { id: uiBoldFontLoader; source: Qt.resolvedUrl("assets/fonts/OpenRunde-Semibold.otf") }
 
     Scope {
         id: sharedHub
@@ -32,6 +33,7 @@ ShellRoot {
         property var monData: []
         property var glassClients: []
         property var wallpaperMap: ({})
+        readonly property string boldFontFamily: uiBoldFontLoader.status === FontLoader.Ready ? uiBoldFontLoader.name : "Open Runde Semibold"
 
         // the single settings window lives in MacDock.qml; everything else reaches it through here
         property var bar: macBar
@@ -271,16 +273,23 @@ ShellRoot {
     }
 
     MacBar { id: macBar; hub: sharedHub }
-    MacDock { id: macDock; hub: sharedHub }
+    MacDock { id: macDock; hub: sharedHub; bar: macBar }
     MacWidgets { id: macWidgets; hub: sharedHub }
     ClockApp { id: clockApp; hub: sharedHub }
     AboutApp { id: aboutApp; hub: sharedHub }
+
+    Component.onCompleted: {
+        sharedHub.bar = macBar;
+        sharedHub.dock = macDock;
+        sharedHub.widgets = macWidgets;
+    }
 
     // reopen settings even when both the Dock and the Menu Bar are disabled:
     //   qs -c macbar ipc call settings open
     IpcHandler {
         target: "settings"
         function open(): void { macDock.openPrefs("general"); }
+        function toggle(): void { macDock.togglePrefs("general"); }
         // qs -c MacShell ipc call settings pane wallpaper   (general, dock, menubar, appearance, wallpaper, behavior, apps, about)
         function pane(id: string): void { macDock.openPrefs(id); }
     }

@@ -84,6 +84,7 @@ Item {
                 style: wstyle
                 size: wsize
                 fam: host.fontFamily
+                boldFam: host.boldFontFamily
                 screenX: v.sx; screenY: v.sy
                 glassReady: host.glassState === "ready"
                 shaderUrl: "file://" + host.glassShaderOut

@@ -3,12 +3,11 @@
 //          "medium" – the wide Now Playing card: art, title, scrolling subtitle, waves, progress + times, shuffle / back / play / forward / repeat
 //          "large"  – the same card, taller, with big artwork
 //   Everything is drawn in "reference units" (RU): the wide card scales to the shell's 358 x 168 Medium footprint.
-//   style: "light"  – pastel card tinted with the artwork's colour, dark text
-//          "dark"   – deep card tinted with the artwork's colour, white text
-//          "liquid" – Liquid Glass (Appearance sliders) with the artwork's colour washed over it
+//   style: "light"  – plain light card (same face as the Clock widget), dark text
+//          "dark"   – plain dark card (same face as the Clock widget), white text
+//          "liquid" – normal Liquid Glass (Appearance sliders), exactly like the Clock / Calendar / Weather widgets
 //
-// The card colour is taken from the album artwork (a 24x24 sample of it, see `sampler`), and fades to the next song's colour.
-// Without artwork a stable colour is derived from the title instead.
+// The light and dark cards take their colour from the artwork (a pale / deep version of it). The liquid card never does.
 //
 // This file only draws. MacWidgets.qml owns the MPRIS player and feeds the data properties; the buttons emit
 // togglePlaying() / nextTrack() / previousTrack().
@@ -29,7 +28,6 @@ Item {
     property real screenY: y
     property bool preview: false             // inside the Settings gallery: sample data, no wallpaper, not clickable
     property bool editing: false
-    property color tintOverride: "transparent"   // preview only: pretend the artwork has this colour
 
     // ── data (from MacWidgets) ──
     property bool hasPlayer: false
@@ -97,13 +95,7 @@ Item {
     readonly property bool dark: style === "dark" || (style === "liquid" && darkGlass)
     readonly property real tint: Math.min(0.92, dark ? 0.25 + glassOpacity * 0.8 : 0.45 + glassOpacity * 0.9)
 
-    // ───────────────────────── colours from the artwork ─────────────────────────
-    function mix(c, o, t) { return Qt.rgba(c.r * (1 - t) + o.r * t, c.g * (1 - t) + o.g * t, c.b * (1 - t) + o.b * t, 1); }
-    function hashColor(str) {
-        var h = 7;
-        for (var i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 360;
-        return Qt.hsva(h / 360, 0.55, 0.66, 1);
-    }
+    // ───────────────────────── colours ─────────────────────────
     function fileUrl(p) {
         if (!p) return "";
         if (p.indexOf("/") === 0) return "file://" + encodeURI(p).replace(/#/g, "%23").replace(/\?/g, "%3F");
@@ -111,59 +103,6 @@ Item {
     }
     readonly property url artSrc: fileUrl(artUrl)
 
-    property color sampled: "transparent"     // the colour found in the artwork (alpha 0 = nothing yet)
-    readonly property color artColor: {
-        if (tintOverride.a > 0) return tintOverride;
-        if (!hasPlayer) return Qt.rgba(0.36, 0.38, 0.44, 1);
-        if (sampled.a > 0 && artSrc != "") return sampled;
-        return hashColor(title + "|" + artist);
-    }
-    property color ac: artColor
-    Behavior on ac { ColorAnimation { duration: 450 } }
-
-    // 24x24 sample of the artwork: the average of its colourful pixels (grey / black / white ones count for little)
-    Canvas {
-        id: sampler
-        width: 24; height: 24
-        opacity: 0                           // painted, but never seen
-        renderTarget: Canvas.Image
-        renderStrategy: Canvas.Immediate
-        property string loaded: ""
-        function load(u) {
-            if (loaded !== "") { unloadImage(loaded); loaded = ""; }
-            if (u === "") { w.sampled = "transparent"; return; }
-            loaded = u;
-            loadImage(u);
-        }
-        onImageLoaded: requestPaint()
-        onPaint: {
-            if (loaded === "" || !isImageLoaded(loaded)) return;
-            var ctx = getContext("2d");
-            ctx.clearRect(0, 0, 24, 24);
-            ctx.drawImage(loaded, 0, 0, 24, 24);
-            var d = ctx.getImageData(0, 0, 24, 24).data, r = 0, g = 0, b = 0, wt = 0, ar = 0, ag = 0, ab = 0;
-            for (var i = 0; i < d.length; i += 4) {
-                var R = d[i] / 255, G = d[i + 1] / 255, B = d[i + 2] / 255;
-                var mx = Math.max(R, G, B), mn = Math.min(R, G, B), sat = mx > 0 ? (mx - mn) / mx : 0;
-                var k = sat * sat * (0.25 + mx) + 0.002;            // vivid, reasonably bright pixels win
-                r += R * k; g += G * k; b += B * k; wt += k;
-                ar += R; ag += G; ab += B;
-            }
-            if (wt <= 0) return;
-            var c = Qt.rgba(r / wt, g / wt, b / wt, 1);
-            // keep it a real colour, neither black nor white
-            var s = c.hsvSaturation < 0.10 ? c.hsvSaturation : Math.max(c.hsvSaturation, 0.38);
-            var v = Math.max(0.42, Math.min(0.88, c.hsvValue));
-            w.sampled = Qt.hsva(c.hsvHue < 0 ? 0 : c.hsvHue, Math.min(1, s), v, 1);
-        }
-    }
-    onArtSrcChanged: sampler.load(String(artSrc))
-    Component.onCompleted: sampler.load(String(artSrc))
-
-    // card colours
-    readonly property color topCol: style === "light" ? mix(ac, Qt.rgba(1, 1, 1, 1), 0.70) : mix(ac, Qt.rgba(0, 0, 0, 1), 0.42)
-    readonly property color botCol: style === "light" ? mix(ac, Qt.rgba(1, 1, 1, 1), 0.84) : mix(ac, Qt.rgba(0, 0, 0, 1), 0.66)
-    readonly property color cardMid: mix(topCol, botCol, 0.5)
     function fa(a) { return dark ? Qt.rgba(1, 1, 1, a) : Qt.rgba(0, 0, 0, a); }
     readonly property color fg: fa(dark ? 0.90 : 0.86)          // title
     readonly property color fg2: fa(dark ? 0.52 : 0.50)         // subtitle, times
@@ -171,29 +110,66 @@ Item {
     readonly property color fgDim: fa(dark ? 0.52 : 0.48)       // shuffle / repeat when off
     readonly property color trackCol: fa(dark ? 0.12 : 0.10)
     readonly property color fillCol: fa(dark ? 0.58 : 0.50)
-    // thin border: the card's own colour, a bit brighter
-    readonly property color borderCol: {
-        var c = Qt.lighter(cardMid, 1.55);
-        return Qt.rgba(c.r, c.g, c.b, 0.9);
+
+    // ───────────────────────── artwork colour ─────────────────────────
+    // The cover is drawn onto a tiny hidden canvas and averaged (saturated pixels count more, so a mostly-grey cover with
+    // one bright subject still gives that colour). artH / artS are the hue and saturation of the result.
+    property bool tintKnown: false
+    property real tintH: 0
+    property real tintS: 0
+    Canvas {
+        id: tintSampler
+        width: 16; height: 16
+        visible: false
+        renderTarget: Canvas.Image
+        property url want: w.artSrc
+        onWantChanged: { if (want != "") loadImage(want); else w.tintKnown = false; }
+        onImageLoaded: requestPaint()
+        onPaint: {
+            if (want == "" || !isImageLoaded(want)) return;
+            var ctx = getContext("2d");
+            ctx.clearRect(0, 0, 16, 16);
+            ctx.drawImage(want, 0, 0, 16, 16);
+            var d = ctx.getImageData(0, 0, 16, 16).data;
+            var sr = 0, sg = 0, sb = 0, sw = 0;
+            for (var i = 0; i < d.length; i += 4) {
+                var r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
+                var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+                var wt = 0.05 + (mx - mn) * (mx - mn) * 4;           // favour saturated pixels
+                sr += r * wt; sg += g * wt; sb += b * wt; sw += wt;
+            }
+            if (sw <= 0) { w.tintKnown = false; return; }
+            var c = Qt.rgba(sr / sw, sg / sw, sb / sw, 1);
+            w.tintH = c.hslHue < 0 ? 0 : c.hslHue;
+            w.tintS = c.hslSaturation;
+            w.tintKnown = true;
+        }
     }
+    readonly property bool faceTint: tintKnown && !preview && hasPlayer
+    function tintFace(l, satMul) { return Qt.hsla(tintH, Math.min(0.7, tintS * satMul), l, 1); }
 
     // ───────────────────────── background ─────────────────────────
-    // Light / Dark: card tinted with the artwork colour
+    // Light face
     Rectangle {
         anchors.fill: parent
-        visible: w.style !== "liquid"
+        visible: w.style === "light"
         radius: w.radiusPx
         gradient: Gradient {
-            GradientStop { position: 0.0; color: w.topCol }
-            GradientStop { position: 1.0; color: w.botCol }
+            GradientStop { position: 0.0; color: w.faceTint ? w.tintFace(0.92, 0.85) : "#E9EAEB"; Behavior on color { ColorAnimation { duration: 400 } } }
+            GradientStop { position: 0.55; color: w.faceTint ? w.tintFace(0.88, 0.85) : "#DFE0E2"; Behavior on color { ColorAnimation { duration: 400 } } }
+            GradientStop { position: 1.0; color: w.faceTint ? w.tintFace(0.83, 0.85) : "#D6D7DA"; Behavior on color { ColorAnimation { duration: 400 } } }
         }
-        Rectangle {   // soft top sheen
-            anchors.fill: parent
-            radius: parent.radius
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, w.dark ? 0.08 : 0.30) }
-                GradientStop { position: 0.55; color: Qt.rgba(1, 1, 1, 0.0) }
-            }
+    }
+
+    // Dark face
+    Rectangle {
+        anchors.fill: parent
+        visible: w.style === "dark"
+        radius: w.radiusPx
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: w.faceTint ? w.tintFace(0.29, 0.75) : "#38393D"; Behavior on color { ColorAnimation { duration: 400 } } }
+            GradientStop { position: 0.55; color: w.faceTint ? w.tintFace(0.23, 0.75) : "#303135"; Behavior on color { ColorAnimation { duration: 400 } } }
+            GradientStop { position: 1.0; color: w.faceTint ? w.tintFace(0.15, 0.75) : "#242529"; Behavior on color { ColorAnimation { duration: 400 } } }
         }
     }
 
@@ -302,15 +278,6 @@ Item {
                 property real ringW: 0
             }
         }
-    }
-
-    // the artwork's colour washed over the glass (Liquid style)
-    Rectangle {
-        anchors.fill: parent
-        anchors.margins: 1
-        visible: w.style === "liquid"
-        radius: Math.max(0, w.radiusPx - 1)
-        color: Qt.rgba(w.ac.r, w.ac.g, w.ac.b, w.dark ? 0.46 : 0.34)
     }
 
     // Control Center border (all styles)

@@ -12,6 +12,7 @@ Item {
     property string size: "small"
     property real scaleF: 1.0
     property string fam: "Open Runde"
+    property string boldFam: "Open Runde Semibold"
     property real screenX: x
     property real screenY: y
     property bool preview: false
@@ -356,33 +357,33 @@ Item {
         verticalAlignment: Text.AlignVCenter
     }
 
-    // The time: very heavy, tall and narrow numerals (Inter Black squeezed horizontally and stretched vertically),
-    // 12-hour, no leading zero. Longer times like 12:45 shrink to stay inside the ticks.
+    // The time: Open Runde Semibold, drawn smooth (no synthetic outline, no hinting) and stretched slightly taller than wide,
+    // like the Mac Clock widget. 12-hour, no leading zero; longer times like 12:45 shrink to stay inside the ticks.
     Text {
         id: clockText
 
-        readonly property real xs: 0.75       // horizontal squeeze
-        readonly property real ys: 1.30       // vertical stretch
+        readonly property real xs: 0.94       // horizontal squeeze
+        readonly property real ys: 1.14       // vertical stretch
 
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
         anchors.verticalCenterOffset: -1 * w.u
 
-        width: (w.width - 50 * w.u) / xs      // layout width before the squeeze
-        height: 62 * w.u * 1.25
+        width: (w.width - 56 * w.u) / xs      // layout width before the squeeze
+        height: 64 * w.u * 1.25
 
         text: w.displayTime
 
         color: w.dark ? "#FFFFFF" : "#0C0D0F"
+        opacity: 0.96
 
-        font.family: w.fam
-        font.pixelSize: 62 * w.u
-        font.weight: Font.Black
-        font.letterSpacing: -3.0 * w.u
+        font.family: w.boldFam
+        font.pixelSize: 64 * w.u
+        font.letterSpacing: -2.2 * w.u
+        font.features: { "tnum": 1, "ss01": 0 }   // tabular figures: the digits don't jitter as the minutes change
 
-        // same-colour outline: slightly heavier strokes
-        style: Text.Outline
-        styleColor: color
+        renderType: Text.QtRendering
+        antialiasing: true
 
         transform: Scale {
             origin.x: clockText.width / 2

@@ -213,7 +213,7 @@ Item {
         sourceItem: g.glass ? lyr : null
         hideSource: true
         live: g.glass && (g.glassOn || g.pressT > 0.02)
-        mipmap: true
+        mipmap: false                         // no mip blur: the lens only refracts, it never blurs
         visible: false
     }
 
@@ -244,6 +244,7 @@ Item {
                     tint: g.glassTint
                     shadowAmt: 0.5
                     flatInner: 1
+                    blurPx: 0                 // pure liquid glass: refraction only, no blur
                     onFailed: g.glassFailed()
                 }
                 // same border as the Control Center buttons, sliders and switches

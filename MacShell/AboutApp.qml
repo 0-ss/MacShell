@@ -18,15 +18,32 @@ import "I18n.js" as I18n
 Scope {
     id: root
     property var hub: null
-    readonly property var dock: hub ? hub.dock : null
-    readonly property var bar: hub ? hub.bar : null
-    readonly property bool darkMode: dock ? dock.darkMode : true
+    property var dock: hub ? hub.dock : null
+    property var bar: hub ? hub.bar : null
+    property bool darkMode: bar ? bar.darkMode : (dock ? dock.darkMode : true)
+
+    Connections {
+        target: root.bar
+        function onDarkModeChanged() { if (root.bar) root.darkMode = root.bar.darkMode; }
+    }
+    Connections {
+        target: root.dock
+        function onDarkModeChanged() { if (!root.bar && root.dock) root.darkMode = root.dock.darkMode; }
+    }
+
     readonly property string fam: dock ? dock.fontFamily : "Open Runde"
+    readonly property string boldFontFamily: hub && hub.boldFontFamily ? hub.boldFontFamily : "Open Runde Semibold"
+    function fontForWeight(weight, regularFamily) { return Number(weight) >= Font.DemiBold ? boldFontFamily : regularFamily; }
 
     property var info: ({})
     readonly property string scriptPath: decodeURIComponent(String(Qt.resolvedUrl("assets/about-info.sh")).replace(/^file:\/\//, ""))
 
-    function open() { win.visible = true; win.raise(); win.requestActivate(); }
+    function syncTheme() {
+        if (bar) darkMode = bar.darkMode;
+        else if (dock) darkMode = dock.darkMode;
+    }
+
+    function open() { syncTheme(); win.visible = true; win.raise(); win.requestActivate(); }
     function close() { win.visible = false; }
     function toggle() { if (win.visible) close(); else open(); }
 
@@ -149,7 +166,22 @@ Scope {
                             width: 14; height: 14; radius: 7
                             color: (modelData.on && (win.active || tl.containsMouse)) ? modelData.c : pal.lightOff
                             border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.14)
-                            Text { anchors.centerIn: parent; visible: tl.containsMouse && parent.modelData.on; text: "×"; font.pixelSize: 11; font.bold: true; color: Qt.rgba(0, 0, 0, 0.55) }
+                            Canvas {
+                                anchors.fill: parent
+                                visible: tl.containsMouse && parent.modelData.on
+                                onVisibleChanged: if (visible) requestPaint()
+                                onPaint: {
+                                    var ctx = getContext("2d");
+                                    ctx.clearRect(0, 0, width, height);
+                                    ctx.strokeStyle = "rgba(0,0,0,0.58)";
+                                    ctx.lineWidth = 1.2;
+                                    ctx.lineCap = "round";
+                                    ctx.beginPath();
+                                    ctx.moveTo(4, 4); ctx.lineTo(10, 10);
+                                    ctx.moveTo(10, 4); ctx.lineTo(4, 10);
+                                    ctx.stroke();
+                                }
+                            }
                         }
                     }
                 }
@@ -206,7 +238,7 @@ Scope {
                     elide: Text.ElideRight
                     text: "MacShell"
                     color: pal.text
-                    font.family: root.fam; font.pixelSize: 24; font.weight: Font.Bold
+                    font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 24; font.weight: Font.Bold
                 }
                 Item { width: 1; height: 3 }
                 Text {
@@ -215,7 +247,7 @@ Scope {
                     elide: Text.ElideRight
                     text: root.info.sub || ""
                     color: pal.text3
-                    font.family: root.fam; font.pixelSize: 12
+                    font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 12
                 }
                 Item { width: 1; height: 22 }
 
@@ -235,7 +267,7 @@ Scope {
                                 wrapMode: Text.Wrap
                                 text: modelData.k
                                 color: pal.text
-                                font.family: root.fam; font.pixelSize: 12; font.weight: Font.DemiBold
+                                font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 12; font.weight: Font.DemiBold
                             }
                             Column {
                                 width: parent.width - 104
@@ -244,7 +276,7 @@ Scope {
                                     wrapMode: Text.Wrap
                                     text: modelData.v
                                     color: pal.text
-                                    font.family: root.fam; font.pixelSize: 12
+                                    font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 12
                                 }
                                 Text {
                                     visible: modelData.s !== ""
@@ -252,7 +284,7 @@ Scope {
                                     wrapMode: Text.Wrap
                                     text: modelData.s
                                     color: pal.text2
-                                    font.family: root.fam; font.pixelSize: 11
+                                    font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 11
                                 }
                             }
                         }
@@ -268,7 +300,7 @@ Scope {
                         width: moreTxt.implicitWidth + 30; height: 24; radius: 7
                         color: moreMa.pressed ? pal.btnDown : pal.btn
                         border.width: 1; border.color: pal.border
-                        Text { id: moreTxt; anchors.centerIn: parent; text: I18n.tr("More Info\u2026"); color: pal.text; font.family: root.fam; font.pixelSize: 12 }
+                        Text { id: moreTxt; anchors.centerIn: parent; text: I18n.tr("More Info\u2026"); color: pal.text; font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 12 }
                         MouseArea {
                             id: moreMa; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: {
@@ -288,7 +320,7 @@ Scope {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: (root.info.osname || "Linux") + " " + I18n.tr("Website")
                         color: pal.text2
-                        font.family: root.fam; font.pixelSize: 11; font.underline: true
+                        font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 11; font.underline: true
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Quickshell.execDetached(["xdg-open", root.info.home || "https://www.kernel.org"]) }
                     }
                 }
@@ -297,9 +329,9 @@ Scope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.2.8"
+                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.2.9"
                     color: pal.text3
-                    font.family: root.fam; font.pixelSize: 10
+                    font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 10
                     lineHeight: 1.1
                 }
             }

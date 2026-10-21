@@ -2,7 +2,9 @@
 //   size:  "small" 158x158 · "medium" 338x158 · "large" 338x354   (macOS point sizes, times scaleF)
 //   style: "liquid" – Liquid Glass: the wallpaper behind the widget is blurred + refracted by liquidglass.frag, using the
 //                     Appearance sliders (Translucency / Blur / Liquid strength)
-//          "normal" – classic sky-gradient card
+//          "normal" – solid card (same as the Calendar widget)
+//   The look (glass, tint, text colours, border) is the same as the Clock and Calendar widgets: it follows the shell's
+//   Dark / Light setting.
 //
 // The item's own x / y are its position on the screen, which is how the glass knows which part of the wallpaper
 // sits behind it (it follows the widget while it is dragged).
@@ -67,64 +69,44 @@ Item {
     // The cloud glyphs are not shown: only the sun / moon get an icon.
     function showIcon(k) { return k === "sun" || k === "moon"; }
 
-    // sky colours of the Normal style
-    readonly property var sky: {
-        var k = w.kind;
-        if (!w.isDay) return (k === "rain" || k === "storm" || k === "cloud" || k === "fog" || k === "snow")
-                             ? ["#2B3447", "#4A5671"] : ["#1B2650", "#3A4F8C"];
-        if (k === "rain" || k === "storm") return ["#4A5870", "#7C8CA4"];
-        if (k === "cloud" || k === "fog")   return ["#5F7491", "#9AAABF"];
-        if (k === "snow")                   return ["#6C86A8", "#B4C4DA"];
-        if (k === "partly")                 return ["#3478DC", "#79AFF2"];
-        return ["#2D6FDF", "#6FB0F5"];
-    }
-    function hexRgb(c) { return [parseInt(c.substr(1, 2), 16), parseInt(c.substr(3, 2), 16), parseInt(c.substr(5, 2), 16)]; }
-    // the card's own colour (middle of the gradient), and the same colour a bit brighter for the thin border
-    readonly property color skyMid: {
-        var a = hexRgb(sky[0]), b = hexRgb(sky[1]);
-        return Qt.rgba((a[0] + b[0]) / 510, (a[1] + b[1]) / 510, (a[2] + b[2]) / 510, 1);
-    }
-    readonly property color frostMid: Qt.rgba(0.29, 0.52, 0.90, 1)
-    readonly property color borderCol: {
-        var c = Qt.lighter(style === "normal" ? skyMid : frostMid, 1.5);
-        return Qt.rgba(c.r, c.g, c.b, 0.9);
-    }
+    // ── light / dark (same rules as the Clock and Calendar widgets) ──
+    readonly property bool dark: darkGlass
+    readonly property color fg: dark ? Qt.rgba(1, 1, 1, 0.96) : Qt.rgba(0, 0, 0, 0.86)
+    readonly property color fgSub: dark ? Qt.rgba(1, 1, 1, 0.62) : Qt.rgba(0, 0, 0, 0.52)
+    readonly property color fgHour: dark ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(0, 0, 0, 0.70)
+    readonly property color line: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.12)
+    readonly property color barTrack: dark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.14)
+    readonly property color barFill: dark ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(0, 0, 0, 0.62)
+    // glass tint: the same as Clock / Calendar, so dark (light mode) / white (dark mode) text stays readable on any wallpaper
+    readonly property real tint: Math.min(0.92, dark ? 0.25 + glassOpacity * 0.8 : 0.45 + glassOpacity * 0.9)
 
     // ───────────────────────── background ─────────────────────────
-    // Normal: sky gradient
+    // Normal: solid card
     Rectangle {
         anchors.fill: parent
         visible: w.style === "normal"
         radius: w.radiusPx
         gradient: Gradient {
-            GradientStop { position: 0.0; color: w.sky[0] }
-            GradientStop { position: 1.0; color: w.sky[1] }
-        }
-        Rectangle {   // soft top sheen
-            anchors.fill: parent
-            radius: parent.radius
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.14) }
-                GradientStop { position: 0.55; color: Qt.rgba(1, 1, 1, 0.0) }
-            }
+            GradientStop { position: 0.0; color: w.dark ? "#3A3A3D" : "#FFFFFF" }
+            GradientStop { position: 1.0; color: w.dark ? "#2A2A2D" : "#EFEFF3" }
         }
     }
 
-    // Liquid fallback / gallery preview: frosted tinted card (while the shader builds, if it fails, and in Settings)
+    // Liquid fallback / gallery preview: frosted card (while the shader builds, if it fails, and in Settings)
     Rectangle {
         anchors.fill: parent
         visible: w.style === "liquid" && !w.glassOn
         radius: w.radiusPx
         gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(0.36, 0.60, 0.95, 0.78) }
-            GradientStop { position: 1.0; color: Qt.rgba(0.22, 0.45, 0.85, 0.78) }
+            GradientStop { position: 0.0; color: w.dark ? Qt.rgba(0.22, 0.22, 0.25, 0.82) : Qt.rgba(1.0, 1.0, 1.0, 0.88) }
+            GradientStop { position: 1.0; color: w.dark ? Qt.rgba(0.13, 0.13, 0.15, 0.82) : Qt.rgba(0.92, 0.92, 0.95, 0.88) }
         }
         Rectangle {
             anchors.fill: parent
             radius: parent.radius
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.22) }
-                GradientStop { position: 0.6; color: Qt.rgba(1, 1, 1, 0.04) }
+                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, w.dark ? 0.10 : 0.35) }
+                GradientStop { position: 0.6; color: Qt.rgba(1, 1, 1, 0.0) }
             }
         }
     }
@@ -215,9 +197,9 @@ Item {
                 property real rim: w.glassRim
                 property real grain: w.glassGrain * 0.15   // much finer / quieter than the Dock's noise
                 property real blurPx: 1.0            // tiny residual smoothing; the real blur is the MultiEffect pre-pass
-                property real tintMix: w.glassOpacity * 0.55
+                property real tintMix: w.tint
                 property real saturation: 1.25
-                property real dark: w.darkGlass ? 1 : 0
+                property real dark: w.dark ? 1 : 0
                 property real debug: 0
                 property real shadowAmt: 0           // no drop shadow
                 property real flatInner: 1           // no darker inner edge (needs the rebuilt liquidglass shader)
@@ -232,7 +214,7 @@ Item {
         z: 2
         anchors.fill: parent
         cornerR: w.radiusPx
-        dark: w.darkGlass
+        dark: w.dark
         tint: w.borderTint
         lineW: 0.8
     }
@@ -250,7 +232,7 @@ Item {
             text: w.city
             width: Math.min(implicitWidth, 158 * w.s - 2 * w.pad - (w.located ? 14 * w.s : 0))
             elide: Text.ElideRight
-            color: "white"
+            color: w.fg
             font.family: w.fam
             font.pixelSize: 15 * w.s
             font.weight: Font.DemiBold
@@ -262,11 +244,13 @@ Item {
             width: 9 * w.s
             height: 9 * w.s
             onWidthChanged: requestPaint()
+            Connections { target: w; function onDarkChanged() { loc.requestPaint(); } }
+            id: loc
             onPaint: {
                 var ctx = getContext("2d");
                 ctx.reset();
                 ctx.clearRect(0, 0, width, height);
-                ctx.fillStyle = "white";
+                ctx.fillStyle = w.dark ? "white" : "#1c1c1e";
                 ctx.beginPath();            // location arrow, pointing up-right
                 ctx.moveTo(width, 0);
                 ctx.lineTo(0.05 * width, 0.42 * height);
@@ -283,7 +267,7 @@ Item {
         x: w.pad - 1 * w.s
         y: 30 * w.s
         text: w.hasData ? (w.temp + w.unitSuffix) : "–°"
-        color: "white"
+        color: w.fg
         font.family: w.fam
         font.pixelSize: 46 * w.s
         font.weight: Font.Light
@@ -312,7 +296,7 @@ Item {
             horizontalAlignment: w.isLarge ? Text.AlignRight : Text.AlignLeft
             text: w.cond
             elide: Text.ElideRight
-            color: "white"
+            color: w.fg
             font.family: w.fam
             font.pixelSize: 14 * w.s
             font.weight: Font.DemiBold
@@ -321,7 +305,7 @@ Item {
             width: parent.width
             horizontalAlignment: w.isLarge ? Text.AlignRight : Text.AlignLeft
             text: w.hasData ? ("H:" + w.hi + w.unitSuffix + " L:" + w.lo + w.unitSuffix) : " "
-            color: "white"
+            color: w.fg
             font.family: w.fam
             font.pixelSize: 14 * w.s
             font.weight: Font.DemiBold
@@ -334,7 +318,7 @@ Item {
         visible: w.isMedium
         x: 164 * w.s; y: 16 * w.s
         width: 1; height: w.height - 32 * w.s
-        color: Qt.rgba(1, 1, 1, 0.16)
+        color: w.line
     }
     Row {
         visible: w.isMedium
@@ -352,7 +336,7 @@ Item {
     }
 
     // ── large: hourly strip + 5-day list ──
-    Rectangle { visible: w.isLarge; x: w.pad; y: 134 * w.s; width: w.width - 2 * w.pad; height: 1; color: Qt.rgba(1, 1, 1, 0.16) }
+    Rectangle { visible: w.isLarge; x: w.pad; y: 134 * w.s; width: w.width - 2 * w.pad; height: 1; color: w.line }
     Row {
         visible: w.isLarge
         x: w.pad
@@ -367,7 +351,7 @@ Item {
             }
         }
     }
-    Rectangle { visible: w.isLarge; x: w.pad; y: 206 * w.s; width: w.width - 2 * w.pad; height: 1; color: Qt.rgba(1, 1, 1, 0.16) }
+    Rectangle { visible: w.isLarge; x: w.pad; y: 206 * w.s; width: w.width - 2 * w.pad; height: 1; color: w.line }
     Column {
         id: dailyCol
         visible: w.isLarge
@@ -390,7 +374,7 @@ Item {
                     width: 66 * w.s
                     anchors.verticalCenter: parent.verticalCenter
                     text: dr.modelData.d
-                    color: "white"
+                    color: w.fg
                     font.family: w.fam
                     font.pixelSize: 14 * w.s
                     font.weight: Font.DemiBold
@@ -408,7 +392,7 @@ Item {
                     horizontalAlignment: Text.AlignRight
                     anchors.verticalCenter: parent.verticalCenter
                     text: dr.modelData.lo + w.unitSuffix
-                    color: Qt.rgba(1, 1, 1, 0.65)
+                    color: w.fgSub
                     font.family: w.fam
                     font.pixelSize: 14 * w.s
                     font.weight: Font.DemiBold
@@ -420,13 +404,13 @@ Item {
                     height: 4 * w.s
                     radius: height / 2
                     anchors.verticalCenter: parent.verticalCenter
-                    color: Qt.rgba(1, 1, 1, 0.22)
+                    color: w.barTrack
                     Rectangle {
                         x: track.width * (dr.modelData.lo - dailyCol.minT) / dr.span
                         width: Math.max(track.height, track.width * (dr.modelData.hi - dr.modelData.lo) / dr.span)
                         height: parent.height
                         radius: height / 2
-                        color: Qt.rgba(1, 1, 1, 0.85)
+                        color: w.barFill
                     }
                 }
                 Text {
@@ -435,7 +419,7 @@ Item {
                     horizontalAlignment: Text.AlignRight
                     anchors.verticalCenter: parent.verticalCenter
                     text: dr.modelData.hi + w.unitSuffix
-                    color: "white"
+                    color: w.fg
                     font.family: w.fam
                     font.pixelSize: 14 * w.s
                     font.weight: Font.DemiBold

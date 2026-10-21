@@ -12,7 +12,7 @@ Column {
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
         text: hc.info.h
-        color: Qt.rgba(1, 1, 1, 0.85)
+        color: hc.wd.fgHour
         font.family: hc.wd.fam
         font.pixelSize: 12 * hc.wd.s
         font.weight: Font.DemiBold
@@ -31,7 +31,7 @@ Column {
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
         text: hc.info.t + hc.wd.unitSuffix
-        color: "white"
+        color: hc.wd.fg
         font.family: hc.wd.fam
         font.pixelSize: 15 * hc.wd.s
         font.weight: Font.DemiBold

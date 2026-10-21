@@ -161,7 +161,7 @@ var strings = {
     "Shell": "Оболочка",
     "Show the Dock at the bottom of the screen": "Показывать Dock внизу экрана",
     "Show the panel at the top of the screen. Spotlight, Control Center and the calendar belong to it.": "Показывать панель вверху экрана. К ней относятся Spotlight, Пункт управления и календарь.",
-    "Spotlight & top bar menus": "Spotlight и меню верхней панели",
+    "Light, Dark, or Auto for everything: Dock, Menu Bar, menus, Spotlight, Settings and About. The Control Center tile and the Dark Mode menu item use this same setting.": "Светлое, тёмное или авто для всего: Dock, строки меню, меню, Spotlight, настроек и «Об этой системе». Плитка Пункта управления и пункт «Тёмный режим» используют эту же настройку.",
     "Set Light or Dark appearance for Spotlight and dropdown menus only": "Светлое или тёмное оформление только для Spotlight и выпадающих меню",
     "If you turn both off, reopen this window with:  qs -c macbar ipc call settings open": "Если выключить оба, это окно можно снова открыть командой:  qs -c macbar ipc call settings open",
     "Desktop Widgets": "Виджеты рабочего стола",
@@ -299,6 +299,9 @@ var strings = {
     "Go back to the default set of apps": "Вернуть стандартный набор приложений",
     "Reset": "Сбросить",
     "Remove": "Убрать",
+    "Add": "Добавить",
+    "Medium": "Средний",
+    "Image widgets open a file picker (needs zenity, kdialog or yad). To change a picture later, use Edit on Desktop and press Choose Image on the widget.": "Виджеты с изображением открывают выбор файла (нужен zenity, kdialog или yad). Чтобы сменить картинку позже, нажмите «Править на рабочем столе» и «Выбрать изображение» на виджете.",
 
     // Settings: Displays
     "Brightness": "Яркость",

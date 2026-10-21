@@ -34,6 +34,7 @@ Scope {
     property real widgetScale: 1.0         // the "Widget size" slider: scales every widget and the grid (0.6 - 1.5)
 
     readonly property string fontFamily: dock ? dock.fontFamily : "Open Runde"
+    readonly property string boldFontFamily: hub && hub.boldFontFamily ? hub.boldFontFamily : "Open Runde Semibold"
     readonly property string configDir: Quickshell.env("HOME") + "/.config/macwidgets"
 
     // Liquid Glass look = the Appearance sliders (Translucency / Blur / Liquid strength) of the Dock + Menu Bar
@@ -354,7 +355,7 @@ Scope {
     }
     function pr(i, k) { var r = playerRects[i]; return r ? r[k] : 0; }
 
-    // ───────────── lyrics (LRCLIB, fetched only while a Player widget has its lyrics open) ─────────────
+    // ───────────── lyrics (LRCLIB synced first; Genius plain-text fallback) ─────────────
     property bool lyricsWanted: false
     property var lyricsLines: []               // [{ t: seconds (-1 = not synced), text }]
     property bool lyricsSynced: false
@@ -421,9 +422,14 @@ Scope {
         id: lrcProc
         command: ["sh", "-c",
             "UA='macshell-widgets (quickshell)'; "
-            + "curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/get --data-urlencode \"track_name=$1\" --data-urlencode \"artist_name=$2\" "
+            + "r=$(curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/get --data-urlencode \"track_name=$1\" --data-urlencode \"artist_name=$2\" "
             + "--data-urlencode \"album_name=$3\" -d \"duration=$4\" 2>/dev/null "
-            + "|| curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/search --data-urlencode \"q=$2 $1\"",
+            + "|| curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/search --data-urlencode \"q=$2 $1\" 2>/dev/null || true); "
+            + "if printf '%s' \"$r\" | jq -e 'if type == \"array\" then any(.[]; (.syncedLyrics // \"\") != \"\") else (.syncedLyrics // \"\") != \"\" end' >/dev/null 2>&1; then printf '%s' \"$r\"; exit 0; fi; "
+            + "g=$(python3 \"$HOME/.config/quickshell/MacShell/genius-lyrics.py\" \"$2\" \"$1\" \"$HOME/.cache/macshell/lyrics\" 2>/dev/null || true); "
+            + "gp=$(printf '%s' \"$g\" | jq -r '.plain // empty' 2>/dev/null); "
+            + "if [ -n \"$gp\" ]; then jq -nc --arg p \"$gp\" '{plainLyrics:$p}'; "
+            + "elif [ -n \"$r\" ]; then printf '%s' \"$r\"; else printf '{}'; fi",
             "sh", root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur]
         stdout: StdioCollector {
             onStreamFinished: {

@@ -398,7 +398,41 @@ Scope {
                                 width: 14; height: 14; radius: 7
                                 color: (modelData.on && (win.active || tlMa.containsMouse)) ? modelData.c : pal.lightOff
                                 border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.14)
-                                Text { anchors.centerIn: parent; visible: tlMa.containsMouse && parent.modelData.on; text: parent.modelData.g; font.pixelSize: 11; font.bold: true; color: Qt.rgba(0, 0, 0, 0.55) }
+                                Canvas {
+                                    anchors.fill: parent
+                                    visible: tlMa.containsMouse && parent.modelData.on
+                                    onVisibleChanged: if (visible) requestPaint()
+                                    onPaint: {
+                                        var ctx = getContext("2d");
+                                        ctx.clearRect(0, 0, width, height);
+                                        if (parent.modelData.g === "×") {
+                                            ctx.strokeStyle = "rgba(0,0,0,0.58)";
+                                            ctx.lineWidth = 1.2;
+                                            ctx.lineCap = "round";
+                                            ctx.beginPath();
+                                            ctx.moveTo(4, 4); ctx.lineTo(10, 10);
+                                            ctx.moveTo(10, 4); ctx.lineTo(4, 10);
+                                            ctx.stroke();
+                                        } else if (parent.modelData.g === "−") {
+                                            ctx.strokeStyle = "rgba(0,0,0,0.58)";
+                                            ctx.lineWidth = 1.2;
+                                            ctx.lineCap = "round";
+                                            ctx.beginPath();
+                                            ctx.moveTo(3.5, 7.0); ctx.lineTo(10.5, 7.0);
+                                            ctx.stroke();
+                                        } else if (parent.modelData.g === "↗") {
+                                            ctx.fillStyle = "rgba(0,0,0,0.58)";
+                                            ctx.beginPath();
+                                            ctx.moveTo(6, 4); ctx.lineTo(10, 4); ctx.lineTo(10, 8);
+                                            ctx.closePath();
+                                            ctx.fill();
+                                            ctx.beginPath();
+                                            ctx.moveTo(8, 10); ctx.lineTo(4, 10); ctx.lineTo(4, 6);
+                                            ctx.closePath();
+                                            ctx.fill();
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
