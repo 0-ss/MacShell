@@ -1215,7 +1215,7 @@ hl.bind("CTRL + ALT + W",     hl.dsp.exec_cmd(qs .. "wallpapers toggle"))
 hl.bind("PRINT",              hl.dsp.exec_cmd(qs .. "screenshot region"))
 
 -- Laptop lid switch: lock screen on screen shut
-hl.bind("", "switch:on:Lid Switch", hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"), { locked = true })
+hl.bind("switch:on:Lid Switch", hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"), { locked = true })
 
 -- Hardware keys (laptop buttons too): volume, mute, brightness, media. MacShell handles them itself and shows its
 -- on-screen display. If the shell is not running, wpctl / brightnessctl do the work instead.
