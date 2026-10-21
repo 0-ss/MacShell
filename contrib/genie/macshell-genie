@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Genie (magic lamp) minimize / restore for MacShell, on top of the hyprglass Hyprland plugin.
+
+  macshell-genie min             minimize the active window into its Dock icon
+  macshell-genie restore         bring the last minimized window back
+  macshell-genie dock WIN [WIN]  what the Dock calls on a click (WIN = window addresses of the app)
+
+A minimized window stays mapped and keeps its hit area, so after the animation it is parked off-screen
+(otherwise it blocks clicks on the windows below it).
+"""
+import json, os, subprocess, sys, time
+
+STATE = os.path.expanduser("~/.cache/macshell-genie.json")
+RECTS = os.path.expanduser("~/.cache/macshell-dock-rects.json")  # written by the Dock when this helper is installed
+PARK = -20000
+ANIM_MS = 600
+HOLD_S = 0.55  # hyprglass keeps the emptied window attached for ~450 ms after the animation
+
+
+def ctl(*args):
+    return subprocess.run(["hyprctl", *args], capture_output=True, text=True).stdout
+
+
+def icon_rect(w):
+    """The app's Dock icon as ["x", "y", "w", "h"], or [] to let hyprglass aim at the middle of the Dock."""
+    try:
+        rects = json.load(open(RECTS))
+    except Exception:
+        return []
+    for name in (w.get("class", ""), w.get("initialClass", "")):
+        r = rects.get(name.lower())
+        if r:
+            return [str(v) for v in r]
+    return []
+
+
+def load():
+    try:
+        return json.load(open(STATE))
+    except Exception:
+        return []
+
+
+def save(stack):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    json.dump(stack, open(STATE, "w"))
+
+
+def place(addr, x, y):
+    ctl("dispatch", f"hl.dsp.window.move({{ x = {x}, y = {y}, window = 'address:{addr}' }})")
+
+
+def minimize():
+    w = json.loads(ctl("-j", "activewindow") or "{}")
+    addr = w.get("address")
+    if not addr or w.get("at", [0])[0] <= PARK // 2:
+        return
+    stack = [s for s in load() if s["addr"] != addr]
+    stack.append({"addr": addr, "x": w["at"][0], "y": w["at"][1]})
+    save(stack)
+    ctl("hyprglass", "minimize", f"address:{addr}", *icon_rect(w), str(ANIM_MS))
+    time.sleep(ANIM_MS / 1000 + HOLD_S)  # the animation, hyprglass's move to special:minimized, and its hold
+    place(addr, PARK, PARK)
+
+
+def restore(addr=None):
+    live = {c["address"] for c in json.loads(ctl("-j", "clients") or "[]")}
+    stack = [s for s in load() if s["addr"] in live]
+    pick = [s for s in stack if addr is None or s["addr"] == addr]
+    if not pick:
+        save(stack)
+        return
+    s = pick[-1]
+    stack.remove(s)
+    save(stack)
+    place(s["addr"], s["x"], s["y"])
+    ctl("hyprglass", "restore", f"address:{s['addr']}", str(ANIM_MS))
+    ctl("dispatch", f"hl.dsp.focus({{ window = 'address:{s['addr']}' }})")
+
+
+cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+if cmd == "min":
+    minimize()
+elif cmd == "restore":
+    restore()
+elif cmd == "dock" and len(sys.argv) > 2:
+    # argv[2] is the window the Dock picked, the rest are all windows of that app: a minimized one comes back
+    # out of the lamp, otherwise the picked window is focused
+    mine = [s["addr"] for s in load() if s["addr"] in set(sys.argv[2:])]
+    if mine:
+        restore(mine[-1])
+    else:
+        ctl("dispatch", f"hl.dsp.focus({{ window = 'address:{sys.argv[2]}' }})")
+else:
+    sys.exit(__doc__)
