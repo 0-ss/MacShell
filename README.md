@@ -63,7 +63,7 @@ Best icon pack for the shell: https://github.com/Scrimas/MacOS-Like
   <img width="100%" alt="The MacShell Dock with Liquid Glass" src="https://github.com/user-attachments/assets/edf45f8f-b71a-4bc5-9880-46dafbebf47c" />
 </p>
 
-**Control Center**
+**Control Center (New)**
 
 <p align="center">
   <img width="313" height="510" alt="image" src="https://github.com/user-attachments/assets/cb6c5708-5786-4328-89bd-24737d39e482" />
