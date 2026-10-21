@@ -715,6 +715,10 @@ Scope {
                 // the compositor maps the window a moment after it becomes visible: send the dispatches a few times
                 var sel = 'window = "title:^(' + prefsWindow.title + ')$"';
                 Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
+                // the window draws its own macOS-style edge: no Hyprland border, and Hyprland's rounding (used for its
+                // shadow and the blur behind the sidebar) matches the window's own corner radius
+                Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "border_size", value = "0", ' + sel + ' })');
+                Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "rounding", value = "' + frame.radius + '", ' + sel + ' })');
                 // Hyprland can remember an older floating size; reapply the compact size after mapping.
                 if (prefsWindow.floatTries >= 1) {
                     Hyprland.dispatch('hl.dsp.window.resize({ x = ' + prefsWindow.preferredWidth + ', y = ' + prefsWindow.preferredHeight + ', "exact", ' + sel + ' })');
@@ -740,6 +744,9 @@ Scope {
             readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
             readonly property color cardBorder: dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.07)
             readonly property color windowBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.22)
+            // two-tone macOS window edge: a thin dark line outside, a soft highlight just inside it
+            readonly property color edgeOuter: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0, 0, 0, 0.28)
+            readonly property color edgeInner: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.65)
             readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.09)
             readonly property color text: dark ? "#F5F5F7" : "#1D1D1F"
             readonly property color text2: dark ? Qt.rgba(1, 1, 1, 0.56) : Qt.rgba(0, 0, 0, 0.52)
@@ -767,7 +774,16 @@ Scope {
             radius: 12
             color: "transparent"        // the sidebar is translucent (blur of what is behind the window), the pages are opaque
             border.width: 1
-            border.color: pal.windowBorder
+            border.color: pal.edgeOuter
+
+            // inner highlight (on top of everything, never takes the mouse)
+            Rectangle {
+                anchors.fill: parent; anchors.margins: 1
+                radius: frame.radius - 1
+                color: "transparent"
+                border.width: 1; border.color: pal.edgeInner
+                z: 900
+            }
 
             // opaque page area: from the sidebar's right edge to the window edge (rounded on the right only)
             Rectangle {
@@ -3678,7 +3694,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.2.6 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.2.7 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: pal.fam
                             font.pixelSize: 12
@@ -3966,6 +3982,11 @@ Scope {
     }
     Timer { id: saveTimer; interval: 400; onTriggered: root.saveSettings() }
 
+    // MacShell's own windows (About This Linux, Settings, Finder, Photos ...) all have the app id "org.quickshell":
+    // they show the MacShell logo and name instead of a generic icon
+    readonly property string logoPath: decodeURIComponent(String(Qt.resolvedUrl("assets/macshell-logo.png")).replace(/^file:\/\//, ""))
+    function isShellApp(appId) { return appId === "org.quickshell"; }
+
     function lookup(appId) {
         if (!appId) return null;
         var e = DesktopEntries.byId(appId);
@@ -4230,9 +4251,10 @@ Scope {
         if (extras.length > 0 && list.length > 0) list.push({ kind: "sep", key: "sep:run" });
         for (var x = 0; x < extras.length; x++) {
             var e2 = lookup(extras[x].appId);
+            var own = isShellApp(extras[x].appId);
             list.push({ kind: "app", key: extras[x].key, appId: e2 ? e2.id : extras[x].appId,
-                        name: e2 ? e2.name : extras[x].appId,
-                        icon: e2 ? e2.icon : extras[x].appId.toLowerCase(),
+                        name: own ? "MacShell" : (e2 ? e2.name : extras[x].appId),
+                        icon: own ? logoPath : (e2 ? e2.icon : extras[x].appId.toLowerCase()),
                         entry: e2, running: true, pinned: false });
         }
 
@@ -4248,9 +4270,10 @@ Scope {
                 var wid = winIdFor(tl);
                 liveWins.push(tl);
                 if (winAge(tl) < 200) { if (!youngWin.running) youngWin.start(); continue; }     // no preview (= no capture) for brand-new windows
+                var own3 = isShellApp(tl.appId);
                 winItems.push({ kind: "win", key: "win:" + wid, tl: tl,
-                                name: e3 ? e3.name : tl.appId,
-                                icon: e3 ? e3.icon : tl.appId.toLowerCase(),
+                                name: own3 ? (tl.title || "MacShell") : (e3 ? e3.name : tl.appId),
+                                icon: own3 ? logoPath : (e3 ? e3.icon : tl.appId.toLowerCase()),
                                 entry: null, running: false, pinned: false });
             }
         }

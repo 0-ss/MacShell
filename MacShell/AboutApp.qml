@@ -91,6 +91,10 @@ Scope {
                 // the compositor maps the window a moment after it becomes visible: send the dispatches a few times
                 var sel = 'window = "title:^(' + win.title + ')$"';
                 Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
+                // this window draws its own macOS-style edge: no Hyprland border, and Hyprland's corner rounding
+                // (also used for its shadow and blur) matches the window's own radius
+                Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "border_size", value = "0", ' + sel + ' })');
+                Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "rounding", value = "' + frame.radius + '", ' + sel + ' })');
                 if (win.floatTries >= 1) Hyprland.dispatch('hl.dsp.window.center({ ' + sel + ' })');
                 if (++win.floatTries >= 4) stop();
             }
@@ -105,6 +109,8 @@ Scope {
             readonly property color text2: dark ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.5)
             readonly property color text3: dark ? Qt.rgba(1, 1, 1, 0.38) : Qt.rgba(0, 0, 0, 0.42)
             readonly property color border: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.18)
+            readonly property color edgeOuter: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0, 0, 0, 0.28)     // thin dark line on the outside
+            readonly property color edgeInner: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.65)      // soft highlight just inside it
             readonly property color lightOff: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(0, 0, 0, 0.15)
             readonly property color btn: dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.75)
             readonly property color btnDown: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(1, 1, 1, 0.5)
@@ -115,8 +121,17 @@ Scope {
             anchors.fill: parent
             radius: 18
             color: pal.bg
-            border.width: 1; border.color: pal.border
+            border.width: 1; border.color: pal.edgeOuter
             clip: true
+
+            // inner highlight: together with the outer line this is the two-tone edge macOS windows have
+            Rectangle {
+                anchors.fill: parent; anchors.margins: 1
+                radius: frame.radius - 1
+                color: "transparent"
+                border.width: 1; border.color: pal.edgeInner
+                z: 50
+            }
 
             // drag anywhere on the window
             DragHandler { target: null; onActiveChanged: if (active) win.startSystemMove() }
@@ -282,7 +297,7 @@ Scope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.2.6"
+                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.2.7"
                     color: pal.text3
                     font.family: root.fam; font.pixelSize: 10
                     lineHeight: 1.1

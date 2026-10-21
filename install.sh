@@ -1235,6 +1235,23 @@ for _, k in ipairs(hwkeys) do
     hl.bind(k[1], hl.dsp.exec_cmd(k[2]), { locked = true, repeating = k[3] })
 end
 
+-- MacShell's own windows (Settings, About This Linux): translucent like a macOS window, and no Hyprland border
+-- (these windows draw their own edge). Blur size / passes are global in Hyprland (decoration.blur), not per window.
+hl.window_rule({
+    name = "macshell-settings",
+    match = { title = "^macshell Settings$" },
+    opacity = "0.82 0.85 1",          -- active, inactive, fullscreen
+    border_size = 0,
+    rounding = 12,
+})
+hl.window_rule({
+    name = "macshell-about",
+    match = { title = "^About This Linux$" },
+    opacity = "0.82 0.85 1",
+    border_size = 0,
+    rounding = 18,
+})
+
 -- MacLock (lock screen)
 hl.bind("SUPER + L",          hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"))
 MACSHELL_LUA

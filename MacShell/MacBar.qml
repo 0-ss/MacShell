@@ -2736,6 +2736,8 @@ Scope {
         if (clipAutoPaste) pasteSoon();
     }
 
+    // the MacShell logo: the icon of MacShell's own windows in the Alt+Tab switcher
+    readonly property string logoPath: decodeURIComponent(String(Qt.resolvedUrl("assets/macshell-logo.png")).replace(/^file:\/\//, ""))
     // ── applications for Spotlight ──
     function iconSrc(name) {
         var fb = Quickshell.iconPath("application-x-executable", true);
@@ -4086,8 +4088,8 @@ Scope {
             if (seen[id] !== undefined) { apps[seen[id]].count++; continue; }
             var e = root.lookup(id);
             seen[id] = apps.length;
-            apps.push({ appId: id, cls: t.appId, name: id === "systemsettings" ? "System Settings" : (e ? e.name : id),
-                        icon: id === "systemsettings" ? "preferences-system" : (e ? e.icon : ""), win: t, count: 1 });
+            apps.push({ appId: id, cls: t.appId, name: id === "systemsettings" ? "System Settings" : (id === "org.quickshell" ? "MacShell" : (e ? e.name : id)),
+                        icon: id === "systemsettings" ? "preferences-system" : (id === "org.quickshell" ? root.logoPath : (e ? e.icon : "")), win: t, count: 1 });
         }
         return apps;
     }

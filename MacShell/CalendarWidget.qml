@@ -229,28 +229,33 @@ Item {
     readonly property real pad: 15 * s
 
     // The month grid: weekday letters, then up to 6 rows of days. Today sits in a red circle.
+    //
+    // Every position and size below is a whole pixel, and the circle and the day number share one box. Fractional
+    // positions made the circle (anti-aliased, can sit on a half pixel) and the digits (text is drawn on whole pixels)
+    // land up to a pixel apart, which is what looked off-centre. (Open Runde's digits are exactly as tall as the gap
+    // between its ascent and descent, so a text box centred on the circle also centres the digits.)
+    readonly property var gridSpec: isSmall ? { x: 12, y: 32, w: 134, wdH: 16, rowH: 16.7, wdPx: 10.5, dayPx: 11.5, circ: 17 }
+                                  : (isMedium ? { x: 172, y: 11, w: 152, wdH: 18, rowH: 19.5, wdPx: 11, dayPx: 12.5, circ: 18 }
+                                              : { x: 15, y: 58, w: 308, wdH: 24, rowH: 44, wdPx: 13, dayPx: 19, circ: 33 })
     Item {
         id: grid
-        x: (w.isSmall ? 12 : (w.isMedium ? 172 : 15)) * w.s
-        y: (w.isSmall ? 32 : (w.isMedium ? 11 : 58)) * w.s
-        width: (w.isSmall ? 134 : (w.isMedium ? 152 : 308)) * w.s
+        x: Math.round(w.gridSpec.x * w.s)
+        y: Math.round(w.gridSpec.y * w.s)
+        width: Math.round(w.gridSpec.w * w.s)
         height: wdH + 6 * rowH
         readonly property real cw: width / 7
-        readonly property real wdH: (w.isSmall ? 16 : (w.isMedium ? 18 : 24)) * w.s
-        readonly property real rowH: (w.isSmall ? 16.7 : (w.isMedium ? 19.5 : 44)) * w.s
-        readonly property real wdPx: (w.isSmall ? 10.5 : (w.isMedium ? 11 : 13)) * w.s
-        readonly property real dayPx: (w.isSmall ? 11.5 : (w.isMedium ? 12.5 : 19)) * w.s
-        readonly property real circ: (w.isSmall ? 17 : (w.isMedium ? 18 : 33)) * w.s
+        readonly property int wdH: Math.round(w.gridSpec.wdH * w.s)
+        readonly property int rowH: Math.round(w.gridSpec.rowH * w.s)
+        readonly property real wdPx: w.gridSpec.wdPx * w.s
+        readonly property real dayPx: w.gridSpec.dayPx * w.s
+        readonly property int circ: 2 * Math.round(w.gridSpec.circ * w.s / 2)      // even, so the centre is a whole pixel
 
         Repeater {
             model: 7
             delegate: Text {
                 required property int index
-                x: index * grid.cw
-                width: grid.cw
-                height: grid.wdH
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
+                x: Math.round((index + 0.5) * grid.cw - implicitWidth / 2)
+                y: Math.round((grid.wdH - implicitHeight) / 2)
                 text: w.letters[(index + w.weekStart) % 7]
                 color: w.fgSub
                 font.family: w.fam
@@ -267,20 +272,21 @@ Item {
                 readonly property bool valid: day >= 1 && day <= w.cal.days
                 readonly property bool isToday: valid && day === w.cal.today
                 visible: valid
-                x: (index % 7) * grid.cw
-                y: grid.wdH + Math.floor(index / 7) * grid.rowH
-                width: grid.cw
-                height: grid.rowH
+                // the box that holds the circle and the number: a whole-pixel square centred in the cell
+                x: Math.round((index % 7 + 0.5) * grid.cw) - grid.circ / 2
+                y: grid.wdH + Math.floor(index / 7) * grid.rowH + Math.round((grid.rowH - grid.circ) / 2)
+                width: grid.circ
+                height: grid.circ
                 Rectangle {
                     visible: cell.isToday
-                    anchors.centerIn: parent
-                    width: grid.circ
-                    height: grid.circ
+                    anchors.fill: parent
                     radius: width / 2
                     color: w.red
                 }
                 Text {
-                    anchors.centerIn: parent
+                    anchors.fill: parent
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
                     text: cell.day
                     color: cell.isToday ? "white" : w.fg
                     font.family: w.fam
