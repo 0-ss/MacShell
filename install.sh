@@ -282,6 +282,7 @@ OPTIONAL=(
     "bluetoothctl:bluez-utils:Bluetooth (also needs the bluetooth service, enabled below)"
     "rfkill:util-linux:Bluetooth / Airplane Mode (unblocking the adapter)"
     "brightnessctl:brightnessctl:display brightness"
+    "playerctl:playerctl:media keys (play / pause / next / previous)"
     "powerprofilesctl:power-profiles-daemon:power profiles / Game Mode"
     "inotifywait:inotify-tools:live wallpaper watching, Trash watching"
     "hyprsunset:hyprsunset:Night Shift"
@@ -441,6 +442,25 @@ install_extra_sources() {
     esac
 }
 
+# Video wallpapers need mpvpaper (+ ffmpeg for thumbnails). check_deps already tries to install it; this makes sure it
+# is not silently skipped, and says exactly what to run when the package manager cannot provide it.
+ensure_mpvpaper() {
+    have mpvpaper && return 0
+    [ -n "$PM" ] || { warn "mpvpaper is missing: video wallpapers need it"; return 0; }
+    local failed=0 m
+    for m in "${MANUAL_LIST[@]:-}"; do [ "$m" = mpvpaper ] && failed=1; done
+    if [ "$failed" = 0 ] && [ "$CAN_INSTALL" = 1 ] && confirm "Install mpvpaper now (needed for video wallpapers)?" y; then
+        if pick=$(first_available mpvpaper); then install_packages "$pick" || true
+        else install_extra_sources mpvpaper; fi
+    fi
+    if have mpvpaper; then ok "mpvpaper installed"; return 0; fi
+    case "$PM" in
+        pacman) warn "mpvpaper is not installed: video wallpapers will not work. Run:  yay -S mpvpaper   (or paru -S mpvpaper)" ;;
+        dnf)    warn "mpvpaper is not installed: video wallpapers will not work. It is not in the Fedora repositories: build it from https://github.com/GhostNaN/mpvpaper" ;;
+        *)      warn "mpvpaper is not installed: video wallpapers will not work. Install it with your package manager or build it from https://github.com/GhostNaN/mpvpaper" ;;
+    esac
+}
+
 check_deps() {
     step "Checking dependencies"
     detect_pm
@@ -502,6 +522,7 @@ check_deps() {
         warn "still missing, install by hand: ${MANUAL_LIST[*]}"
     fi
     check_hyprland_version
+    ensure_mpvpaper
 
     # whatever is still missing among the required tools
     for entry in "${REQUIRED[@]}"; do
@@ -1188,6 +1209,31 @@ hl.bind("SUPER + Space",      hl.dsp.exec_cmd(qs .. "spotlight toggle"))
 hl.bind("ALT + TAB",          hl.dsp.exec_cmd(qs .. "switcher next"))
 hl.bind("CTRL + ALT + W",     hl.dsp.exec_cmd(qs .. "wallpapers toggle"))
 hl.bind("PRINT",              hl.dsp.exec_cmd(qs .. "screenshot region"))
+
+-- Hardware keys (laptop buttons too): volume, mute, brightness, media. MacShell handles them itself and shows its
+-- on-screen display. If the shell is not running, wpctl / brightnessctl do the work instead.
+-- "locked" keeps the keys working on the lock screen. Any earlier bind on the same key is dropped first, so a key never fires twice.
+local function hw(action, fallback)
+    return "sh -c '" .. qs .. "hardware " .. action .. " >/dev/null 2>&1 || " .. fallback .. "'"
+end
+local hwkeys = {
+    { "XF86AudioRaiseVolume",  hw("volumeUp",       "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"),   true  },
+    { "XF86AudioLowerVolume",  hw("volumeDown",     "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),        true  },
+    { "XF86AudioMute",         hw("mute",           "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),       false },
+    { "XF86AudioMicMute",      hw("micMute",        "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),     false },
+    { "XF86MonBrightnessUp",   hw("brightnessUp",   "brightnessctl -q set 5%+"),                         true  },
+    { "XF86MonBrightnessDown", hw("brightnessDown", "brightnessctl -q -n1 set 5%-"),                     true  },
+    { "XF86KbdBrightnessUp",   "brightnessctl -q -d '*kbd_backlight*' set 10%+",                         true  },
+    { "XF86KbdBrightnessDown", "brightnessctl -q -d '*kbd_backlight*' set 10%-",                         true  },
+    { "XF86AudioPlay",         "playerctl play-pause",                                                   false },
+    { "XF86AudioPause",        "playerctl pause",                                                        false },
+    { "XF86AudioNext",         "playerctl next",                                                         false },
+    { "XF86AudioPrev",         "playerctl previous",                                                     false },
+}
+for _, k in ipairs(hwkeys) do
+    pcall(hl.unbind, k[1])
+    hl.bind(k[1], hl.dsp.exec_cmd(k[2]), { locked = true, repeating = k[3] })
+end
 
 -- MacLock (lock screen)
 hl.bind("SUPER + L",          hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"))

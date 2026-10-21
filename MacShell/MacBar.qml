@@ -2127,6 +2127,25 @@ Scope {
     }
     function setBrightness(v) { osdQuiet("brightness", 1800); brightness = Math.max(0.01, Math.min(1, v)); brightApply.restart(); }
     onBrightnessChanged: showOsd("brightness", brightness)
+    // hardware keys: like the sliders, but the on-screen display is shown (no quiet window)
+    function hwVolume(d) {
+        if (!sink || !sink.audio) return;
+        var v = Math.max(0, Math.min(1, Math.round((sink.audio.volume + d) * 100) / 100));
+        if (d > 0) sink.audio.muted = false;
+        sink.audio.volume = v;
+        showOsd("volume", sink.audio.muted ? 0 : v);
+    }
+    function hwMute() {
+        if (!sink || !sink.audio) return;
+        sink.audio.muted = !sink.audio.muted;
+        showOsd("volume", sink.audio.muted ? 0 : sink.audio.volume);
+    }
+    function hwMicMute() { if (micSource && micSource.audio) micSource.audio.muted = !micSource.audio.muted; }
+    function hwBrightness(d) {
+        brightness = Math.max(0.01, Math.min(1, Math.round((brightness + d) * 100) / 100));
+        brightApply.restart();
+        showOsd("brightness", brightness);
+    }
     Timer { interval: 850; repeat: true; running: true; onTriggered: root.refreshBrightness() }
     // ═════════════ KEYBOARD LAYOUT ═════════════
     // Hyprland announces every change with an `activelayout` event, so the label updates immediately (no polling).
@@ -2429,6 +2448,18 @@ Scope {
         function toggle(): void { root.ccRequest(true); }
         function open(): void { root.ccRequest(true); }
         function close(): void { root.ccRequest(false); }
+    }
+    // Laptop / keyboard hardware keys (volume, mute, brightness). The compositor must bind the keys (the installer's
+    // macshell.lua does); the shell then does the work itself, so the numbers, the on-screen display and the UI sounds
+    // all stay in step.   qs -c MacShell ipc call hardware volumeUp | volumeDown | mute | micMute | brightnessUp | brightnessDown
+    IpcHandler {
+        target: "hardware"
+        function volumeUp(): void { root.hwVolume(0.05); }
+        function volumeDown(): void { root.hwVolume(-0.05); }
+        function mute(): void { root.hwMute(); }
+        function micMute(): void { root.hwMicMute(); }
+        function brightnessUp(): void { root.hwBrightness(0.05); }
+        function brightnessDown(): void { root.hwBrightness(-0.05); }
     }
     IpcHandler {
         target: "spotlight"
@@ -3528,7 +3559,6 @@ Scope {
         syncAppKeys();
         Quickshell.execDetached(["mkdir", "-p", configDir]);
         wallpaperColorTimer.start();
-        refreshBrightness();
         refreshWifi();
         refreshKeyboardLayout();
         refreshConnections();
