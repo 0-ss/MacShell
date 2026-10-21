@@ -92,9 +92,41 @@ Item {
             opacity: ls.st.artBg ? ls.clamp01(ls.artT) : 0
             visible: opacity > 0.003
             Rectangle { anchors.fill: parent; color: "#0c0c10" }
+
+            // Animated Canvas Video (Spotify supported music)
+            Loader {
+                id: canvasLoader
+                anchors.fill: parent
+                active: ls.canvasVideo !== "" && ls.artT > 0.01
+                sourceComponent: Item {
+                    anchors.fill: parent
+                    MediaPlayer {
+                        id: canvasMp
+                        source: "file://" + ls.canvasVideo
+                        loops: MediaPlayer.Infinite
+                        videoOutput: canvasVo
+                        Component.onCompleted: play()
+                    }
+                    VideoOutput {
+                        id: canvasVo
+                        anchors.fill: parent
+                        fillMode: VideoOutput.PreserveAspectCrop
+                    }
+                }
+            }
+            MultiEffect {
+                anchors.fill: parent
+                source: canvasLoader.active ? canvasLoader : null
+                visible: canvasLoader.active
+                scale: 1.15
+                blurEnabled: true; blurMax: 48; blur: 0.55
+                saturation: 0.35
+                brightness: -0.15
+            }
+
             // old and new album, each blurred; the new one fades in over the old one during a hand-over
             Repeater {
-                model: 2
+                model: canvasLoader.active ? 0 : 2
                 delegate: MultiEffect {
                     required property int index
                     readonly property Item img: index === 0 ? ls.coverOld : ls.coverNew
@@ -130,13 +162,13 @@ Item {
         sourceItem: scene
         // with a video wallpaper the scene changes every frame: the glass copy refreshes at 12 fps instead
         // (blur + every glass shader re-running 30-60x a second was the main GPU cost on the lock screen)
-        live: !wallVideo.active
+        live: !wallVideo.active && !canvasLoader.active
         visible: false
         textureSize: Qt.size(Math.max(1, Math.round(ls.width / 2)), Math.max(1, Math.round(ls.height / 2)))
     }
     Timer {
         interval: 83; repeat: true
-        running: wallVideo.active && ls.shown && !ls.leaving
+        running: (wallVideo.active || canvasLoader.active) && ls.shown && !ls.leaving
         onTriggered: sceneTex.scheduleUpdate()
     }
     MultiEffect {
@@ -1074,11 +1106,47 @@ Item {
         onTriggered: ls.estPos = ls.posBase + (ls.posPlaying ? (Date.now() - ls.posAt) / 1000 : 0)
     }
 
-    // lyrics for the current track: LRCLIB (free, synced LRC), cached in ~/.cache/maclock/lyrics
+    // Spotify Canvas: short looping video artwork for supported tracks
+    property string canvasVideo: ""
+    readonly property string spotifyTrackId: {
+        if (!media.pl) return "";
+        // MPRIS trackId is often a generic D-Bus object path; do not let it mask the Spotify URL.
+        // Quickshell's MprisPlayer has no trackId / url property: the raw MPRIS fields live in `metadata`
+        var md = media.pl.metadata || {};
+        var candidates = [String(md["xesam:url"] || ""), String(md["mpris:trackid"] || ""), String(media.pl.uniqueId || "")];
+        for (var i = 0; i < candidates.length; i++) {
+            var m = candidates[i].match(/(?:spotify:track:|open\.spotify\.com\/track\/|\/com\/spotify\/track\/)([a-zA-Z0-9]{22})/i);
+            if (m) return m[1];
+        }
+        return "";
+    }
+    onTrackKeyChanged: { lyrFetchDelay.restart(); canvasDelay.restart(); }
+    Timer {
+        id: canvasDelay; interval: 500
+        onTriggered: {
+            ls.canvasVideo = "";
+            if (media.pl && (ls.spotifyTrackId !== "" || (media.pl.identity || "").toLowerCase().indexOf("spotify") >= 0)) {
+                canvasProc.running = false;
+                var arg = ls.spotifyTrackId !== "" ? ls.spotifyTrackId : ((media.pl.trackArtist || "") + " " + (media.pl.trackTitle || ""));
+                canvasProc.command = ["python3", Quickshell.env("HOME") + "/.config/quickshell/MacLock/spotify-canvas.py", arg];
+                canvasProc.running = true;
+            }
+        }
+    }
+    Process {
+        id: canvasProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var p = (text || "").trim();
+                if (p.length > 0) ls.canvasVideo = p;
+            }
+        }
+    }
+
+    // lyrics for the current track: NetEase, LRCLIB, and Genius, cached in ~/.cache/maclock/lyrics
     property var lyrLines: []              // [{ t: seconds (-1 = unsynced), text }]
     property string lyrStatus: "idle"      // idle | loading | synced | plain | none
     readonly property string trackKey: media.pl ? (media.pl.trackArtist || "") + "\u0001" + (media.pl.trackTitle || "") : ""
-    onTrackKeyChanged: lyrFetchDelay.restart()
     Timer { id: lyrFetchDelay; interval: 400; onTriggered: { ls.lyrTries = 0; ls.fetchLyrics(); } }
     property int lyrTries: 0
     Timer { id: lyrRetry; interval: 12000; onTriggered: ls.fetchLyrics() }
@@ -1114,6 +1182,14 @@ Item {
         '[ -z "$r" ] && [ "$bare" != "$t" ] && lsearch --data-urlencode "track_name=$bare" --data-urlencode "artist_name=$a"',
         '[ -z "$r" ] && lsearch --data-urlencode "q=$a $bare"',
         'rm -f "$tmp"',
+        // ── 3. Genius: token-free, rich lyrics source
+        'if [ -z "$r" ] || [ "$(printf "%s" "$r" | jq -r ".syncedLyrics // empty" 2>/dev/null)" = "" ]; then',
+        '  g=$(python3 "$HOME/.config/quickshell/MacLock/genius-lyrics.py" "$a" "$bare" "$c" 2>/dev/null || true)',
+        '  if [ -n "$g" ] && [ "$g" != "{}" ]; then',
+        '    gp=$(printf "%s" "$g" | jq -r ".plain // empty" 2>/dev/null)',
+        '    if [ -n "$gp" ]; then r=$(jq -nc --arg p "$gp" "{plainLyrics: \\$p}"); answered=1; fi',
+        '  fi',
+        'fi',
         'if [ -n "$r" ]; then printf "%s" "$r" | jq -c "{synced: .syncedLyrics, plain: .plainLyrics, instrumental: .instrumental}" | tee "$f"',
         // a source really answered and nobody has it: remember; otherwise (offline / still limited) let the UI retry
         'elif [ "$answered" = 1 ]; then echo "{}" | tee "$f"',
