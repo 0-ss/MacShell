@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Effects
+import "Fonts.js" as Fonts
 
 Column {
     id: hc
@@ -13,7 +14,7 @@ Column {
         horizontalAlignment: Text.AlignHCenter
         text: hc.info.h
         color: hc.wd.fgHour
-        font.family: hc.wd.fam
+        font.family: Fonts.forWeight(font.weight, hc.wd.fam)
         font.pixelSize: 12 * hc.wd.s
         font.weight: Font.DemiBold
     }
@@ -32,7 +33,7 @@ Column {
         horizontalAlignment: Text.AlignHCenter
         text: hc.info.t + hc.wd.unitSuffix
         color: hc.wd.fg
-        font.family: hc.wd.fam
+        font.family: Fonts.forWeight(font.weight, hc.wd.fam)
         font.pixelSize: 15 * hc.wd.s
         font.weight: Font.DemiBold
     }

@@ -1,5 +1,6 @@
 import QtQuick
 import "I18n.js" as I18n
+import "Fonts.js" as Fonts
 
 // Segmented control (macOS Tahoe look): a capsule track, thin dividers between the options that are not selected, and a
 // capsule that marks the chosen option.
@@ -176,7 +177,7 @@ Item {
                     anchors.centerIn: parent
                     text: I18n.tr(seg.modelData)
                     color: g.textColor
-                    font.family: g.fontFamily
+                    font.family: Fonts.forWeight(font.weight, g.fontFamily)
                     font.pixelSize: g.fontSize
                     font.weight: Font.DemiBold
                 }
@@ -202,7 +203,7 @@ Item {
                 y: g.m + (g.height - implicitHeight) / 2
                 text: I18n.tr(modelData)
                 color: g.textColor
-                font.family: g.fontFamily
+                font.family: Fonts.forWeight(font.weight, g.fontFamily)
                 font.pixelSize: g.fontSize
                 font.weight: Font.DemiBold
             }

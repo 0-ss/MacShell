@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Effects
+import "Fonts.js" as Fonts
 
 Item {
     id: b
@@ -81,7 +82,7 @@ Item {
         anchors.centerIn: parent
         text: b.badge
         color: b.col
-        font.family: b.wd.fam
+        font.family: Fonts.forWeight(font.weight, b.wd.fam)
         font.pixelSize: b.gh * 0.42
         font.weight: Font.Bold
     }

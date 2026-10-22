@@ -13,6 +13,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import "I18n.js" as I18n
+import "Fonts.js" as Fonts
 
 Scope {
     id: root
@@ -308,7 +309,7 @@ Scope {
                 x: 66; anchors.verticalCenter: parent.verticalCenter
                 width: parent.width - 66 - btns.width - 16
                 spacing: 1
-                Text { text: root.ringing ? (root.ringing.kind === "timer" ? I18n.tr("Timer") : I18n.tr("Alarm")) : ""; color: bannerCard.fg; font.family: root.fam; font.pixelSize: 14; font.weight: Font.DemiBold }
+                Text { text: root.ringing ? (root.ringing.kind === "timer" ? I18n.tr("Timer") : I18n.tr("Alarm")) : ""; color: bannerCard.fg; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 14; font.weight: Font.DemiBold }
                 Text { width: parent.width; elide: Text.ElideRight; text: root.ringing ? (root.ringing.kind === "timer" ? (root.ringing.label === "Timer" ? I18n.tr("Done") : root.ringing.label) : root.ringing.time + (root.ringing.label && root.ringing.label !== "Alarm" ? " · " + root.ringing.label : "")) : ""; color: bannerCard.fg2; font.family: root.fam; font.pixelSize: 13 }
             }
             Column {
@@ -321,7 +322,7 @@ Scope {
                         required property string modelData
                         width: 78; height: 28; radius: 14
                         color: modelData === "Stop" ? root.orange : (bma.pressed ? Qt.rgba(0.5, 0.5, 0.5, 0.45) : Qt.rgba(0.5, 0.5, 0.5, 0.28))
-                        Text { anchors.centerIn: parent; text: I18n.tr(parent.modelData); color: parent.modelData === "Stop" ? "black" : bannerCard.fg; font.family: root.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                        Text { anchors.centerIn: parent; text: I18n.tr(parent.modelData); color: parent.modelData === "Stop" ? "black" : bannerCard.fg; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                         MouseArea {
                             id: bma; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: {
@@ -477,7 +478,7 @@ Scope {
                     width: 30; height: 26; radius: 7
                     visible: win.tab === 0 || win.tab === 1
                     color: addMa.pressed ? pal.ctrl : (addMa.containsMouse ? Qt.rgba(0.5, 0.5, 0.5, 0.15) : "transparent")
-                    Text { anchors.centerIn: parent; anchors.verticalCenterOffset: -1; text: "+"; color: pal.text; font.pixelSize: 22; font.weight: Font.Light }
+                    Text { anchors.centerIn: parent; anchors.verticalCenterOffset: -1; text: "+"; color: pal.text; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 22; font.weight: Font.Light }
                     MouseArea {
                         id: addMa; anchors.fill: parent; hoverEnabled: true
                         onClicked: { if (win.tab === 0) win.sheet = "city"; else { win.editing = null; win.sheet = "alarm"; } }
@@ -555,7 +556,7 @@ Scope {
                             Column {
                                 y: 148; width: parent.width
                                 spacing: 2
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: cc.modelData.name; color: pal.text; font.family: root.fam; font.pixelSize: 15; font.weight: Font.DemiBold }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: cc.modelData.name; color: pal.text; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 15; font.weight: Font.DemiBold }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.cityDayText(cc.modelData.tz); color: pal.text2; font.family: root.fam; font.pixelSize: 11 }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.fmtHM(cc.d.getHours(), cc.d.getMinutes()) + (root.use24h ? "" : " " + root.ampm(cc.d.getHours())); color: pal.text2; font.family: root.fam; font.pixelSize: 13 }
                             }
@@ -565,7 +566,7 @@ Scope {
                                 color: "#FF453A"
                                 opacity: cma.containsMouse ? 1 : 0
                                 Behavior on opacity { NumberAnimation { duration: 160 } }
-                                Text { anchors.centerIn: parent; anchors.verticalCenterOffset: -1; text: "−"; color: "white"; font.pixelSize: 16; font.bold: true }
+                                Text { anchors.centerIn: parent; anchors.verticalCenterOffset: -1; text: "−"; color: "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 16; font.bold: true }
                                 MouseArea { anchors.fill: parent; enabled: parent.opacity > 0.5; onClicked: root.removeCity(cc.index) }
                             }
                             MouseArea { id: cma; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }
@@ -632,7 +633,7 @@ Scope {
                                 color: delMa.containsMouse ? "#FF453A" : Qt.rgba(0.5, 0.5, 0.5, 0.22)
                                 opacity: rowMa.containsMouse || delMa.containsMouse ? 1 : 0
                                 Behavior on opacity { NumberAnimation { duration: 160 } }
-                                Text { anchors.centerIn: parent; text: "✕"; color: "white"; font.pixelSize: 11; font.bold: true }
+                                Text { anchors.centerIn: parent; text: "✕"; color: "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 11; font.bold: true }
                                 MouseArea { id: delMa; anchors.fill: parent; hoverEnabled: true; onClicked: root.deleteAlarm(ar.modelData.id) }
                             }
                             CSwitch { id: sw1; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter; on: ar.modelData.on; onToggled: v => root.setAlarmOn(ar.modelData.id, v) }
@@ -750,7 +751,7 @@ Scope {
                                     onValueChanged: tp.parts[parent.index] = value
                                     Component.onCompleted: tp.parts[parent.index] = start
                                 }
-                                Text { anchors.verticalCenter: parent.verticalCenter; width: 46; text: parent.modelData.u; color: pal.text; font.family: root.fam; font.pixelSize: 15; font.weight: Font.DemiBold }
+                                Text { anchors.verticalCenter: parent.verticalCenter; width: 46; text: parent.modelData.u; color: pal.text; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 15; font.weight: Font.DemiBold }
                             }
                         }
                     }
@@ -781,7 +782,7 @@ Scope {
                         anchors.bottom: parent.bottom; anchors.bottomMargin: 18
                         spacing: 10
                         visible: root.recents.length > 0
-                        Text { anchors.verticalCenter: parent.verticalCenter; text: I18n.tr("Recents"); color: pal.text2; font.family: root.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: I18n.tr("Recents"); color: pal.text2; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 12; font.weight: Font.DemiBold }
                         Repeater {
                             model: root.recents
                             delegate: Rectangle {
@@ -855,7 +856,7 @@ Scope {
                 readonly property var ed: win.editing
                 property var days: ed ? ed.days.slice() : []
                 property bool pm: ed ? ed.h >= 12 : false
-                Text { x: 20; y: 16; text: sa.ed ? I18n.tr("Edit Alarm") : I18n.tr("Add Alarm"); color: pal.text; font.family: root.fam; font.pixelSize: 15; font.weight: Font.DemiBold }
+                Text { x: 20; y: 16; text: sa.ed ? I18n.tr("Edit Alarm") : I18n.tr("Add Alarm"); color: pal.text; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 15; font.weight: Font.DemiBold }
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: tw.y + tw.height / 2 - 18
@@ -890,7 +891,7 @@ Scope {
                             width: 32; height: 32; radius: 16
                             color: sel ? root.orange : pal.ctrl
                             Behavior on color { ColorAnimation { duration: 160 } }
-                            Text { anchors.centerIn: parent; text: parent.modelData; color: parent.sel ? "black" : pal.text; font.family: root.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                            Text { anchors.centerIn: parent; text: parent.modelData; color: parent.sel ? "black" : pal.text; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                             MouseArea {
                                 anchors.fill: parent
                                 onClicked: {

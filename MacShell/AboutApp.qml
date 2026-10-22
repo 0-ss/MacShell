@@ -14,6 +14,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
 import "I18n.js" as I18n
+import "Fonts.js" as Fonts
 
 Scope {
     id: root
@@ -33,7 +34,8 @@ Scope {
 
     readonly property string fam: dock ? dock.fontFamily : "Open Runde"
     readonly property string boldFontFamily: hub && hub.boldFontFamily ? hub.boldFontFamily : "Open Runde Semibold"
-    function fontForWeight(weight, regularFamily) { return Number(weight) >= Font.DemiBold ? boldFontFamily : regularFamily; }
+    // Open Runde: bold text uses its Semibold face; another selected font keeps its own family (and real bold weight)
+    function fontForWeight(weight, regularFamily) { return (Number(weight) >= Font.DemiBold && regularFamily === "Open Runde") ? boldFontFamily : regularFamily; }
 
     property var info: ({})
     readonly property string scriptPath: decodeURIComponent(String(Qt.resolvedUrl("assets/about-info.sh")).replace(/^file:\/\//, ""))
@@ -226,7 +228,7 @@ Scope {
                         width: 108; height: 78; radius: 9
                         color: "transparent"
                         border.width: 4; border.color: pal.text2
-                        Text { anchors.centerIn: parent; text: ">_"; font.family: "monospace"; font.pixelSize: 30; font.bold: true; color: pal.text2 }
+                        Text { anchors.centerIn: parent; text: ">_"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 30; font.bold: true; color: pal.text2 }
                     }
                 }
                 Item { width: 1; height: 20 }
@@ -331,7 +333,7 @@ Scope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.3.2"
+                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.3.3"
                     color: pal.text3
                     font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 10
                     lineHeight: 1.1

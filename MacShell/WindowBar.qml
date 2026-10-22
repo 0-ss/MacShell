@@ -12,6 +12,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import "I18n.js" as I18n
+import "Fonts.js" as Fonts
 
 Scope {
     id: root
@@ -164,7 +165,7 @@ Scope {
                         }
                         duration: 260
                         color: root.darkMode ? "white" : "#1D1D1F"
-                        font.family: root.fam; font.pixelSize: 11; font.weight: Font.DemiBold
+                        font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 11; font.weight: Font.DemiBold
                     }
                 }
             }

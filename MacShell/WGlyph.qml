@@ -175,7 +175,7 @@ Canvas {
             poly([12.8, 2.9, 15, 5, 12.8, 7.1], false);
             ctx.beginPath(); ctx.moveTo(15, 9); ctx.lineTo(15, 10.5); ctx.arcTo(15, 13, 12.5, 13, 2.5); ctx.lineTo(3, 13); ctx.stroke();
             poly([5.2, 10.9, 3, 13, 5.2, 15.1], false);
-            if (k === "repeat1") { ctx.font = "bold 5px sans-serif"; ctx.textAlign = "center"; ctx.fillText("1", 9, 10.8); }
+            if (k === "repeat1") { ctx.font = "600 5px 'Open Runde Semibold', 'Open Runde', sans-serif"; ctx.textAlign = "center"; ctx.fillText("1", 9, 10.8); }
         } else if (k === "play") {
             rpoly([5, 3.2, 15, 9, 5, 14.8], 0.8);
         } else if (k === "pause") {

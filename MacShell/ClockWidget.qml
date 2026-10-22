@@ -4,6 +4,7 @@
 
 import QtQuick
 import QtQuick.Effects
+import "Fonts.js" as Fonts
 
 Item {
     id: w
@@ -368,7 +369,7 @@ Item {
             ? Qt.rgba(1, 1, 1, 0.55)
             : Qt.rgba(0, 0, 0, 0.46)
 
-        font.family: w.fam
+        font.family: Fonts.forWeight(font.weight, w.fam)
         font.pixelSize: 11.5 * w.u
         font.weight: Font.Bold
         font.letterSpacing: 0.4 * w.u

@@ -76,6 +76,7 @@ import Quickshell.Services.Mpris
 import Quickshell.Services.Notifications
 import "EmojiData.js" as EmojiData
 import "I18n.js" as I18n
+import "Fonts.js" as Fonts
 
 Scope {
     id: root
@@ -103,7 +104,8 @@ Scope {
     // The UI font is Open Runde (bundled in assets/fonts, loaded by shell.qml). Settings that still say Inter move over to it.
     property string fontFamily: "Open Runde"
     readonly property string boldFontFamily: hub && hub.boldFontFamily ? hub.boldFontFamily : "Open Runde Semibold"
-    function fontForWeight(weight, regularFamily) { return Number(weight) >= Font.DemiBold ? boldFontFamily : regularFamily; }
+    // Open Runde: bold text uses its Semibold face; another selected font keeps its own family (and real bold weight)
+    function fontForWeight(weight, regularFamily) { return (Number(weight) >= Font.DemiBold && regularFamily === "Open Runde") ? boldFontFamily : regularFamily; }
     onFontFamilyChanged: if (fontFamily.indexOf("Inter") === 0) fontFamily = "Open Runde"
     property int barHeight: 28
     // The bar changed size: tiled windows move, so everything that captures the wallpaper / apps behind the bar and its popovers
@@ -216,20 +218,21 @@ Scope {
     property bool lockArtBackground: true     // lock screen: blurred album art as the background while the cover is enlarged
     // lock screen clock (Settings → Lock Screen → Clock); MacLock reads these when it starts
     property string lockClockStyle: "glass"   // preset last picked: glass | classic | serif | liquid | thin | custom
-    property string lockClockFont: "condensed"   // condensed | rounded | serif | inter
+    property string lockClockFont: "rounded"   // rounded | serif | inter
     property int lockClockWeight: 680
     property string lockClockMaterial: "glass"   // solid (Apple's vibrancy) | glass (Liquid Glass)
     property real lockClockIntensity: 0.6        // solid: how bright / opaque; glass: clear (0) … frosted (1)
     property string lockClockTint: "#FFFFFF"
-    property bool lockClockTall: true
     property string lockClockDate: "long"        // long ("Friday, October 16") | short ("Fri Oct 16")
     readonly property var lockClockPresets: ({
-        glass:   { f: "condensed", w: 680, m: "glass", i: 0.6,  t: true,  d: "long" },
-        classic: { f: "rounded",   w: 600, m: "solid", i: 0.8,  t: false, d: "long" },
-        serif:   { f: "serif",     w: 560, m: "solid", i: 0.85, t: false, d: "short" },
-        liquid:  { f: "condensed", w: 560, m: "glass", i: 0.12, t: true,  d: "short" },
-        thin:    { f: "rounded",   w: 200, m: "solid", i: 0.6,  t: false, d: "short" }
+        glass:   { f: "rounded",   w: 680, m: "glass", i: 0.6,  d: "long" },
+        classic: { f: "rounded",   w: 600, m: "solid", i: 0.8,  d: "long" },
+        serif:   { f: "serif",     w: 560, m: "solid", i: 0.85, d: "short" },
+        liquid:  { f: "rounded",   w: 560, m: "glass", i: 0.12, d: "short" },
+        thin:    { f: "rounded",   w: 200, m: "solid", i: 0.6,  d: "short" }
     })
+    // the Condensed font is gone: saved settings that still name it move to Rounded
+    onLockClockFontChanged: if (lockClockFont === "condensed") Qt.callLater(function () { lockClockFont = "rounded"; })
     // settings saved before Solid / Glass existed: move them over (presets keep their name, the rest map across)
     onLockClockMaterialChanged: Qt.callLater(function () {
         if (lockClockMaterial !== "frosted" && lockClockMaterial !== "liquid") return;
@@ -239,7 +242,7 @@ Scope {
     })
     function applyLockClockPreset(name) {
         var p = lockClockPresets[name]; if (!p) return;
-        lockClockFont = p.f; lockClockWeight = p.w; lockClockMaterial = p.m; lockClockIntensity = p.i; lockClockTall = p.t; lockClockDate = p.d;
+        lockClockFont = p.f; lockClockWeight = p.w; lockClockMaterial = p.m; lockClockIntensity = p.i; lockClockDate = p.d;
         lockClockStyle = name;
     }
     property bool uiSounds: true              // Apple-style UI sounds (volume pop, notification, screenshot, charger, lock)
@@ -302,7 +305,7 @@ Scope {
         "showSeconds", "showBatteryPercent", "showTray", "showSearch",
         "spotlightEnabled", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
-        "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockTall", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
+        "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
         "notifDnd", "dnd", "nightOn", "keepAwake",
         "kbRepeatRate", "kbRepeatDelay", "mouseSens", "mouseNatural", "tpNatural", "tpTap", "tpDwt", "tpScroll"]
     // Optional bar widgets; tray and Spotlight use their existing showTray/showSearch settings.
@@ -571,6 +574,7 @@ Scope {
     QtObject {
         id: ccPal
         readonly property bool dark: root.ccDark
+        // the Control Center follows the selected UI font like everything else (Open Runde by default)
         readonly property string fam: root.fontFamily
         readonly property color accent: root.accent
         readonly property color fg: root.ccMix(Qt.color("#1D1D1F"), Qt.color("#FFFFFF"))
@@ -5472,7 +5476,7 @@ Scope {
                                 anchors.centerIn: parent
                                 text: root.clockText
                                 color: bpal.fg
-                                font.family: root.boldFontFamily
+                                font.family: Fonts.forWeight(font.weight, root.boldFontFamily)
                                 font.pixelSize: 14
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 0.1
@@ -8023,7 +8027,7 @@ Scope {
                                                 width: 18; height: 18; radius: 9
                                                 color: "#30D158"
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                Text { anchors.centerIn: parent; text: "+"; color: "white"; font.pixelSize: 14; font.weight: Font.Bold }
+                                                Text { anchors.centerIn: parent; text: "+"; color: "white"; font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 14; font.weight: Font.Bold }
                                             }
                                             Glyph {
                                                 width: 16; height: 16
@@ -8417,7 +8421,7 @@ Scope {
                             anchors.verticalCenter: parent.verticalCenter
                             width: 16; height: 16; radius: 8
                             color: pal.btnOff
-                            Text { anchors.centerIn: parent; text: "\u00d7"; color: pal.fg; font.pixelSize: 12 }
+                            Text { anchors.centerIn: parent; text: "\u00d7"; color: pal.fg; font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 12 }
                             MouseArea { anchors.fill: parent; onClicked: { root.wpQuery = ""; wpGrid.forceActiveFocus(); } }
                         }
                     }
@@ -8573,7 +8577,7 @@ Scope {
                                         anchors.centerIn: parent
                                         text: wc.modelData.fav ? "\u2605" : "\u2606"
                                         color: wc.modelData.fav ? "#ffd60a" : "white"
-                                        font.pixelSize: 15
+                                        font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 15
                                     }
                                     MouseArea {
                                         id: wcStarMa

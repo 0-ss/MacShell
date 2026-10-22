@@ -14,6 +14,7 @@
 import QtQuick
 import QtQuick.Effects
 import "I18n.js" as I18n
+import "Fonts.js" as Fonts
 
 Item {
     id: w
@@ -406,7 +407,7 @@ Item {
             text: w.shownTitle
             elide: Text.ElideRight
             color: w.fg
-            font.family: w.fam
+            font.family: Fonts.forWeight(font.weight, w.fam)
             font.pixelSize: (w.isSmall ? 21 : 24) * w.k
             font.weight: Font.DemiBold
         }
@@ -521,7 +522,7 @@ Item {
                         text: ln.modelData.text !== "" ? ln.modelData.text : "\u266A"
                         wrapMode: Text.Wrap
                         color: w.fg
-                        font.family: w.fam
+                        font.family: Fonts.forWeight(font.weight, w.fam)
                         font.pixelSize: 25 * w.k
                         font.weight: Font.Bold
                         opacity: !w.lyricsSynced ? 0.9 : (ln.cur ? 1 : Math.max(0.16, 0.46 - ln.dist * 0.08))

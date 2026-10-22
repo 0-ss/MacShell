@@ -8,6 +8,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Services.UPower
 import "I18n.js" as I18n
+import "Fonts.js" as Fonts
 
 Item {
     id: root
@@ -252,7 +253,7 @@ Item {
                             visible: !!(b && b.charging)
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: 13
-                            text: "\u26A1"; color: ctx && ctx.mono ? ctx.fg : "#30D158"; font.pixelSize: 10
+                            text: "\u26A1"; color: ctx && ctx.mono ? ctx.fg : "#30D158"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 10
                         }
                     }
                 }
@@ -269,12 +270,12 @@ Item {
                         readonly property var b: list[index]
                         width: parent.width; height: 26
                         WIcon { anchors.verticalCenter: parent.verticalCenter; width: 22; height: 22; kind: b.kind; color: ctx ? ctx.fg : "white"; tinted: true }
-                        Text { x: 32; anchors.verticalCenter: parent.verticalCenter; width: 110; elide: Text.ElideRight; text: b.name; color: ctx ? ctx.fg : "white"; font.family: root.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                        Text { x: 32; anchors.verticalCenter: parent.verticalCenter; width: 110; elide: Text.ElideRight; text: b.name; color: ctx ? ctx.fg : "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                         Rectangle {
                             x: 150; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 150 - 54; height: 7; radius: 3.5; color: Qt.rgba(1, 1, 1, 0.16)
                             Rectangle { width: parent.width * b.pct / 100; height: parent.height; radius: 3.5; color: ringColor(b) }
                         }
-                        Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: (b.charging ? "⚡" : "") + b.pct + "%"; color: ctx ? ctx.fg : "white"; font.family: root.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                        Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: (b.charging ? "⚡" : "") + b.pct + "%"; color: ctx ? ctx.fg : "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                     }
                 }
             }
@@ -289,7 +290,7 @@ Item {
                 spacing: 6
                 Rectangle { width: 18; height: 18; radius: 5; color: ctx && ctx.mono ? ctx.fg : "#FFD60A"; anchors.verticalCenter: parent.verticalCenter
                             Rectangle { x: 3; y: 4; width: 12; height: 1.6; color: ctx && ctx.mono ? root.accent : "white" } }
-                Text { text: I18n.tr("Notes"); color: ctx && ctx.mono ? ctx.fg : "#FFD60A"; font.family: root.fam; font.pixelSize: 14; font.weight: Font.Bold }
+                Text { text: I18n.tr("Notes"); color: ctx && ctx.mono ? ctx.fg : "#FFD60A"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 14; font.weight: Font.Bold }
             }
             Text {
                 y: nHead.height + 8
@@ -327,7 +328,7 @@ Item {
             Text {
                 x: 14; anchors.bottom: parent.bottom; anchors.bottomMargin: 12
                 text: root.photoList.length ? I18n.tr("Featured Photo") : I18n.tr("Add pictures to ~/Pictures")
-                color: "white"; font.family: root.fam; font.pixelSize: 12; font.weight: Font.DemiBold
+                color: "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 12; font.weight: Font.DemiBold
             }
             MouseArea { anchors.fill: parent; enabled: !root.editing && root.photo !== ""; cursorShape: Qt.PointingHandCursor
                         onClicked: root.openFile(root.photo); onDoubleClicked: root.photoIdx++ }
@@ -346,13 +347,13 @@ Item {
                 Text {
                     anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                     width: parent.width - cnt.width - addBtn.width - 14; elide: Text.ElideRight
-                    text: I18n.tr("Reminders"); color: blue; font.family: root.fam; font.pixelSize: 14; font.weight: Font.Bold
+                    text: I18n.tr("Reminders"); color: blue; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 14; font.weight: Font.Bold
                 }
                 MorphText {
                     id: cnt
                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                     text: parent.parent.open.length; duration: 420; animateWidth: false
-                    color: blue; font.family: root.fam; font.pixelSize: 22; font.weight: Font.Bold
+                    color: blue; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 22; font.weight: Font.Bold
                 }
                 // + — add one without leaving the widget. It lives beside the count, never on top of it,
                 // and fades in on hover the way macOS reveals its controls.
@@ -604,7 +605,7 @@ Item {
                     Row {
                         spacing: 5
                         ClockGlyph { anchors.verticalCenter: parent.verticalCenter; kind: "stopwatch"; color: ca.orange; width: 14; height: 14 }
-                        Text { text: I18n.tr("Stopwatch"); color: ca.orange; font.family: root.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                        Text { text: I18n.tr("Stopwatch"); color: ca.orange; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                     }
                     Text {
                         width: parent.width; fontSizeMode: Text.HorizontalFit; minimumPixelSize: 14
@@ -627,7 +628,7 @@ Item {
                     visible: ca.size !== "s" || ca.alarmList.length > 0
                     spacing: 5
                     ClockGlyph { anchors.verticalCenter: parent.verticalCenter; kind: "alarm"; color: ca.orange; width: 14; height: 14 }
-                    Text { text: I18n.tr("Alarms"); color: ca.orange; font.family: root.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                    Text { text: I18n.tr("Alarms"); color: ca.orange; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                 }
                 Repeater {
                     model: ca.alarmList.slice(0, ca.maxAlarms)
@@ -702,11 +703,11 @@ Item {
                 anchors.fill: parent
                 spacing: 2
                 readonly property var q: root.stocks[syms[0]]
-                Text { text: syms[0]; color: ctx ? ctx.fg : "white"; font.family: root.fam; font.pixelSize: 16; font.weight: Font.Bold }
+                Text { text: syms[0]; color: ctx ? ctx.fg : "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 16; font.weight: Font.Bold }
                 Text { width: parent.width; elide: Text.ElideRight; text: parent.q ? parent.q.name : I18n.tr("Loading…"); color: ctx ? ctx.fg2 : "white"; font.family: root.fam; font.pixelSize: 11 }
                 Spark { width: parent.width; height: 52; values: parent.q ? parent.q.c : []; base: parent.q ? parent.q.pc : 0; color: parent.parent.col(parent.q) }
-                Text { text: parent.q ? parent.q.p.toFixed(2) : "--"; color: ctx ? ctx.fg : "white"; font.family: root.fam; font.pixelSize: 18; font.weight: Font.DemiBold }
-                Text { text: parent.q ? (parent.parent.chg(parent.q) >= 0 ? "+" : "") + parent.parent.chg(parent.q).toFixed(2) + "%" : ""; color: parent.parent.col(parent.q); font.family: root.fam; font.pixelSize: 12; font.weight: Font.DemiBold }
+                Text { text: parent.q ? parent.q.p.toFixed(2) : "--"; color: ctx ? ctx.fg : "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 18; font.weight: Font.DemiBold }
+                Text { text: parent.q ? (parent.parent.chg(parent.q) >= 0 ? "+" : "") + parent.parent.chg(parent.q).toFixed(2) + "%" : ""; color: parent.parent.col(parent.q); font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 12; font.weight: Font.DemiBold }
             }
             // medium: watchlist
             Column {
@@ -721,16 +722,16 @@ Item {
                         width: parent.width; height: 32
                         Column {
                             width: 110; anchors.verticalCenter: parent.verticalCenter
-                            Text { text: syms[index]; color: ctx ? ctx.fg : "white"; font.family: root.fam; font.pixelSize: 13; font.weight: Font.Bold }
+                            Text { text: syms[index]; color: ctx ? ctx.fg : "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.Bold }
                             Text { width: 110; elide: Text.ElideRight; text: q ? q.name : ""; color: ctx ? ctx.fg2 : "white"; font.family: root.fam; font.pixelSize: 10 }
                         }
                         Spark { x: 118; width: parent.width - 118 - 96; height: 24; anchors.verticalCenter: parent.verticalCenter; values: q ? q.c : []; base: q ? q.pc : 0; color: col(q) }
                         Column {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                            Text { anchors.right: parent.right; text: q ? q.p.toFixed(2) : "--"; color: ctx ? ctx.fg : "white"; font.family: root.fam; font.pixelSize: 13; font.weight: Font.DemiBold }
+                            Text { anchors.right: parent.right; text: q ? q.p.toFixed(2) : "--"; color: ctx ? ctx.fg : "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                             Rectangle {
                                 anchors.right: parent.right; width: pct.implicitWidth + 10; height: 16; radius: 4; color: col(q)
-                                Text { id: pct; anchors.centerIn: parent; text: q ? (chg(q) >= 0 ? "+" : "") + chg(q).toFixed(2) + "%" : ""; color: ctx && ctx.mono ? root.accent : "white"; font.family: root.fam; font.pixelSize: 10; font.weight: Font.Bold }
+                                Text { id: pct; anchors.centerIn: parent; text: q ? (chg(q) >= 0 ? "+" : "") + chg(q).toFixed(2) + "%" : ""; color: ctx && ctx.mono ? root.accent : "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 10; font.weight: Font.Bold }
                             }
                         }
                     }

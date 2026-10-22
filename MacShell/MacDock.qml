@@ -30,6 +30,7 @@ import Quickshell.Wayland
 import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
 import "I18n.js" as I18n
+import "Fonts.js" as Fonts
 
 Scope {
     id: root
@@ -182,7 +183,8 @@ Scope {
     property bool showTrash: true
     property string fontFamily: "Open Runde"  // bundled in assets/fonts (shell.qml loads it); falls back to the system font if missing
     readonly property string boldFontFamily: hub && hub.boldFontFamily ? hub.boldFontFamily : "Open Runde Semibold"
-    function fontForWeight(weight, regularFamily) { return Number(weight) >= Font.DemiBold ? boldFontFamily : regularFamily; }
+    // Open Runde: bold text uses its Semibold face; another selected font keeps its own family (and real bold weight)
+    function fontForWeight(weight, regularFamily) { return (Number(weight) >= Font.DemiBold && regularFamily === "Open Runde") ? boldFontFamily : regularFamily; }
     onFontFamilyChanged: if (fontFamily.indexOf("Inter") === 0) fontFamily = "Open Runde"
     property bool magnificationEnabled: true
     property bool showLabels: true       // hover tooltips
@@ -481,6 +483,7 @@ Scope {
     component SGlyph: Rectangle {
         id: gl
         property string kind: ""
+        property string fam: "Open Runde"   // the selected UI font (set by the sidebar)
         property string wg: ""          // a menu-bar glyph (WGlyph.qml) instead of the hand-drawn kinds below
         property color c1: "#4FA8FF"
         property color c2: "#0A6CFF"
@@ -582,7 +585,7 @@ Scope {
                     anchors.centerIn: parent
                     text: "i"
                     color: "white"
-                    font.pixelSize: 10
+                    font.family: Fonts.forWeight(font.weight, gl.fam); font.pixelSize: 10
                     font.bold: true
                 }
             }
@@ -1070,7 +1073,7 @@ Scope {
                             anchors.verticalCenterOffset: -0.5
                             text: "\u00D7"
                             color: pal.sidebar
-                            font.pixelSize: 12
+                            font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 12
                             font.bold: true
                         }
                         MouseArea { anchors.fill: parent; onClicked: searchInput.text = "" }
@@ -1159,6 +1162,8 @@ Scope {
                                        : (navMa.containsMouse ? pal.hover : "transparent")
 
                             SGlyph {
+
+                                fam: pal.fam
                                 x: 8
                                 anchors.verticalCenter: parent.verticalCenter
                                 kind: navRow.p.glyph || ""
@@ -1252,7 +1257,7 @@ Scope {
                                 anchors.centerIn: parent
                                 anchors.verticalCenterOffset: -2
                                 text: navBtn.modelData.g
-                                font.pixelSize: 28
+                                font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 28
                                 color: navBtn.ok ? pal.text : pal.text3
                                 opacity: navBtn.ok ? 1 : 0.5
                                 scale: (navBtn.ok && navMa.pressed) ? 0.86 : 1
@@ -3168,10 +3173,10 @@ Scope {
                             spacing: 10
                             Repeater {
                                 model: [
-                                    { id: "glass",   name: "Glass",   fam: "Roboto Flex",        w: 680, tall: true,  liquid: false },
+                                    { id: "glass",   name: "Glass",   fam: fNunito.status === FontLoader.Ready ? fNunito.name : "Nunito", w: 680, tall: false, liquid: false },
                                     { id: "classic", name: "Classic", fam: fNunito.status === FontLoader.Ready ? fNunito.name : "Nunito",             w: 640, tall: false, liquid: false },
                                     { id: "serif",   name: "Serif",   fam: fSerif.status === FontLoader.Ready ? fSerif.name : "Noto Serif Display", w: 560, tall: false, liquid: false },
-                                    { id: "liquid",  name: "Liquid",  fam: "Roboto Flex",        w: 560, tall: true,  liquid: true },
+                                    { id: "liquid",  name: "Liquid",  fam: fNunito.status === FontLoader.Ready ? fNunito.name : "Nunito", w: 560, tall: false, liquid: true },
                                     { id: "thin",    name: "Thin",    fam: fNunito.status === FontLoader.Ready ? fNunito.name : "Nunito",             w: 220, tall: false, liquid: true }
                                 ]
                                 delegate: Column {
@@ -3190,11 +3195,9 @@ Scope {
                                         Text {
                                             anchors.centerIn: parent
                                             text: "9:41"
-                                            font.family: tile.modelData.fam; font.pixelSize: tile.modelData.tall ? 40 : 30
+                                            font.family: Fonts.forWeight(font.weight, tile.modelData.fam); font.pixelSize: tile.modelData.tall ? 40 : 30
                                             font.weight: Math.max(100, Math.min(900, tile.modelData.w))
-                                            font.variableAxes: tile.modelData.fam === "Roboto Flex"
-                                                ? ({ "wght": tile.modelData.w, "wdth": tile.modelData.tall ? 40 : 100, "YTFI": tile.modelData.tall ? 788 : 712, "opsz": 144 })
-                                                : ({ "wght": tile.modelData.w })
+                                            font.variableAxes: ({ "wght": tile.modelData.w })
                                             color: tile.modelData.liquid ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.78)
                                             style: tile.modelData.liquid ? Text.Outline : Text.Normal
                                             styleColor: Qt.rgba(1, 1, 1, 0.85)
@@ -3210,9 +3213,9 @@ Scope {
                         t: pal; title: I18n.tr("Font")
                         SPopUp {
                             t: pal
-                            model: ["Condensed", "Rounded", "Serif", "Default"]
-                            readonly property var ids: ["condensed", "rounded", "serif", "inter"]
-                            current: Math.max(0, ids.indexOf(root.bar ? root.bar.lockClockFont : "condensed"))
+                            model: ["Rounded", "Serif", "Default"]
+                            readonly property var ids: ["rounded", "serif", "inter"]
+                            current: Math.max(0, ids.indexOf(root.bar ? root.bar.lockClockFont : "rounded"))
                             onPicked: i => { if (root.bar) { root.bar.lockClockFont = ids[i]; root.bar.lockClockStyle = "custom"; } }
                         }
                     }
@@ -3265,16 +3268,6 @@ Scope {
                         }
                     }
                     SRow {
-                        t: pal; title: I18n.tr("Tall digits")
-                        subtitle: I18n.tr("Stretches the Condensed font to fill the space, like iOS 26")
-                        SSwitch {
-                            t: pal
-                            enabled: root.bar && root.bar.lockClockFont === "condensed"
-                            checked: root.bar ? root.bar.lockClockTall : true
-                            onToggled: v => { if (root.bar) { root.bar.lockClockTall = v; root.bar.lockClockStyle = "custom"; } }
-                        }
-                    }
-                    SRow {
                         t: pal; title: I18n.tr("Date")
                         SSegmented {
                             t: pal; model: ["Friday, October 16", "Fri Oct 16"]; segWidth: 130
@@ -3290,7 +3283,7 @@ Scope {
                         t: pal; text: I18n.tr("Preview")
                         onClicked: {
                             var b = root.bar;
-                            var cfg = JSON.stringify({ f: b.lockClockFont, w: b.lockClockWeight, m: b.lockClockMaterial, i: b.lockClockIntensity, c: b.lockClockTint, t: b.lockClockTall, d: b.lockClockDate });
+                            var cfg = JSON.stringify({ f: b.lockClockFont, w: b.lockClockWeight, m: b.lockClockMaterial, i: b.lockClockIntensity, c: b.lockClockTint, d: b.lockClockDate });
                             Quickshell.execDetached(["sh", "-c", "MACLOCK_PREVIEW=1 MACLOCK_CLOCK=\"$1\" timeout 6 qs -c MacLock >/dev/null 2>&1", "sh", cfg]);
                         }
                     }
@@ -3573,7 +3566,7 @@ Scope {
                             anchors.verticalCenter: parent.verticalCenter
                             text: "⌕"
                             color: pal.text3
-                            font.pixelSize: 19
+                            font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 19
                         }
                         Item {
                             width: parent.width - 52
@@ -3606,7 +3599,7 @@ Scope {
                             visible: wpSearchInput.text !== ""
                             text: "×"
                             color: pal.text2
-                            font.pixelSize: 18
+                            font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 18
                             MouseArea {
                                 anchors.fill: parent
                                 anchors.margins: -6
@@ -3716,7 +3709,7 @@ Scope {
                                             anchors.centerIn: parent
                                             text: wt.modelData.fav ? "★" : "☆"
                                             color: wt.modelData.fav ? "#ffd60a" : "white"
-                                            font.pixelSize: 16
+                                            font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 16
                                         }
                                         MouseArea {
                                             id: wtFavMa
@@ -3785,7 +3778,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.3.2 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.3.3 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(font.weight, pal.fam)
                             font.pixelSize: 12
@@ -4537,6 +4530,12 @@ Scope {
     property var monData: []
     property bool refreshPending: false
 
+    function clearBusy() {
+        busyGrow.stop();
+        busyForce = false;
+        busyMonitors = ({});
+    }
+
     function refreshBusy() {
         if (monProc.running || clientProc.running) { refreshPending = true; return; }
         monProc.running = true;
@@ -4550,17 +4549,27 @@ Scope {
     Timer { id: busyGrow; interval: 220; onTriggered: { root.busyForce = true; root.computeBusy(root.lastClients); root.busyForce = false; } }
 
     function computeBusy(clients) {
+        if (!Array.isArray(clients)) {
+            lastClients = [];
+            clearBusy();
+            return;
+        }
         lastClients = clients;
         var busy = {};
         for (var m = 0; m < monData.length; m++) {
             var mon = monData[m];
-            var ids = [mon.activeWorkspace ? mon.activeWorkspace.id : -999];
-            if (mon.specialWorkspace && mon.specialWorkspace.id !== 0) ids.push(mon.specialWorkspace.id);
+            if (!mon || mon.id === undefined || !mon.name || !mon.activeWorkspace || mon.activeWorkspace.id === undefined) continue;
+            var ids = [mon.activeWorkspace.id];
+            if (mon.specialWorkspace && mon.specialWorkspace.id !== undefined && mon.specialWorkspace.id !== 0) ids.push(mon.specialWorkspace.id);
             for (var c = 0; c < clients.length; c++) {
                 var cl = clients[c];
-                if (!!cl.floating || !cl.mapped || cl.hidden) continue;       // floating windows never count
-                if (cl.monitor !== mon.id) continue;
-                if (ids.indexOf(cl.workspace.id) >= 0) { busy[mon.name] = true; break; }
+                if (!cl || !!cl.floating || cl.mapped !== true || !!cl.hidden) continue; // only confirmed, mapped tiled windows count
+                if (cl.monitor === undefined || String(cl.monitor) !== String(mon.id)) continue;
+                if (!cl.workspace || cl.workspace.id === undefined) continue; // workspace can be absent during close/move events
+                for (var w = 0; w < ids.length; w++) {
+                    if (String(ids[w]) === String(cl.workspace.id)) { busy[mon.name] = true; break; }
+                }
+                if (busy[mon.name]) break;
             }
         }
         if (!busyForce) {
@@ -4576,7 +4585,8 @@ Scope {
     // hyprctl 120 ms after every event: a workspace switch is picked up within a frame or two.
     readonly property bool fastGeoActive: !!hub && hub.ipcOk && hub.dockWantsGeo
     function fastGeo() {
-        if (!fastGeoActive || !hub.monData || hub.monData.length === 0) return;
+        if (!fastGeoActive) return;
+        if (!hub.monData || hub.monData.length === 0) { root.monData = []; root.computeBusy([]); return; }
         root.monData = hub.monData;          // (bd.sync() of every backdrop listens to this)
         computeBusy(hub.glassClients);
     }
@@ -4591,7 +4601,7 @@ Scope {
         command: ["hyprctl", "-j", "monitors"]
         stdout: StdioCollector {
             onStreamFinished: {
-                try { root.monData = JSON.parse(text); } catch (err) { }
+                try { root.monData = JSON.parse(text); } catch (err) { root.monData = []; root.clearBusy(); }
                 clientProc.running = true;
             }
         }
@@ -4601,7 +4611,7 @@ Scope {
         command: ["hyprctl", "-j", "clients"]
         stdout: StdioCollector {
             onStreamFinished: {
-                try { root.computeBusy(JSON.parse(text)); } catch (err) { }
+                try { root.computeBusy(JSON.parse(text)); } catch (err) { root.clearBusy(); }
                 if (root.refreshPending) { root.refreshPending = false; monProc.running = true; }
             }
         }

@@ -15,6 +15,7 @@
 // sits behind it (it follows the widget while it is dragged).
 import QtQuick
 import QtQuick.Effects
+import "Fonts.js" as Fonts
 
 Item {
     id: w
@@ -269,7 +270,7 @@ Item {
                 y: Math.round((grid.wdH - implicitHeight) / 2)
                 text: w.letters[(index + w.weekStart) % 7]
                 color: w.fgSub
-                font.family: w.fam
+                font.family: Fonts.forWeight(font.weight, w.fam)
                 font.pixelSize: grid.wdPx
                 font.weight: Font.DemiBold
             }
@@ -300,7 +301,7 @@ Item {
                     verticalAlignment: Text.AlignVCenter
                     text: cell.day
                     color: cell.isToday ? "white" : w.fg
-                    font.family: w.fam
+                    font.family: Fonts.forWeight(font.weight, w.fam)
                     font.pixelSize: grid.dayPx
                     font.weight: cell.isToday ? Font.Bold : Font.DemiBold
                 }
@@ -315,7 +316,7 @@ Item {
         y: 10 * w.s
         text: w.monthNames[w.cal.month].toUpperCase()
         color: w.red
-        font.family: w.fam
+        font.family: Fonts.forWeight(font.weight, w.fam)
         font.pixelSize: 13 * w.s
         font.weight: Font.Bold
     }
@@ -335,7 +336,7 @@ Item {
         elide: Text.ElideRight
         text: w.dayNames[w.cal.weekday].toUpperCase()
         color: w.red
-        font.family: w.fam
+        font.family: Fonts.forWeight(font.weight, w.fam)
         font.pixelSize: 13 * w.s
         font.weight: Font.Bold
     }
@@ -357,7 +358,7 @@ Item {
         elide: Text.ElideRight
         text: w.monthNames[w.cal.month] + " " + w.cal.year
         color: w.fgSub
-        font.family: w.fam
+        font.family: Fonts.forWeight(font.weight, w.fam)
         font.pixelSize: 14 * w.s
         font.weight: Font.DemiBold
     }
@@ -371,14 +372,14 @@ Item {
         Text {
             text: w.monthNames[w.cal.month]
             color: w.red
-            font.family: w.fam
+            font.family: Fonts.forWeight(font.weight, w.fam)
             font.pixelSize: 26 * w.s
             font.weight: Font.DemiBold
         }
         Text {
             text: w.cal.year
             color: w.fgSub
-            font.family: w.fam
+            font.family: Fonts.forWeight(font.weight, w.fam)
             font.pixelSize: 26 * w.s
             font.weight: Font.DemiBold
         }
