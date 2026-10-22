@@ -106,11 +106,26 @@ Scope {
     function fontForWeight(weight, regularFamily) { return Number(weight) >= Font.DemiBold ? boldFontFamily : regularFamily; }
     onFontFamilyChanged: if (fontFamily.indexOf("Inter") === 0) fontFamily = "Open Runde"
     property int barHeight: 28
+    // The bar changed size: tiled windows move, so everything that captures the wallpaper / apps behind the bar and its popovers
+    // (window geometry, the live backdrop, the screen snapshot, the measured tone behind panels) is refreshed once Hyprland has settled.
+    signal barRelayout()
+    onBarHeightChanged: { if (settingsReady) barRelayoutT.restart(); }
+    Timer {
+        id: barRelayoutT; interval: 180
+        property int pass: 0
+        onTriggered: {
+            if (root.hub && root.hub.kickGeo) root.hub.kickGeo();
+            root.barRelayout();
+            pass++;
+            if (pass < 2) restart(); else pass = 0;      // a second pass ~0.5 s later, after the windows finished re-tiling
+        }
+    }
     property string barLogoMode: "arch"       // "arch", "apple", or "custom"
     property string barCustomLogoPath: ""     // absolute path, ~/path, or file URL for the custom menu-bar logo
     // The bar-size slider scales its widget groups while the left/right groups stay pinned to their corners.
-    readonly property real barWidgetScale: Math.max(0.8, Math.min(1.55, barHeight / 28))
-    readonly property real barPopupScale: Math.max(0.9, Math.min(1.25, 1 + (barHeight - 28) / 88))
+    readonly property real barWidgetScale: Math.max(0.6, Math.min(1.55, barHeight / 28))
+    // popovers and the Control Center scale with the same slider (smaller bar -> smaller panels, down to 70 %)
+    readonly property real barPopupScale: Math.max(0.7, Math.min(1.25, 1 + (barHeight - 28) / 60))
     property real glassOpacity: 0.42
     property string barStyle: "liquid"        // "liquid" = Apple Liquid Glass popovers, "blur" = flat translucent
     property real glassRim: 0.45
@@ -165,6 +180,39 @@ Scope {
             }
         }
     }
+    // ── bar text colour: measure what is behind the bar strip (wallpaper + windows + the bar's own glass) ──
+    // Hysteresis around mid grey (the point where white and dark text read equally well), so the text never flickers.
+    function measureBar() {
+        if (!autoContrast || !barEnabled || barToneProc.running) return;
+        var sc = Quickshell.screens && Quickshell.screens.length ? Quickshell.screens[0] : null;
+        if (!sc) return;
+        barToneProc.command = ["sh", "-c", "grim -s 0.25 -g \"$1,$2 $3x$4\" - 2>/dev/null | magick - -format '%[fx:0.299*mean.r+0.587*mean.g+0.114*mean.b]' info: 2>/dev/null",
+                               "sh", String(Math.round(sc.x)), String(Math.round(sc.y)), String(Math.max(8, Math.round(sc.width))), String(Math.max(8, Math.round(barHeight)))];
+        barToneProc.running = true;
+    }
+    Timer { id: barToneT; interval: 350; onTriggered: root.measureBar() }          // debounce: after a resize / wallpaper / window change settles
+    Timer { interval: 2500; repeat: true; running: root.autoContrast && root.barEnabled && !root.gaming; onTriggered: root.measureBar() }
+    Connections {
+        target: root
+        function onBarHeightChanged() { barToneT.restart(); }
+        function onDarkModeChanged() { barToneT.restart(); }
+        function onBarEnabledChanged() { if (root.barEnabled) barToneT.restart(); }
+        function onWallpaperAccentChanged() { barToneT.restart(); }
+        function onGlassClientsChanged() { barToneT.restart(); }
+        function onAutoContrastChanged() { if (root.autoContrast) barToneT.restart(); else { root.barTone = 0; root.bgTone = 0; } }
+    }
+    Process {
+        id: barToneProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var v = parseFloat(text);
+                if (isNaN(v)) return;
+                if (v > 0.56) root.barTone = 1;
+                else if (v < 0.44) root.barTone = -1;
+                else if (root.barTone === 0) root.barTone = root.darkMode ? -1 : 1;
+            }
+        }
+    }
     property bool lockArtBackground: true     // lock screen: blurred album art as the background while the cover is enlarged
     // lock screen clock (Settings → Lock Screen → Clock); MacLock reads these when it starts
     property string lockClockStyle: "glass"   // preset last picked: glass | classic | serif | liquid | thin | custom
@@ -203,6 +251,10 @@ Scope {
     property bool barGlass: true              // the bar strip itself is Liquid Glass (needs barStyle "liquid")
     property real barBgOpacity: 0.10          // fill of the separate "macbarbg" layer (0 = layer hidden). Must stay above the layerrule's ignore_alpha (0.05) for Hyprland to blur it
     property bool glassRealtime: false        // live-capture every window all the time; off by default now that popovers refract a screen snapshot       // keep every window capture live all the time (no wallpaper-first delay when a popover opens)
+    // Animated wallpaper inside the Liquid Glass (bar, Dock, widgets, Settings): OFF by default. Off = no video decoder exists at all and the
+    // glass refracts a still frame of the wallpaper (the wallpaper itself still plays through mpvpaper). On = the glass plays a small
+    // low-resolution copy (see glassVideo) so it stays cheap.
+    property bool liveWallGlass: false
     property bool glassDebug: false
     property string wallpaperPath: ""
     property bool use24h: true
@@ -246,7 +298,7 @@ Scope {
     property var fileHits: []
 
     readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "accent", "fontFamily", "barHeight", "glassOpacity",
-        "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "glassDebug", "wallpaperPath", "use24h", "language", "showDate",
+        "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "liveWallGlass", "glassDebug", "wallpaperPath", "use24h", "language", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch",
         "spotlightEnabled", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
@@ -400,6 +452,19 @@ Scope {
     property real dk: effDark ? 1 : 0
     Behavior on dk { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
     function mixc(l, d) { return Qt.rgba(l.r + (d.r - l.r) * dk, l.g + (d.g - l.g) * dk, l.b + (d.b - l.b) * dk, l.a + (d.a - l.a) * dk); }
+    // ── Dynamic text colour (top bar, menus / popovers, Spotlight) ──
+    // The bar is clear glass over the wallpaper and the windows, so its text follows what is measured BEHIND it (barTone) and flips
+    // light/dark by itself. Menus and Spotlight keep their glass tint but flip their text when the measured backdrop would make the
+    // normal colour unreadable (bgTone). Colours cross-fade (ptk / btk: 1 = white text, 0 = dark text).
+    property int barTone: 0                   // measured behind the bar strip: 1 bright, -1 dark, 0 not measured yet
+    readonly property bool barTextDark: barTone === 1 ? true : (barTone === -1 ? false : !darkMode)
+    property real btk: barTextDark ? 0 : 1
+    Behavior on btk { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+    function mixb(l, d) { return Qt.rgba(l.r + (d.r - l.r) * btk, l.g + (d.g - l.g) * btk, l.b + (d.b - l.b) * btk, l.a + (d.a - l.a) * btk); }
+    readonly property bool panelTextDark: darkMode ? (bgTone === 1) : (bgTone !== -1)
+    property real ptk: panelTextDark ? 0 : 1
+    Behavior on ptk { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+    function mixp(l, d) { return Qt.rgba(l.r + (d.r - l.r) * ptk, l.g + (d.g - l.g) * ptk, l.b + (d.b - l.b) * ptk, l.a + (d.a - l.a) * ptk); }
     // Control Center keeps one fixed look (dark): switching the system between Light and Dark does not change its colours
     readonly property bool ccDark: true
     property real ccDk: ccDark ? 1 : 0
@@ -445,17 +510,17 @@ Scope {
     }
     QtObject {
         id: bpal
-        readonly property bool dark: root.darkMode
+        readonly property bool dark: !root.barTextDark
         readonly property string fam: root.fontFamily
         readonly property color accent: root.accent
-        readonly property color fg: dark ? "#FFFFFF" : "#1D1D1F"
-        readonly property color fg2: dark ? Qt.rgba(1, 1, 1, 0.62) : Qt.rgba(0, 0, 0, 0.55)
-        readonly property color fg3: dark ? Qt.rgba(1, 1, 1, 0.34) : Qt.rgba(0, 0, 0, 0.32)
+        readonly property color fg: root.mixb(Qt.color("#1D1D1F"), Qt.color("#FFFFFF"))
+        readonly property color fg2: root.mixb(Qt.rgba(0, 0, 0, 0.55), Qt.rgba(1, 1, 1, 0.62))
+        readonly property color fg3: root.mixb(Qt.rgba(0, 0, 0, 0.32), Qt.rgba(1, 1, 1, 0.34))
         readonly property color tile: dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(1, 1, 1, 0.42)
         readonly property color tileBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.70)
         readonly property color btnOff: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.10)
         readonly property color btnHover: dark ? Qt.rgba(1, 1, 1, 0.30) : Qt.rgba(0, 0, 0, 0.16)
-        readonly property color hover: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.09)
+        readonly property color hover: root.mixb(Qt.rgba(0, 0, 0, 0.09), Qt.rgba(1, 1, 1, 0.14))
         readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.12)
         readonly property color track: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.12)
         readonly property color content: dark ? "#1E1E1E" : "#F5F5F7"
@@ -468,15 +533,15 @@ Scope {
         readonly property bool dark: root.panelDarkMode
         readonly property string fam: root.fontFamily
         readonly property color accent: root.accent
-        readonly property color fg: dark ? "#FFFFFF" : "#1D1D1F"
-        readonly property color fg2: dark ? Qt.rgba(1, 1, 1, 0.62) : Qt.rgba(0, 0, 0, 0.55)
-        readonly property color fg3: dark ? Qt.rgba(1, 1, 1, 0.34) : Qt.rgba(0, 0, 0, 0.32)
+        readonly property color fg: root.mixp(Qt.color("#1D1D1F"), Qt.color("#FFFFFF"))
+        readonly property color fg2: root.mixp(Qt.rgba(0, 0, 0, 0.55), Qt.rgba(1, 1, 1, 0.62))
+        readonly property color fg3: root.mixp(Qt.rgba(0, 0, 0, 0.32), Qt.rgba(1, 1, 1, 0.34))
         readonly property color tile: dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(1, 1, 1, 0.42)
         readonly property color tileBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.70)
         readonly property color btnOff: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.10)
         readonly property color btnHover: dark ? Qt.rgba(1, 1, 1, 0.30) : Qt.rgba(0, 0, 0, 0.16)
-        readonly property color hover: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.09)
-        readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.12)
+        readonly property color hover: root.mixp(Qt.rgba(0, 0, 0, 0.09), Qt.rgba(1, 1, 1, 0.14))
+        readonly property color sep: root.mixp(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.14))
         readonly property color track: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.12)
         readonly property color content: dark ? "#1E1E1E" : "#F5F5F7"
         readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
@@ -488,16 +553,16 @@ Scope {
         readonly property bool dark: root.effDark
         readonly property string fam: root.fontFamily
         readonly property color accent: root.accent
-        readonly property color fg: root.mixc(Qt.color("#1D1D1F"), Qt.color("#FFFFFF"))
-        readonly property color fg2: root.mixc(Qt.rgba(0, 0, 0, 0.55), Qt.rgba(1, 1, 1, 0.62))
-        readonly property color fg3: root.mixc(Qt.rgba(0, 0, 0, 0.32), Qt.rgba(1, 1, 1, 0.34))
+        readonly property color fg: root.mixp(Qt.color("#1D1D1F"), Qt.color("#FFFFFF"))
+        readonly property color fg2: root.mixp(Qt.rgba(0, 0, 0, 0.55), Qt.rgba(1, 1, 1, 0.62))
+        readonly property color fg3: root.mixp(Qt.rgba(0, 0, 0, 0.32), Qt.rgba(1, 1, 1, 0.34))
         readonly property color tile: root.mixc(Qt.rgba(1, 1, 1, 0.42), Qt.rgba(1, 1, 1, 0.10))
         readonly property color tileBorder: root.mixc(Qt.rgba(1, 1, 1, 0.70), Qt.rgba(1, 1, 1, 0.16))
         readonly property color btnOff: root.mixc(Qt.rgba(0, 0, 0, 0.10), Qt.rgba(1, 1, 1, 0.20))
         readonly property color btnHover: root.mixc(Qt.rgba(0, 0, 0, 0.16), Qt.rgba(1, 1, 1, 0.30))
-        readonly property color hover: root.mixc(Qt.rgba(0, 0, 0, 0.09), Qt.rgba(1, 1, 1, 0.14))
-        readonly property color sep: root.mixc(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.14))
-        readonly property color track: root.mixc(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.20))
+        readonly property color hover: root.mixp(Qt.rgba(0, 0, 0, 0.09), Qt.rgba(1, 1, 1, 0.14))
+        readonly property color sep: root.mixp(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.14))
+        readonly property color track: root.mixp(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.20))
         readonly property color content: dark ? "#1E1E1E" : "#F5F5F7"
         readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
         readonly property color cardBorder: root.mixc(Qt.rgba(0, 0, 0, 0.08), Qt.rgba(1, 1, 1, 0.07))
@@ -3455,6 +3520,62 @@ Scope {
         }
     }
 
+    // ═════════════ ANIMATED WALLPAPER IN THE GLASS: one small copy, never the full video ═════════════
+    // Every glass (bar, Dock, Settings, each desktop widget) runs its own decoder. Decoding the original (often 4K) video that many times is
+    // what used to take gigabytes. The glass is blurred and refracted anyway, so it plays a 720 px / 30 fps copy instead (cached in
+    // ~/.cache/macshell/glass, built once with ffmpeg at low priority). Until that copy exists the glass shows the still picture.
+    // Without ffmpeg (or if the build fails) the original video is used, so the switch still works.
+    property var glassProxy: ({})              // video path → small copy, ready
+    property var glassProxyFailed: ({})        // video path → true when no copy could be made
+    property string glassProxyFor: ""          // the video the build process is working on right now
+    readonly property int glassProxyWidth: 720
+    readonly property int glassProxyFps: 30
+    readonly property string glassVideo: {
+        if (!liveWallGlass || wallpaperVideo === "") return "";
+        var p = glassProxy[wallpaperVideo];
+        if (p) return p;
+        return glassProxyFailed[wallpaperVideo] === true ? wallpaperVideo : "";
+    }
+    function glassProxyEnsure() {
+        if (!liveWallGlass || wallpaperVideo === "" || glassProxy[wallpaperVideo] || glassProxyFailed[wallpaperVideo] === true) return;
+        if (glassProxyBuild.running) return;                      // onExited calls this again for whatever is current by then
+        glassProxyFor = wallpaperVideo;
+        glassProxyBuild.command = ["sh", "-c", [
+            'v="$1"; w="$2"; f="$3"',
+            'command -v ffmpeg >/dev/null 2>&1 || exit 1',
+            'd="$HOME/.cache/macshell/glass"; mkdir -p "$d"',
+            'find "$d" -name "*.mp4" -mtime +60 -delete 2>/dev/null',
+            'k="$(printf "%s:%s:%s:%s" "$v" "$(stat -c %Y "$v" 2>/dev/null)" "$w" "$f" | md5sum | cut -c1-16)"',
+            'o="$d/$k.mp4"',
+            'if [ ! -s "$o" ]; then',
+            '  t="$d/$k.part.mp4"',
+            '  nice -n 15 ffmpeg -loglevel error -y -i "$v" -an -sn -dn -vf "fps=$f,scale=\'min($w,iw)\':-2" -c:v libx264 -preset veryfast -crf 30 -pix_fmt yuv420p -g 60 -movflags +faststart -f mp4 "$t" </dev/null >/dev/null 2>&1 \\',
+            '    && mv -f "$t" "$o" || { rm -f "$t"; exit 1; }',
+            'fi',
+            'printf "P:%s\\n" "$o"'
+        ].join("\n"), "sh", glassProxyFor, String(glassProxyWidth), String(glassProxyFps)];
+        glassProxyBuild.running = true;
+    }
+    Process {
+        id: glassProxyBuild
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var m = /^P:(.+)$/m.exec(text);
+                var v = root.glassProxyFor;
+                if (m) { var ok = Object.assign({}, root.glassProxy); ok[v] = m[1]; root.glassProxy = ok; }
+            }
+        }
+        onExited: (code, status) => {
+            var v = root.glassProxyFor;
+            if (code !== 0 && !root.glassProxy[v]) { var bad = Object.assign({}, root.glassProxyFailed); bad[v] = true; root.glassProxyFailed = bad; }
+            root.glassProxyFor = "";
+            root.glassProxyEnsure();
+        }
+    }
+    onLiveWallGlassChanged: glassProxyEnsure()
+    onWallpaperVideoChanged: glassProxyEnsure()
+    Timer { interval: 2500; running: true; onTriggered: root.glassProxyEnsure() }      // the saved settings are in by now
+
     // ═════════════ GAME MODE ═════════════
     readonly property string gamingScript: Quickshell.env("HOME") + "/.config/hypr-macshell/scripts/macshell-gaming.sh"
     property bool gamingApplied: false
@@ -3519,7 +3640,7 @@ Scope {
     }
     function resetSettings() {
         barEnabled = true;
-        darkMode = true; appearanceMode = "dark"; accent = "#0a84ff"; fontFamily = "Open Runde"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false;
+        darkMode = true; appearanceMode = "dark"; accent = "#0a84ff"; fontFamily = "Open Runde"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false; liveWallGlass = false;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
         showTray = true; showSearch = true;
         spotlightEnabled = true; ccEnabled = true; notificationsEnabled = true; clockAppEnabled = true; ccStyle = "tiles";
@@ -4270,7 +4391,7 @@ Scope {
             // Hyprland 0.55+ is Lua: `hyprctl dispatch` takes a Lua expression, the old "focuswindow ..." strings fail.
             var lua = "";
             if (t.ws > 0) lua += "hl.dispatch(hl.dsp.focus({ workspace = \"" + t.ws + "\" })); ";
-            lua += "hl.dispatch(hl.dsp.focus({ window = \"" + (t.addr !== "" ? "address:" + t.addr : "class:^(" + t.cls + ")$") + "\" }))";
+            lua += "hl.dispatch(hl.dsp.focus({ window = \"" + (t.addr !== "" ? "address:" + t.addr : "class:^(" + t.cls + ")$") + "\" })); ";
             lua += "hl.dispatch(hl.dsp.window.bring_to_top())";
             console.log("[switcher] hyprctl eval '" + lua + "'");
             Quickshell.execDetached(["hyprctl", "eval", lua]);
@@ -4645,6 +4766,17 @@ Scope {
                         root.measureTone(win.modelData.x + r.x + 64, win.modelData.y + r.y + 64, r.width - 128, r.height - 128);
                     }
                 }
+                // the bar changed size: the old whole-screen snapshot shows the windows where they WERE, so drop it, take a new one if
+                // the pointer is on the bar, and re-measure what is behind the open panel
+                Connections {
+                    target: root
+                    function onBarRelayout() {
+                        screenSnap.takenAt = 0;
+                        ui.snapFresh = false;
+                        if (ui.pop !== "" && ui.pop !== "spot") toneT.restart();
+                        else if (barHover.hovered && ui.pop === "") screenSnap.grab();
+                    }
+                }
                 // The live backdrop (wallpaper + desktop widgets + live window captures) is always the source, so a window dragged
                 // under an open menu keeps moving. The one-shot screen snapshot is only a fallback while the backdrop is not up.
                 readonly property Item glassSrc: glassBackdrop.item ? glassBackdrop.item : ((snapFresh && screenSnap.hasContent) ? screenSnap : null)
@@ -4698,6 +4830,15 @@ Scope {
                             sourceSize.width: bd.width
                             smooth: true
                         }
+                        // animated wallpaper: plays behind the glass (menus, bar, Spotlight, switcher) only while "Animated wallpaper in glass" is on
+                        // (root.glassVideo is "" otherwise, and then no decoder exists at all)
+                        LiveWall {
+                            z: -2
+                            anchors.fill: parent
+                            video: root.glassVideo
+                            live: true
+                            paused: root.gaming || root.screenCovered[win.modelData.name] === true
+                        }
 
                         // the desktop widgets (they sit on the desktop layer, below every window), drawn from the same
                         // content as the real ones, so the glass shows them under the live windows
@@ -4730,6 +4871,7 @@ Scope {
 
                         ListModel { id: wm }
                         Repeater {
+                            id: wrep
                             model: wm
                             delegate: Item {
                                 id: gw
@@ -4740,6 +4882,7 @@ Scope {
                                 required property real wh
                                 required property real wz
                                 required property bool gone      // window closed: capture is released first, the item is swept shortly after
+                                property alias cap: sv
                                 x: wx; y: wy; width: ww; height: wh; z: wz
                                 readonly property var tl: { if (!root.hub || gone) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
                                 // behind the glass that is on screen right now (popover / panel + refraction margin)?
@@ -4787,6 +4930,17 @@ Scope {
                             }
                         }
 
+                        // take a brand-new frame of every window (after the bar changed size and the windows moved / resized)
+                        function recapture() {
+                            for (var q = 0; q < wrep.count; q++) {
+                                var it = wrep.itemAt(q);
+                                if (it && it.cap && it.cap.captureSource !== null && typeof it.cap.captureFrame === "function") it.cap.captureFrame();
+                            }
+                        }
+                        Connections {
+                            target: root
+                            function onBarRelayout() { bd.sync(); bd.recapture(); }
+                        }
                         function sync() {
                             var mon = null, i;
                             for (i = 0; i < root.monData.length; i++)
@@ -4981,7 +5135,7 @@ Scope {
                                     visible: mt.modelData.id === "apple" && root.barLogoMode === "apple"
                                     anchors.centerIn: parent
                                     width: 15; height: 15
-                                    source: root.darkMode ? Qt.resolvedUrl("apple-logo-white.svg") : Qt.resolvedUrl("apple-logo-black.svg")
+                                    source: !root.barTextDark ? Qt.resolvedUrl("apple-logo-white.svg") : Qt.resolvedUrl("apple-logo-black.svg")
                                     sourceSize: Qt.size(128, 160)
                                     fillMode: Image.PreserveAspectFit
                                     smooth: true
@@ -8056,9 +8210,6 @@ Scope {
                             Image {
                                 anchors.centerIn: parent
                                 width: swPanel.ico; height: swPanel.ico
-                                // the selected app's icon lifts a little
-                                scale: root.swIndex === swCell.index ? 1.06 : 0.96
-                                Behavior on scale { NumberAnimation { duration: 320; easing.type: Easing.OutQuint } }
                                 source: root.swIcon(swCell.modelData)
                                 sourceSize.width: 128; sourceSize.height: 128
                                 fillMode: Image.PreserveAspectFit

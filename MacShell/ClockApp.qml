@@ -362,7 +362,7 @@ Scope {
             readonly property color ctrl: dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06)
             readonly property color ctrlSel: dark ? "#636366" : "#FFFFFF"
             readonly property color border: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.2)
-            function lightBorder(active, c) { return active ? Qt.darker(c, dark ? 1.12 : 1.22) : (dark ? Qt.rgba(0, 0, 0, 0.14) : Qt.rgba(0, 0, 0, 0.26)); }
+            function lightBorder(active, c) { return active ? Qt.darker(c, dark ? 1.12 : 1.22) : "transparent"; }
             readonly property color lightOff: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(0, 0, 0, 0.15)
         }
 
@@ -388,9 +388,10 @@ Scope {
                 DragHandler { target: null; onActiveChanged: if (active) win.startSystemMove() }
                 // traffic lights
                 Item {
-                    x: 17; anchors.verticalCenter: parent.verticalCenter
+                    x: 17; anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: -2
                     width: 58; height: 14
                     Row {
+                        scale: 0.93; transformOrigin: Item.TopLeft      // a touch smaller
                         spacing: 8
                         Repeater {
                             model: [{ c: "#FF5F57", g: "×", on: true }, { c: "#FEBC2E", g: "−", on: false }, { c: "#28C840", g: "↗", on: true }]

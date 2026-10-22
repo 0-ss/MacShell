@@ -40,6 +40,8 @@ Item {
     property bool glassReady: false     // liquidglass.frag.qsb compiled
     property url shaderUrl: ""
     property url wallUrl: ""
+    property string wallVideo: ""        // animated wallpaper to play behind the glass ("" = none / real-time glass off)
+    property bool wallPaused: false      // desktop covered / Game Mode: keep the decoder idle
     property real screenW: 1920
     property real screenH: 1080
     property real glassOpacity: 0.42    // Translucency
@@ -147,6 +149,15 @@ Item {
                     asynchronous: true
                     sourceSize.width: w.screenW
                     smooth: true
+                }
+                LiveWall {
+                    x: -(w.screenX - gl.padPx - gl.margin)
+                    y: -(w.screenY - gl.padPx - gl.margin)
+                    width: w.screenW
+                    height: w.screenH
+                    video: w.wallVideo
+                    live: w.wallVideo !== ""
+                    paused: w.wallPaused
                 }
             }
             ShaderEffectSource {

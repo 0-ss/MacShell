@@ -148,8 +148,9 @@ Scope {
                 Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: pal.sep }
                 DragHandler { target: null; onActiveChanged: if (active) win.startSystemMove() }
                 Item {
-                    x: 17; y: 17; width: 58; height: 14
+                    x: 17; y: 15; width: 58; height: 14
                     Row {
+                        scale: 0.93; transformOrigin: Item.TopLeft      // a touch smaller
                         spacing: 8
                         Repeater {
                             model: [{ c: "#FF5F57", g: "×" }, { c: "#FEBC2E", g: "−" }, { c: "#28C840", g: "↗" }]

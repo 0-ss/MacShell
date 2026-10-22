@@ -611,6 +611,14 @@ Scope {
     }
     Binding { target: root.hub; property: "widgetsWantWallpaper"; value: root.anyLiquid }
 
+    // animated wallpaper the widget glass plays behind itself: only while the Dock's "Real-time glass" AND "Animated wallpaper in glass" are on
+    readonly property string liveWallVideo: (dock && dock.glassLive && hub && hub.bar) ? hub.bar.glassVideo : ""
+    // the widgets sit on the first screen's desktop: their video pauses while windows cover it (or in Game Mode)
+    readonly property bool liveWallPaused: {
+        if (!hub || !hub.bar) return false;
+        if (hub.bar.gaming) return true;
+        return Quickshell.screens.length > 0 && hub.bar.screenCovered[Quickshell.screens[0].name] === true;
+    }
     // wallpaper behind the widgets (same lookup as the Dock's Liquid Glass)
     readonly property var wallpaperMap: hub ? hub.wallpaperMap : ({})
     function wallpaperFor(screenName) {

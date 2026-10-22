@@ -38,6 +38,8 @@ Item {
                 glassReady: host.glassState === "ready"
                 shaderUrl: "file://" + host.glassShaderOut
                 wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
+                wallVideo: host.liveWallVideo
+                wallPaused: host.liveWallPaused
                 screenW: v.sw
                 screenH: v.sh
                 glassOpacity: host.glassOpacity
@@ -64,6 +66,8 @@ Item {
                 glassReady: host.glassState === "ready"
                 shaderUrl: "file://" + host.glassShaderOut
                 wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
+                wallVideo: host.liveWallVideo
+                wallPaused: host.liveWallPaused
                 screenW: v.sw
                 screenH: v.sh
                 glassOpacity: host.glassOpacity
@@ -89,6 +93,8 @@ Item {
                 glassReady: host.glassState === "ready"
                 shaderUrl: "file://" + host.glassShaderOut
                 wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
+                wallVideo: host.liveWallVideo
+                wallPaused: host.liveWallPaused
                 screenW: v.sw
                 screenH: v.sh
                 glassOpacity: host.glassOpacity
@@ -133,6 +139,8 @@ Item {
                 glassReady: host.glassState === "ready"
                 shaderUrl: "file://" + host.glassShaderOut
                 wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
+                wallVideo: host.liveWallVideo
+                wallPaused: host.liveWallPaused
                 screenW: v.sw
                 screenH: v.sh
                 glassOpacity: host.glassOpacity

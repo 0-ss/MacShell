@@ -128,7 +128,7 @@ Scope {
             readonly property color border: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.18)
             readonly property color edgeOuter: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0, 0, 0, 0.40)     // thin dark line on the outside
             readonly property color edgeInner: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.65)      // soft highlight just inside it
-            function lightBorder(active, c) { return active ? Qt.darker(c, dark ? 1.12 : 1.22) : (dark ? Qt.rgba(0, 0, 0, 0.14) : Qt.rgba(0, 0, 0, 0.26)); }
+            function lightBorder(active, c) { return active ? Qt.darker(c, dark ? 1.12 : 1.22) : "transparent"; }
             readonly property color lightOff: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(0, 0, 0, 0.15)
             readonly property color btn: dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.75)
             readonly property color btnDown: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(1, 1, 1, 0.5)
@@ -156,9 +156,10 @@ Scope {
 
             // traffic lights: only Close is active, like the About window on a Mac
             Item {
-                x: 15; y: 14
+                x: 15; y: 12
                 width: 58; height: 14
                 Row {
+                    scale: 0.93; transformOrigin: Item.TopLeft      // a touch smaller
                     spacing: 8
                     Repeater {
                         model: [{ c: "#FF5F57", on: true }, { c: "#FEBC2E", on: false }, { c: "#28C840", on: false }]
@@ -330,7 +331,7 @@ Scope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.3.1"
+                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.3.2"
                     color: pal.text3
                     font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 10
                     lineHeight: 1.1

@@ -254,6 +254,8 @@ var strings = {
     "Opaque": "Непрозрачное",
     "Liquid Glass refracts what's behind it, Frosted blurs it, Opaque is a solid panel": "Liquid Glass преломляет то, что под ним, «Матовое» размывает, «Непрозрачное» — сплошная панель",
     "Real-time glass": "Стекло в реальном времени",
+    "Animated wallpaper in glass": "Анимированные обои в стекле",
+    "Play the animated wallpaper inside the Liquid Glass in real time. Off by default: the glass refracts a still frame and uses no video memory.": "Показывать анимированные обои внутри Liquid Glass в реальном времени. По умолчанию выключено: стекло преломляет неподвижный кадр и не занимает память под видео.",
     "Live window capture": "Живой захват окон",
     "Keep window captures live so popovers, Spotlight and the Dock open on current pixels. Turn off to save GPU.": "Держать захват окон живым, чтобы всплывающие окна, Spotlight и Dock открывались поверх актуальной картинки. Выключите, чтобы сберечь видеокарту.",
     "Capture open windows for the previews. Turn off and the previews show the app icon instead (Liquid Glass is not affected)": "Захватывать открытые окна для превью. Если выключить, вместо превью будет значок приложения (на Liquid Glass не влияет)",
@@ -318,6 +320,8 @@ var strings = {
     "Revert": "Вернуть",
     "Menu Bar and widget size": "Размер строки меню и виджетов",
     "Scales the bar widgets; the left and right groups stay tucked into the screen corners": "Масштабирует элементы строки; левая и правая группы остаются прижаты к углам экрана",
+    "Menu Bar size": "Размер строки меню",
+    "Scales the bar, its widgets, the menus and the Control Center; the left and right groups stay tucked into the screen corners": "Масштабирует строку меню, виджеты, меню и Пункт управления; левая и правая группы остаются в углах экрана",
 
     // Settings: Menu Bar
     "Menu Bar logo": "Логотип в строке меню",
