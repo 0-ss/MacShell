@@ -69,7 +69,7 @@ Item {
                 VideoOutput { id: vo; anchors.fill: parent; fillMode: VideoOutput.PreserveAspectCrop }
             }
         }
-        // the wallpaper softens and dims while you're entering the password
+        // the wallpaper softens (no darkening) while you are entering the password
         MultiEffect {
             source: wallVideo.active ? wallVideo : wall
             anchors.fill: wall
@@ -77,11 +77,9 @@ Item {
             blurEnabled: true
             blurMax: 48
             blur: ls.st.engaged ? 0.55 : 0.0
-            brightness: ls.st.engaged ? -0.10 : 0.0
             opacity: ls.st.engaged ? 1 : 0
             visible: opacity > 0.002
             Behavior on blur { NumberAnimation { duration: 650; easing.type: Easing.OutQuint } }
-            Behavior on brightness { NumberAnimation { duration: 650; easing.type: Easing.OutQuint } }
             Behavior on opacity { NumberAnimation { duration: 650; easing.type: Easing.OutQuint } }
         }
         // Album background: while the cover is enlarged the wallpaper gives way to a heavily blurred, slightly
