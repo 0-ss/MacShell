@@ -121,7 +121,7 @@ void main()
     float sCon   = 1.0 - smoothstep(-1.0,  6.0, roundBox(q - vec2(0.0, 2.0), hs, r));   // tight, near the edge
     float shadow = shadowAmt * (0.20 * sAmb * sAmb + 0.16 * sCon);
     float outl   = smoothstep(-0.5, 0.5, sd) * (1.0 - smoothstep(0.7, 1.7, sd));
-    float outA   = outl * mix(0.10, 0.26, dark);
+    float outA   = outl * mix(0.02, 0.05, dark);
     float oa     = 1.0 - (1.0 - clamp(shadow, 0.0, 1.0)) * (1.0 - outA);
     if (cov <= 0.0) {
         fragColor = vec4(0.0, 0.0, 0.0, oa) * qt_Opacity;

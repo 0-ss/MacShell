@@ -3778,7 +3778,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.3.4 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.3.5 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(font.weight, pal.fam)
                             font.pixelSize: 12
@@ -5154,7 +5154,7 @@ Scope {
                             Behavior on edgeCol { ColorAnimation { duration: 450; easing.type: Easing.OutCubic } }
                             // blurring at half resolution is visually identical for radii >= 8 px and costs a quarter of the GPU work
                             readonly property real ds: root.glassBlur >= 8 ? 0.5 : 1.0
-                            readonly property real bn: root.glassBlur * 1.4 * ds / 64.0
+                            readonly property real bn: root.glassBlur * 1.5 * ds / 64.0
                             readonly property real margin: 72      // extra backdrop captured around the Dock (refraction + blur reach)
                             readonly property real padPx: root.dockGlassNew ? 30 : 10   // shader item padding (shadow room); dockglass.frag needs >= 30, the shared shader keeps its original 10
                             ShaderEffectSource {
@@ -5234,17 +5234,15 @@ Scope {
                                 property real thickness: 30 * root.glassLiquid
                                 property real dispersion: 0.06 * root.glassLiquid
                                 property real magnify: 0.08 * root.glassLiquid
-                                property real rim: root.glassRim
+                                property real rim: root.glassRim * 0.20
                                 property real grain: root.glassGrain * 0.3     // quieter noise on the Dock glass
                                 property real blurPx: 1.5            // tiny residual smoothing; the real blur is the MultiEffect pre-pass
                                 property real tintMix: root.glassOpacity * 0.55
                                 property real saturation: 1.25
                                 property real dark: root.dockDark ? 1 : 0
                                 property real debug: root.glassDebug ? 1 : 0
-                                // smart / always hide: the Tahoe shadow reaches ~24 px above the glass, so with the Dock slid down it would peek out
-                                // along the screen edge. Fade it out as the Dock tucks (finishes before the 240 ms slide does), back in on reveal.
-                                property real shadowAmt: ui.tucked ? 0 : 1
-                                Behavior on shadowAmt { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                // Keep the Dock glass clean: no drop shadow.
+                                property real shadowAmt: 0
                                 property real rimTint: 0
                                 property real ringW: 0
                             }
@@ -5257,16 +5255,16 @@ Scope {
                         radius: root.cornerRadius
                         color: root.dockDark ? Qt.rgba(0.10, 0.10, 0.11, root.glassOpacity)
                                              : Qt.rgba(1, 1, 1, root.glassOpacity * 0.55)
-                        border.width: 1
-                        border.color: root.dockDark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(0, 0, 0, 0.12)
+                        border.width: 0.35
+                        border.color: root.dockDark ? Qt.rgba(0, 0, 0, 0.12) : Qt.rgba(0, 0, 0, 0.03)
 
                         Rectangle {
                             anchors.fill: parent
-                            anchors.margins: 1
-                            radius: parent.radius - 1
+                            anchors.margins: 0.35
+                            radius: parent.radius - 0.35
                             color: "transparent"
-                            border.width: 1
-                            border.color: root.dockDark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.45)
+                            border.width: 0.25
+                            border.color: root.dockDark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(1, 1, 1, 0.12)
                         }
                     }
 
@@ -5282,8 +5280,8 @@ Scope {
                             cornerR: root.cornerRadius
                             dark: root.dockDark
                             tint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
-                            amount: 0.5
-                            lineW: 0.8
+                            amount: 0.12
+                            lineW: 0.35
                             fade: false
                         }
                     }
