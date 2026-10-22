@@ -1201,7 +1201,8 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("hypridle")
     hl.exec_cmd("sh ~/.local/bin/macshell-start")
 end)
--- The Settings window floats and centres itself when it opens, so it needs no window rule.
+-- Settings and About This Linux always open floating and centred (see the window rules at the end of this file); the shell
+-- also floats them itself when they open.
 
 -- keybinds (the name after -c is the config folder name, case-sensitive)
 local qs = "qs -c MacShell ipc call "
@@ -1242,11 +1243,13 @@ for _, k in ipairs(hwkeys) do
     hl.bind(k[1], hl.dsp.exec_cmd(k[2]), { locked = true, repeating = k[3] })
 end
 
--- MacShell's own windows (Settings, About This Linux): translucent like a macOS window, and no Hyprland border
+-- MacShell's own windows (Settings, About This Linux): floating + centred, translucent like a macOS window, and no Hyprland border
 -- (these windows draw their own edge). Blur size / passes are global in Hyprland (decoration.blur), not per window.
 hl.window_rule({
     name = "macshell-settings",
     match = { title = "^macshell Settings$" },
+    float = true,                     -- always floating, never tiled / maximized
+    center = true,
     opacity = "0.82 0.85 1",          -- active, inactive, fullscreen
     border_size = 0,
     rounding = 12,
@@ -1254,6 +1257,8 @@ hl.window_rule({
 hl.window_rule({
     name = "macshell-about",
     match = { title = "^About This Linux$" },
+    float = true,
+    center = true,
     opacity = "0.82 0.85 1",
     border_size = 0,
     rounding = 18,

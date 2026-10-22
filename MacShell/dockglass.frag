@@ -116,15 +116,9 @@ void main()
         return;
     }
 
-    // ── what lives OUTSIDE the glass: soft two-layer shadow + a ~1 px dark line hugging the edge ──
-    float sAmb   = 1.0 - smoothstep(-8.0, 24.0, roundBox(q - vec2(0.0, 8.0), hs, r));   // wide, low
-    float sCon   = 1.0 - smoothstep(-1.0,  6.0, roundBox(q - vec2(0.0, 2.0), hs, r));   // tight, near the edge
-    float shadow = shadowAmt * (0.20 * sAmb * sAmb + 0.16 * sCon);
-    float outl   = smoothstep(-0.5, 0.5, sd) * (1.0 - smoothstep(0.7, 1.7, sd));
-    float outA   = outl * mix(0.02, 0.05, dark);
-    float oa     = 1.0 - (1.0 - clamp(shadow, 0.0, 1.0)) * (1.0 - outA);
+    // ── outside the glass: nothing at all (no shadow, no dark outline) ──
     if (cov <= 0.0) {
-        fragColor = vec4(0.0, 0.0, 0.0, oa) * qt_Opacity;
+        fragColor = vec4(0.0);
         return;
     }
 
@@ -157,6 +151,7 @@ void main()
     // ── colour: vibrancy, then an ADAPTIVE tint ──
     float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
     col = mix(vec3(l), col, saturation);
+    vec3 behind = col;                                            // the colour right behind this pixel, kept for the border below
     float lw    = smoothstep(0.30, 0.80, l);
     float adapt = mix(0.78, 1.28, mix(1.0 - lw, lw, dark));       // more tint where the backdrop would fight the icons
     vec3 tintC  = mix(vec3(1.0), vec3(0.09, 0.09, 0.10), dark);
@@ -166,11 +161,10 @@ void main()
     // ── depth: soft light from above, faint absorption toward the edge (clear glass, not smoked) ──
     float ty = clamp((q.y + hs.y) / glassSize.y, 0.0, 1.0);
     col += (1.0 - ty) * mix(0.040, 0.034, dark);
-    col *= 1.0 - 0.045 * exp(-t / (bz * 0.45));
 
     // ── edge light, from the top-left ──
-    vec3 rimTintC = clamp(mix(edgeTint.rgb, vec3(1.0), 0.45), 0.0, 1.0);
-    vec3 rimCol   = mix(vec3(0.96, 0.98, 1.0), rimTintC, 0.35 * clamp(edgeTint.a, 0.0, 1.0));
+    // identical to the top-bar menus (rimTint = 1): the rim / border take a darker shade of what the glass looks like at this spot
+    vec3 rimCol   = clamp(col * 1.2, 0.0, 1.0);          // 120% of the glass colour (100% = natural) of the glass's own colour (menus use a brighter one: col * 1.5 + 0.12)
 
     vec2  L      = normalize(vec2(-0.55, -0.83));
     float facing = dot(g, L);
@@ -180,6 +174,11 @@ void main()
     float edgeHi = crisp * (0.26 + 0.74 * spec) * 0.80 + pool * (0.05 + 0.10 * spec);
     edgeHi *= rim * 1.1 * mix(0.85, 1.0, dark);
     col += edgeHi * rimCol;
+
+    // thin border line along the very edge, exactly as the menus draw it (ringW = 1 px here)
+    float ringW = 1.0;
+    float ring  = 1.0 - smoothstep(ringW * 0.5, ringW * 0.5 + 1.0, t);
+    col = mix(col, rimCol, ring * (0.55 + 0.35 * clamp(facing * 0.5 + 0.5, 0.0, 1.0)));
 
     // meniscus: a very faint, wide second highlight inside the rim (kept soft so it never reads as an inner outline)
     float mx  = (t - bz * 0.5) / (bz * 0.35 + 1.0);
@@ -193,7 +192,5 @@ void main()
     col = clamp(col, 0.0, 1.0);
 
     // premultiplied: the glass over its own outer line / shadow (they only differ from zero in the 1 px anti-aliased band)
-    vec4 glassPM = vec4(col * cov, cov);
-    vec4 outPM   = vec4(0.0, 0.0, 0.0, oa);
-    fragColor = (glassPM + outPM * (1.0 - cov)) * qt_Opacity;
+    fragColor = vec4(col * cov, cov) * qt_Opacity;
 }

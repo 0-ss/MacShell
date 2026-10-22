@@ -99,7 +99,10 @@ Scope {
     readonly property bool barLayerNeeded: barEnabled || spotlightEnabled || ccEnabled || notificationsEnabled
     property bool darkMode: true             // the resolved look (true = dark); follows appearanceMode
     property string appearanceMode: "dark"   // light | dark | auto (auto = light by day, dark by night)
-    readonly property bool panelDarkMode: darkMode   // Spotlight and the top bar menus follow the one Light / Dark / Auto setting
+    // Panels (top bar menus / popovers, Spotlight, Control Center, notifications) are light or dark by what is BEHIND them
+    // (panelTone, measured live, see "Auto contrast" below); the Light / Dark / Auto setting is the fallback while nothing is
+    // measured yet and the tie-break when the backdrop is neither clearly bright nor clearly dark.
+    readonly property bool panelDarkMode: (autoContrast && panelTone !== 0) ? (panelTone === -1) : darkMode
     property color accent: "#0A84FF"
     // The UI font is Open Runde (bundled in assets/fonts, loaded by shell.qml). Settings that still say Inter move over to it.
     property string fontFamily: "Open Runde"
@@ -108,6 +111,20 @@ Scope {
     function fontForWeight(weight, regularFamily) { return (Number(weight) >= Font.DemiBold && regularFamily === "Open Runde") ? boldFontFamily : regularFamily; }
     onFontFamilyChanged: if (fontFamily.indexOf("Inter") === 0) fontFamily = "Open Runde"
     property int barHeight: 28
+    // ── UI scale (small screens / laptops) ──
+    // uiScaleAuto: shrink everything automatically on screens smaller than 1920x1080 (logical pixels, i.e. after the compositor's own
+    // scaling). uiScaleManual: the user's own multiplier from Settings, applied on top. barH is the bar's real height in px.
+    property bool uiScaleAuto: true
+    property real uiScaleManual: 1.0
+    readonly property real autoUiScale: {
+        var sc = Quickshell.screens;
+        if (!sc || sc.length === 0) return 1;
+        var s = sc[0];
+        for (var i = 0; i < sc.length; i++) if (sc[i].width * sc[i].height < s.width * s.height) s = sc[i];   // the smallest screen decides
+        return Math.max(0.7, Math.min(1, Math.min(s.width / 1920, s.height / 1080)));
+    }
+    readonly property real uiScale: Math.max(0.5, Math.min(1.25, (uiScaleAuto ? autoUiScale : 1) * uiScaleManual))
+    readonly property int barH: Math.max(14, Math.round(barHeight * uiScale))
     // The bar changed size: tiled windows move, so everything that captures the wallpaper / apps behind the bar and its popovers
     // (window geometry, the live backdrop, the screen snapshot, the measured tone behind panels) is refreshed once Hyprland has settled.
     signal barRelayout()
@@ -125,9 +142,9 @@ Scope {
     property string barLogoMode: "arch"       // "arch", "apple", or "custom"
     property string barCustomLogoPath: ""     // absolute path, ~/path, or file URL for the custom menu-bar logo
     // The bar-size slider scales its widget groups while the left/right groups stay pinned to their corners.
-    readonly property real barWidgetScale: Math.max(0.6, Math.min(1.55, barHeight / 28))
+    readonly property real barWidgetScale: Math.max(0.45, Math.min(1.55, barHeight / 28 * uiScale))
     // popovers and the Control Center scale with the same slider (smaller bar -> smaller panels, down to 70 %)
-    readonly property real barPopupScale: Math.max(0.7, Math.min(1.25, 1 + (barHeight - 28) / 60))
+    readonly property real barPopupScale: Math.max(0.5, Math.min(1.25, (1 + (barHeight - 28) / 60) * uiScale))
     property real glassOpacity: 0.42
     property string barStyle: "liquid"        // "liquid" = Apple Liquid Glass popovers, "blur" = flat translucent
     property real glassRim: 0.45
@@ -153,65 +170,93 @@ Scope {
             + ", touchpad = { natural_scroll = " + b(tpNatural) + ", tap_to_click = " + b(tpTap) + ", disable_while_typing = " + b(tpDwt)
             + ", scroll_factor = " + tpScroll.toFixed(2) + " } } })"]);
     }
-    // measure brightness behind a screen rect (logical coords): one tiny grim grab, mean luminance
-    function measureTone(sx, sy, sw, sh) {
-        if (!autoContrast || toneProc.running) return;
-        // perceived brightness of the sRGB means (a "gray" conversion in ImageMagick is linear-light and reads mid-tones far too dark)
-        toneProc.command = ["sh", "-c", "grim -s 0.08 -g \"$1,$2 $3x$4\" - 2>/dev/null | magick - -format '%[fx:0.299*mean.r+0.587*mean.g+0.114*mean.b]' info: 2>/dev/null",
-                            "sh", String(Math.round(sx)), String(Math.round(sy)), String(Math.max(8, Math.round(sw))), String(Math.max(8, Math.round(sh)))];
-        toneProc.running = true;
+    // ═════════ AUTO CONTRAST ═════════
+    // One measuring script (assets/tone.sh) grabs the real screen (wallpaper + every window) and reports brightness + spread.
+    //  • bar: the strip behind the bar → barTone (text / glyphs / glass of the bar and its buttons)
+    //  • panels: the area behind the open menu / Control Center / Spotlight → panelTone. While a panel is open the area AROUND
+    //    it is re-measured continuously (the panel itself is left out), so opening, closing, moving or switching apps behind it
+    //    flips it between light and dark by itself.
+    // The choice is made by worst-case contrast (white text on the brightest part vs dark text on the darkest part, spread
+    // included), with hysteresis so it never flickers, and falls back to the system look when both read equally well.
+    readonly property string toneScript: decodeURIComponent(String(Qt.resolvedUrl("assets/tone.sh")).replace(/^file:\/\//, ""))
+    // cur: 1 = dark text now (bright backdrop), -1 = white text now, 0 = undecided; v/sd = brightness / spread 0..1
+    function pickTone(cur, v, sd, fresh) {
+        v = Math.max(0, Math.min(1, v)); sd = Math.max(0, Math.min(0.5, sd || 0));
+        var hi = Math.min(1, v + 0.6 * sd), lo = Math.max(0, v - 0.6 * sd);
+        var cw = 1.05 / (Math.pow(hi, 2.2) + 0.05);          // contrast of white text on the brightest part
+        var cd = (Math.pow(lo, 2.2) + 0.05) / 0.0623;         // contrast of dark text on the darkest part
+        if (!fresh && cur === 1) return cw > cd * 1.2 ? -1 : 1;
+        if (!fresh && cur === -1) return cd > cw * 1.2 ? 1 : -1;
+        if (Math.abs(cw - cd) < 0.08 * Math.max(cw, cd)) return darkMode ? -1 : 1;
+        return cd > cw ? 1 : -1;
+    }
+    property var tonePending: null
+    // measure a screen rect (logical coords, in a screen scr); inner (optional) = the panel's own rect, left out of the measurement.
+    function measureTone(sx, sy, sw, sh) { measureArea(null, Qt.rect(sx, sy, sw, sh), null, true); }
+    function measureArea(scr, rect, inner, fresh) {
+        if (!autoContrast) return;
+        var x = rect.x, y = rect.y, w = rect.width, h = rect.height;
+        if (scr) {                                           // clamp to the screen (grim refuses areas outside the outputs)
+            var x1 = Math.max(scr.x, x), y1 = Math.max(scr.y, y), x2 = Math.min(scr.x + scr.width, x + w), y2 = Math.min(scr.y + scr.height, y + h);
+            x = x1; y = y1; w = x2 - x1; h = y2 - y1;
+        }
+        if (w < 8 || h < 8) return;
+        var args = [Number(0.1), Math.round(x), Math.round(y), Math.round(w), Math.round(h)];
+        if (inner) args.push(Math.round(inner.x), Math.round(inner.y), Math.round(inner.width), Math.round(inner.height));
+        var req = { args: args, fresh: fresh === true };
+        if (panelToneProc.running) { tonePending = req; return; }
+        runPanelTone(req);
+    }
+    function runPanelTone(req) {
+        panelToneProc.fresh = req.fresh;
+        panelToneProc.command = ["sh", toneScript].concat(req.args.map(String));
+        panelToneProc.running = true;
+    }
+    // the area around a panel rect (what its glass shows), for measuring while the panel is open
+    function measureAround(scr, panelRect, fresh) {
+        var m = 160;
+        measureArea(scr, Qt.rect(panelRect.x - m, panelRect.y - m, panelRect.width + 2 * m, panelRect.height + 2 * m), panelRect, fresh);
     }
     Process {
-        id: toneProc
+        id: panelToneProc
+        property bool fresh: false
         stdout: StdioCollector {
             onStreamFinished: {
-                var v = parseFloat(text);
+                var p = text.trim().split(/\s+/);
+                var v = parseFloat(p[0]), sd = parseFloat(p[1]);
                 if (isNaN(v)) return;
-                // Only change anything when the normal text would NOT be readable. v is perceived (gamma) brightness of
-                // what's behind; turn it into relative luminance, put the panel's own tint over it, and test the WCAG
-                // contrast of the normal text colour. Below 3:1 → flip to the other style; otherwise keep the user's.
-                var L = Math.pow(Math.max(0, Math.min(1, v)), 2.2);
-                var tint = Math.min(0.6, root.glassOpacity * 0.55 + 0.05);
-                if (root.darkMode) {
-                    var effD = L * (1 - tint) + 0.004 * tint;                 // dark glass tint
-                    root.bgTone = (1.05 / (effD + 0.05)) < 3 ? 1 : 0;        // white text unreadable → dark text
-                } else {
-                    var effL = L * (1 - tint) + 1.0 * tint;                   // light glass tint
-                    root.bgTone = ((effL + 0.05) / 0.062) < 3 ? -1 : 0;       // dark text unreadable → white text
-                }
+                root.panelTone = root.pickTone(root.panelTone, v, isNaN(sd) ? 0 : sd, panelToneProc.fresh);
             }
         }
+        onRunningChanged: if (!running && root.tonePending) { var r = root.tonePending; root.tonePending = null; root.runPanelTone(r); }
     }
     // ── bar text colour: measure what is behind the bar strip (wallpaper + windows + the bar's own glass) ──
-    // Hysteresis around mid grey (the point where white and dark text read equally well), so the text never flickers.
     function measureBar() {
         if (!autoContrast || !barEnabled || barToneProc.running) return;
         var sc = Quickshell.screens && Quickshell.screens.length ? Quickshell.screens[0] : null;
         if (!sc) return;
-        barToneProc.command = ["sh", "-c", "grim -s 0.25 -g \"$1,$2 $3x$4\" - 2>/dev/null | magick - -format '%[fx:0.299*mean.r+0.587*mean.g+0.114*mean.b]' info: 2>/dev/null",
-                               "sh", String(Math.round(sc.x)), String(Math.round(sc.y)), String(Math.max(8, Math.round(sc.width))), String(Math.max(8, Math.round(barHeight)))];
+        barToneProc.command = ["sh", toneScript, "0.25", String(Math.round(sc.x)), String(Math.round(sc.y)), String(Math.max(8, Math.round(sc.width))), String(Math.max(8, Math.round(barH)))];
         barToneProc.running = true;
     }
     Timer { id: barToneT; interval: 350; onTriggered: root.measureBar() }          // debounce: after a resize / wallpaper / window change settles
-    Timer { interval: 2500; repeat: true; running: root.autoContrast && root.barEnabled && !root.gaming; onTriggered: root.measureBar() }
+    Timer { interval: 1200; repeat: true; running: root.autoContrast && root.barEnabled && !root.gaming; onTriggered: root.measureBar() }
     Connections {
         target: root
         function onBarHeightChanged() { barToneT.restart(); }
-        function onDarkModeChanged() { barToneT.restart(); }
+        function onDarkModeChanged() { root.panelTone = 0; barToneT.restart(); }
         function onBarEnabledChanged() { if (root.barEnabled) barToneT.restart(); }
         function onWallpaperAccentChanged() { barToneT.restart(); }
         function onGlassClientsChanged() { barToneT.restart(); }
-        function onAutoContrastChanged() { if (root.autoContrast) barToneT.restart(); else { root.barTone = 0; root.bgTone = 0; } }
+        function onAutoContrastChanged() { if (root.autoContrast) barToneT.restart(); else { root.barTone = 0; root.panelTone = 0; } }
     }
     Process {
         id: barToneProc
         stdout: StdioCollector {
             onStreamFinished: {
-                var v = parseFloat(text);
+                var p = text.trim().split(/\s+/);
+                var v = parseFloat(p[0]), sd = parseFloat(p[1]);
                 if (isNaN(v)) return;
-                if (v > 0.56) root.barTone = 1;
-                else if (v < 0.44) root.barTone = -1;
-                else if (root.barTone === 0) root.barTone = root.darkMode ? -1 : 1;
+                root.barTone = root.pickTone(root.barTone, v, isNaN(sd) ? 0 : sd, false);
             }
         }
     }
@@ -300,7 +345,7 @@ Scope {
     property bool fileSearchPending: false
     property var fileHits: []
 
-    readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "accent", "fontFamily", "barHeight", "glassOpacity",
+    readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "accent", "fontFamily", "barHeight", "uiScaleAuto", "uiScaleManual", "glassOpacity",
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "liveWallGlass", "glassDebug", "wallpaperPath", "use24h", "language", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch",
         "spotlightEnabled", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
@@ -445,31 +490,30 @@ Scope {
     }
 
     // ═════════════ PALETTE ═════════════
-    // Auto contrast: what's behind an opening panel is measured (bgTone: 1 bright, -1 dark, 0 unknown) and the panel
-    // switches to dark text / light glass on bright backgrounds and the reverse on dark ones; colours cross-fade.
+    // Auto contrast: see "AUTO CONTRAST" above. panelTone: what is behind the open panel (1 bright, -1 dark, 0 not measured).
     property bool autoContrast: true
-    property int bgTone: 0
+    property int panelTone: 0
     // System look (Settings → Appearance: Light / Dark / Auto): every panel follows it, like a normal OS, the Control Center
     // included (ccDark / ccPal are now just aliases of it, no longer measured from what is behind the panel).
-    readonly property bool effDark: darkMode
+    readonly property bool effDark: panelDarkMode      // every panel palette (pal) follows the measured light / dark panel look
     property real dk: effDark ? 1 : 0
     Behavior on dk { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
     function mixc(l, d) { return Qt.rgba(l.r + (d.r - l.r) * dk, l.g + (d.g - l.g) * dk, l.b + (d.b - l.b) * dk, l.a + (d.a - l.a) * dk); }
     // ── Dynamic text colour (top bar, menus / popovers, Spotlight) ──
     // The bar is clear glass over the wallpaper and the windows, so its text follows what is measured BEHIND it (barTone) and flips
     // light/dark by itself. Menus and Spotlight keep their glass tint but flip their text when the measured backdrop would make the
-    // normal colour unreadable (bgTone). Colours cross-fade (ptk / btk: 1 = white text, 0 = dark text).
+    // normal colour unreadable (panelTone). Colours cross-fade (ptk / btk: 1 = white text, 0 = dark text).
     property int barTone: 0                   // measured behind the bar strip: 1 bright, -1 dark, 0 not measured yet
     readonly property bool barTextDark: barTone === 1 ? true : (barTone === -1 ? false : !darkMode)
     property real btk: barTextDark ? 0 : 1
     Behavior on btk { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
     function mixb(l, d) { return Qt.rgba(l.r + (d.r - l.r) * btk, l.g + (d.g - l.g) * btk, l.b + (d.b - l.b) * btk, l.a + (d.a - l.a) * btk); }
-    readonly property bool panelTextDark: darkMode ? (bgTone === 1) : (bgTone !== -1)
+    readonly property bool panelTextDark: !panelDarkMode
     property real ptk: panelTextDark ? 0 : 1
     Behavior on ptk { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
     function mixp(l, d) { return Qt.rgba(l.r + (d.r - l.r) * ptk, l.g + (d.g - l.g) * ptk, l.b + (d.b - l.b) * ptk, l.a + (d.a - l.a) * ptk); }
-    // Control Center keeps one fixed look (dark): switching the system between Light and Dark does not change its colours
-    readonly property bool ccDark: true
+    // Control Center: light or dark with the panels (what is behind it)
+    readonly property bool ccDark: panelDarkMode
     property real ccDk: ccDark ? 1 : 0
     Behavior on ccDk { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
     function ccMix(l, d) { return Qt.rgba(l.r + (d.r - l.r) * ccDk, l.g + (d.g - l.g) * ccDk, l.b + (d.b - l.b) * ccDk, l.a + (d.a - l.a) * ccDk); }
@@ -3651,6 +3695,7 @@ Scope {
         barLogoMode = "arch"; barCustomLogoPath = "";
         barWidgets = ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "bluetooth", "privacy", "controlCenter", "clock"];
         ccControls = ccDefault.slice();
+        uiScaleAuto = true; uiScaleManual = 1.0;
     }
 
     // inherit look from macdock first, then macbar's own file wins
@@ -4457,7 +4502,7 @@ Scope {
             screen: perScreen.modelData
             visible: root.barBgOpacity > 0.001
             anchors { left: true; right: true; top: true }
-            implicitHeight: root.barHeight
+            implicitHeight: root.barH
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore
             mask: Region { }
@@ -4480,11 +4525,11 @@ Scope {
             screen: perScreen.modelData
 
             anchors { left: true; right: true; top: true }
-            implicitHeight: root.barHeight + root.popRoom
+            implicitHeight: root.barH + root.popRoom
             color: "transparent"
 
             exclusionMode: ExclusionMode.Normal
-            exclusiveZone: root.barEnabled ? root.barHeight : 0
+            exclusiveZone: root.barEnabled ? root.barH : 0
 
             WlrLayershell.namespace: "macbar"
             WlrLayershell.layer: WlrLayer.Top
@@ -4520,7 +4565,7 @@ Scope {
                 }
                 readonly property bool toastsShown: toastScreen && notifToasts.count > 0
                 // notifications arriving with no panel open: measure what's behind the banners
-                onToastsShownChanged: if (toastsShown && pop === "") root.measureTone(win.modelData.x + ui.width - 374, win.modelData.y + root.barHeight + 8, 364, 90)
+                onToastsShownChanged: if (toastsShown && pop === "") root.measureTone(win.modelData.x + ui.width - 374, win.modelData.y + root.barH + 8, 364, 90)
 
                 function openTray(item, x) {
                     if (!item || !item.hasMenu) return;
@@ -4989,7 +5034,7 @@ Scope {
                     id: maskItem
                     x: 0; y: 0
                     width: ui.width
-                    height: (ui.pop !== "" && ui.pop !== "spot") ? ui.height : root.barHeight
+                    height: (ui.pop !== "" && ui.pop !== "spot") ? ui.height : root.barH
                 }
 
                 // Liquid Glass menu bar strip: the bar itself refracts the live backdrop (wallpaper + windows), like the popovers.
@@ -4999,11 +5044,11 @@ Scope {
                     visible: root.barGlass && root.liquidActive
                     x: 0; y: 0
                     width: ui.width
-                    height: root.barHeight
+                    height: root.barH
                     backdrop: ui.glassSrc
                     shaderUrl: root.glassShaderUrl
                     liquid: root.liquidActive
-                    dark: root.effDark
+                    dark: !root.barTextDark
                     bx: 0; by: 0
                     cornerR: 0
                     tint: root.glassOpacity * 0.6
@@ -5032,7 +5077,7 @@ Scope {
                     z: 1000
                     width: 256; height: 67
                     x: ui.width - width - 22
-                    y: root.barHeight + 14
+                    y: root.barH + 14
                     visible: ui.toastScreen && opacity > 0
                     opacity: root.osdVisible ? 1 : 0
                     scale: root.osdVisible ? 1 : 0.94
@@ -5057,6 +5102,8 @@ Scope {
                         onShaderError: root.glassState = "failed"
                         rimTint: 1
                         ringW: 1.4
+                        shadowAmt: 0        // no outer drop shadow
+                        flatInner: 1        // no darker inner edge shading
                     }
                     MenuBorder {
                         z: 2
@@ -5064,6 +5111,7 @@ Scope {
                         cornerR: height / 2
                         dark: root.effDark
                         tint: root.menuBorderColor
+                        outline: false      // no dark hairline around the capsule
                     }
                     Glyph {
                         x: 20; anchors.verticalCenter: parent.verticalCenter
@@ -5099,7 +5147,7 @@ Scope {
                     z: 20
                     x: 0; y: 0
                     width: ui.width
-                    height: root.barHeight
+                    height: root.barH
                     color: "transparent"      // Tahoe: the bar is fully clear, no fill and no border on any side
                     MouseArea { anchors.fill: parent; onClicked: ui.pop = "" }
 
@@ -5499,14 +5547,14 @@ Scope {
                     // same morph as the Wi-Fi popover, growing out of the speaker icon (menuX is the icon's centre here)
     readonly property real ps: root.barPopupScale
                     readonly property real fullW: 330
-                    readonly property real fullH: Math.min(volCol.height + 28, ui.height - root.barHeight - 40)
+                    readonly property real fullH: Math.min(volCol.height + 28, ui.height - root.barH - 40)
                     // the rectangle it grows from (the bar icon, in screen px) and the one it grows into
                     readonly property real srcW: 26
                     readonly property real srcH: 22
                     readonly property real srcX: ui.menuX - 13
-                    readonly property real srcY: Math.max(0, (root.barHeight - srcH) / 2)
+                    readonly property real srcY: Math.max(0, (root.barH - srcH) / 2)
                     readonly property real dstX: Math.max(6, Math.min(ui.width - fullW * ps - 8, ui.menuX - fullW * ps / 2))
-                    readonly property real dstY: root.barHeight + 6
+                    readonly property real dstY: root.barH + 6
 
                     readonly property bool opening: ui.pop === "vol"
                     property real openT: opening ? 1 : 0
@@ -5687,7 +5735,7 @@ Scope {
                     width: 250
                     height: kbCol.height + 16
                     x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX - width / 2))
-                    y: root.barHeight + 6
+                    y: root.barH + 6
                     opacity: ui.pop === "kb" ? 1 : 0
                     visible: opacity > 0
                     scale: root.barPopupScale * (ui.pop === "kb" ? 1 : 0.96)
@@ -5786,7 +5834,7 @@ Scope {
                         }
                         return b;
                     }
-                    y: popBottom > 0 ? popBottom + 12 : root.barHeight + 8
+                    y: popBottom > 0 ? popBottom + 12 : root.barH + 8
                     Behavior on y { NumberAnimation { duration: 770; easing.type: Easing.OutQuint } }
                     height: toastCol.height
                     visible: ui.toastsShown && root.notificationsEnabled
@@ -5930,9 +5978,9 @@ Scope {
                     readonly property real srcW: 26
                     readonly property real srcH: 22
                     readonly property real srcX: Math.max(0, Math.min(ui.width - srcW, ui.menuX + 1))
-                    readonly property real srcY: Math.max(0, (root.barHeight - srcH) / 2)
+                    readonly property real srcY: Math.max(0, (root.barH - srcH) / 2)
                     readonly property real dstX: Math.max(6, ui.width - fullW * ps - 8)
-                    readonly property real dstY: root.barHeight + 6
+                    readonly property real dstY: root.barH + 6
 
                     readonly property bool merging: ui.toastsShown
                     readonly property bool opening: ui.pop === "notif"
@@ -5972,34 +6020,24 @@ Scope {
                         autoPaddingEnabled: true
                     }
 
-                    LGlass {
+                    // exactly the glass + border of the Wi-Fi / Bluetooth / audio popovers (same context, blur, rim, no drop shadow, no inner shading)
+                    PopGlassCtx { id: notifPopGlass; pop: notifPop; frame: ui; source: ui.glassSrc; fullW: notifPop.fullW; fullH: notifPop.fullH }
+                    GGlass {
                         anchors.fill: parent
                         opacity: notifPop.merging ? notifPop.chromeM : 1
-                        backdrop: ui.glassSrc
-                        shaderUrl: root.glassShaderUrl
-                        liquid: root.liquidActive
-                        dark: root.effDark
-                        bx: notifPop.x; by: notifPop.y
+                        gx: notifPopGlass.ctx
                         cornerR: Math.min(26, 8 + 18 * notifPop.t)
-                        tint: root.glassOpacity
-                        thickness: 26
-                        strength: 0.8 * root.glassLiquid
-                        rim: root.glassRim
-                        grain: root.glassGrain
-                        blur: 42                                // same blur as the Wi-Fi / Bluetooth / audio popovers
-                        debug: root.glassDebug
-                        onShaderError: root.glassState = "failed"
-                        rimTint: 1
-                        ringW: 0
-                        shadowAmt: 0.35
+                        thickness: 22
+                        shadowAmt: 0
+                        flatInner: 1
                     }
-                    // same border as the top-bar menus (File, Edit, ...)
+                    // same border as the top-bar menus (File, Edit, ...) and the Wi-Fi / audio popovers
                     MenuBorder {
                         z: 2
                         anchors.fill: parent
                         cornerR: Math.min(26, 8 + 18 * notifPop.t)
-                        dark: root.effDark
-                        tint: root.menuBorderColor
+                        dark: notifPopGlass.ctx.dark
+                        tint: notifPopGlass.ctx.borderTint
                         amount: 1
                     }
                     MouseArea { anchors.fill: parent }      // clicks inside the panel don't close it
@@ -6194,7 +6232,7 @@ Scope {
                     width: 260
                     height: menuCol.height + 14
                     x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 6, ui.menuX - 4))
-                    y: root.barHeight + 3
+                    y: root.barH + 3
                     opacity: ui.isMenu ? 1 : 0
                     visible: opacity > 0
                     scale: root.barPopupScale * (ui.isMenu ? 1 : 0.97)
@@ -6340,7 +6378,7 @@ Scope {
                     width: 260
                     height: Math.min(trayCol.height + 14, root.popRoom - 20)
                     x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 6, ui.menuX - 4))
-                    y: root.barHeight + 3
+                    y: root.barH + 3
                     opacity: shown ? 1 : 0
                     visible: opacity > 0
                     scale: root.barPopupScale * (shown ? 1 : 0.97)
@@ -6784,10 +6822,10 @@ Scope {
                     readonly property real srcW: fromCC ? 44 : 26
                     readonly property real srcH: fromCC ? 30 : 22
                     readonly property real srcX: fromCC ? ui.width - 64 : ui.menuX + 1
-                    readonly property real srcY: fromCC ? root.barHeight + 36 : Math.max(0, (root.barHeight - 22) / 2)
+                    readonly property real srcY: fromCC ? root.barH + 36 : Math.max(0, (root.barH - 22) / 2)
                     // the rectangle it grows into
                     readonly property real dstX: Math.max(6, Math.min(ui.width - fullW * ps - 8, ui.menuX + 14 - fullW * ps / 2))
-                    readonly property real dstY: root.barHeight + 6
+                    readonly property real dstY: root.barH + 6
 
                     readonly property bool opening: ui.pop === "wifi"
                     property real openT: opening ? 1 : 0
@@ -7086,9 +7124,9 @@ Scope {
                     readonly property real srcW: 26
                     readonly property real srcH: 22
                     readonly property real srcX: ui.menuX + 1
-                    readonly property real srcY: Math.max(0, (root.barHeight - srcH) / 2)
+                    readonly property real srcY: Math.max(0, (root.barH - srcH) / 2)
                     readonly property real dstX: Math.max(6, Math.min(ui.width - fullW * ps - 8, ui.menuX + 14 - fullW * ps / 2))
-                    readonly property real dstY: root.barHeight + 6
+                    readonly property real dstY: root.barH + 6
 
                     readonly property bool opening: ui.pop === "bt"
                     property real openT: opening ? 1 : 0
@@ -7150,7 +7188,7 @@ Scope {
                     width: 310
                     height: calCol.height + 28
                     x: Math.max(6, ui.width - width - 8)
-                    y: root.barHeight + 6
+                    y: root.barH + 6
                     opacity: ui.pop === "cal" ? 1 : 0
                     visible: opacity > 0
                     scale: root.barPopupScale * (ui.pop === "cal" ? 1 : 0.96)
@@ -7275,7 +7313,7 @@ Scope {
                     width: 300
                     height: ui.ccPage === "" ? ccCol.height : (ui.ccPage === "wifi" ? ccWifiPage.height : ccBtPage.height)
                     x: Math.max(8, ui.width - width - 10)
-                    y: root.barHeight + 6
+                    y: root.barH + 6
                     // opening (ColorOS 17): the panel springs out from the Control Center button, overshoots a little and
                     // settles, while the controls stretch up into place one row after another. Closing is quick and flat.
                     readonly property bool opening: ui.pop === "cc"
@@ -7310,14 +7348,46 @@ Scope {
                     onOpeningChanged: if (opening) openSeq++
                     onVisibleChanged: if (visible) { root.refreshWifi(); root.refreshBt(); root.refreshBrightness(); }
 
+                    // Resize refresh: when the menu bar is made smaller / bigger (or the panel itself changes size or position) the
+                    // Control Center's backdrop capture used to stay stuck on the old rectangle. Every such change now drops and
+                    // re-attaches the capture source for a moment (glassFlip) and forces every stage of the glass to re-render.
+                    property bool glassFlip: false
+                    // The panel is drawn scaled by barPopupScale around its top-right corner, but the glass shaders position every
+                    // slab in the panel's own UNSCALED coordinates. So the backdrop is described twice:
+                    //   capLocal  = the region in those unscaled coordinates (what the shaders map their pixels against)
+                    //   capScreen = where that same region really is on screen (what is captured): scaled about the top-right corner
+                    // At the default size both are identical; at any other bar size the old code captured the unscaled rectangle, so the
+                    // backdrop (the tree in the wallpaper) landed in the wrong place and at the wrong size.
+                    readonly property rect capLocal: Qt.rect(cc.x - 64, cc.y - 64, cc.width + 128, cc.height + 128)
+                    readonly property real capS: root.barPopupScale
+                    readonly property rect capScreen: Qt.rect((cc.x + cc.width) + (capLocal.x - (cc.x + cc.width)) * capS,
+                                                              cc.y + (capLocal.y - cc.y) * capS,
+                                                              capLocal.width * capS, capLocal.height * capS)
+                    Timer {
+                        id: ccRefresh
+                        interval: 40
+                        onTriggered: {
+                            if (!cc.glassFlip) { cc.glassFlip = true; ccRefresh.restart(); }
+                            else {
+                                cc.glassFlip = false;
+                                ccSrc.scheduleUpdate(); ccBlur.scheduleUpdate(); ccBlur2.scheduleUpdate();
+                            }
+                        }
+                    }
+                    function refreshGlass() { cc.glassFlip = false; ccRefresh.restart(); }
+                    Connections { target: root; function onBarHeightChanged() { cc.refreshGlass(); } function onBarPopupScaleChanged() { cc.refreshGlass(); } }
+                    onWidthChanged: refreshGlass()
+                    onHeightChanged: refreshGlass()
+                    onXChanged: refreshGlass()
+                    onYChanged: refreshGlass()
+
                     ShaderEffectSource {
                         id: ccSrc
-                        sourceItem: ui.glassSrc
+                        sourceItem: cc.glassFlip ? null : ui.glassSrc
                         hideSource: true
                         live: true
                         visible: false
-                        sourceRect: Qt.rect(cc.x - 64 * root.barPopupScale, cc.y - 64 * root.barPopupScale,
-                                            cc.width + 128 * root.barPopupScale, cc.height + 128 * root.barPopupScale)
+                        sourceRect: cc.capScreen
                     }
                     MultiEffect {
                         id: ccBlurFx
@@ -7357,7 +7427,7 @@ Scope {
                     GlassCtx {
                         id: ccg
                         src: (blur * blurMul) * 1.4 / 64.0 > 1.0 ? ccBlur2 : ccBlur
-                        srcRect: ccSrc.sourceRect
+                        srcRect: cc.capLocal
                         frame: ui
                         liquid: root.liquidActive
                         shaderUrl: root.glassShaderUrl
@@ -8666,6 +8736,23 @@ Scope {
             onOpenishChanged: root.popCount += (openish ? 1 : -1)     // keeps the window-geometry poller running while Spotlight is open
             mask: Region { item: spotWin.openish ? spotRoot : spotNoInput }
             Item { id: spotNoInput; width: 0; height: 0 }
+            // Auto contrast, live: while a panel (menu, Control Center, Spotlight) is open on this screen, the area around it is
+            // re-measured, so opening / closing / switching apps behind it flips it light <-> dark. Windows opening or closing
+            // trigger a measurement at once; otherwise it polls.
+            function panelRect() {
+                if (ui.pop === "spot") return Qt.rect(perScreen.modelData.x + spot.x, perScreen.modelData.y + spot.y, spot.width, spot.height);
+                var r = ui.glassRect;
+                if (r.width <= 128) return null;
+                return Qt.rect(perScreen.modelData.x + r.x + 64, perScreen.modelData.y + r.y + 64, r.width - 128, r.height - 128);
+            }
+            function measureLive() {
+                if (!root.autoContrast || ui.pop === "" || !ui.toastScreen) return;
+                var pr = panelRect();
+                if (pr) root.measureAround(perScreen.modelData, pr, false);
+            }
+            Timer { interval: 700; repeat: true; running: root.autoContrast && ui.pop !== "" && ui.toastScreen; onTriggered: spotWin.measureLive() }
+            Timer { id: liveKick; interval: 180; onTriggered: spotWin.measureLive() }
+            Connections { target: root; function onGlassClientsChanged() { if (ui.pop !== "") liveKick.restart(); } }
             anchors { left: true; right: true; top: true; bottom: true }
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore

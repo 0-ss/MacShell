@@ -159,6 +159,7 @@ Scope {
     property int topPad: 8
     property int bottomPad: 9            // room under icons (running dots live here)
     property int cornerRadius: 18
+    readonly property real uiS: bar ? bar.uiScale : 1      // UI scale (Settings → Menu Bar): Settings / About windows follow it
     property int margin: 6
     property bool darkMode: true
     // the dock keeps one fixed look (dark): switching the system between Light and Dark does not change its colours
@@ -174,6 +175,7 @@ Scope {
     property bool glassLive: true
     readonly property bool glassRT: glassLive
     property real glassBlur: 5            // Liquid Glass backdrop blur radius, px (settings slider)
+    readonly property real dockBlurBoost: 8    // extra px of blur added on top of glassBlur for the Dock glass only
     property bool glassDebug: false       // settings.json only: draw the raw Liquid Glass backdrop texture
     property string wallpaperPath: ""    // optional override for the wallpaper the Liquid Glass refracts
     property real glassOpacity: 0.42     // 0 = fully clear; below the layerrule's ignore_alpha (0.2) the blur turns off
@@ -355,6 +357,30 @@ Scope {
         glassTint: root.glassOpacity
         borderTint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
         onGlassFailed: root.glassState = "failed"
+
+        // "Reset to default": every settings slider can name its default (resetValue, in the slider's own from..to units).
+        // The link shows under the track only while the value differs from it; clicking it sends the default through moved().
+        property var resetValue: undefined
+        readonly property bool canReset: resetValue !== undefined && Math.abs(value - Number(resetValue)) > Math.max(1e-6, Math.abs(to - from) * 0.004)
+        height: (leftLabel !== "" || rightLabel !== "" || resetValue !== undefined) ? 40 : 22
+        Text {
+            id: resetLink
+            visible: parent.resetValue !== undefined
+            opacity: parent.canReset ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+            x: (parent.width - width) / 2
+            y: 25
+            text: I18n.tr("Reset to default")
+            color: parent.t.accent
+            font.family: parent.t.fam
+            font.pixelSize: 11
+            MouseArea {
+                anchors.fill: parent; anchors.margins: -5
+                enabled: parent.parent.canReset
+                cursorShape: Qt.PointingHandCursor
+                onClicked: parent.parent.moved(Number(parent.parent.resetValue))
+            }
+        }
     }
 
     // macOS segmented control: capsule track, dividers between the options, and a marker that turns into Liquid Glass while it
@@ -596,10 +622,12 @@ Scope {
     Window {
         id: prefsWindow
         title: "macshell Settings"
+        // NOT bindings: a bound size gets re-applied by Qt and snaps the window back while it is being resized by hand.
+        // The size is set once when the window opens and again only when the UI scale itself changes (see below).
         width: 800
         height: 880
-        minimumWidth: 560
-        minimumHeight: 380
+        minimumWidth: 400
+        minimumHeight: 300
         visible: false
         color: "transparent"
         flags: Qt.Window | Qt.FramelessWindowHint
@@ -622,10 +650,11 @@ Scope {
                 return null;
             }
             readonly property bool ok: g !== null
-            readonly property real x: ok ? g.x : 0
-            readonly property real y: ok ? g.y : 0
-            readonly property real mw: ok ? g.mw : 1
-            readonly property real mh: ok ? g.mh : 1
+            // the window content is drawn scaled by the UI scale, so these are expressed in that scaled coordinate space
+            readonly property real x: ok ? g.x / root.uiS : 0
+            readonly property real y: ok ? g.y / root.uiS : 0
+            readonly property real mw: ok ? g.mw / root.uiS : 1
+            readonly property real mh: ok ? g.mh / root.uiS : 1
             readonly property string mon: ok ? g.mon : ""
         }
 
@@ -643,7 +672,7 @@ Scope {
             { id: "network",    sec: 1, name: "Network",         wg: "ethernet",   c1: "#3D9BFF", c2: "#0A6CFF", keys: "ethernet ip address vpn tailscale connection" },
             // 2 · System
             { id: "general",    sec: 2, name: "General",         glyph: "behavior", c1: "#8E8E93", c2: "#636366", keys: "language shell enable disable dock menu bar panel show hide off on" },
-            { id: "appearance", sec: 2, name: "Appearance",      glyph: "appearance", c1: "#3A3A3C", c2: "#1C1C1E", keys: "theme dark light auto mode accent color glass liquid apple style translucency blur font spotlight top bar menus" },
+            { id: "appearance", sec: 2, name: "Appearance",      glyph: "appearance", c1: "#3A3A3C", c2: "#1C1C1E", keys: "theme dark light auto mode accent color glass liquid apple style blur font spotlight top bar menus" },
             { id: "wallpaper",  sec: 2, name: "Wallpaper",       glyph: "wallpaper", c1: "#5AC8FA", c2: "#007AFF", keys: "wallpaper background picture image video animated live motion desktop dynamic" },
             { id: "displays",   sec: 2, name: "Displays",        wg: "sun",        c1: "#3D9BFF", c2: "#0A6CFF", keys: "brightness night shift monitor resolution refresh scale" },
             { id: "battery",    sec: 2, name: "Battery",         wg: "bolt",       c1: "#4CD964", c2: "#28A745", keys: "power energy charge profile performance game mode gaming fullscreen" },
@@ -705,28 +734,71 @@ Scope {
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: prefsWindow.visible = false }
 
         // Settings always opens as a floating, centred window (no windowrule needed in hyprland.conf)
-        onVisibleChanged: if (visible) { showNormal(); floatTries = 0; floatTimer.restart(); if (root.glassState === "idle") root.startGlass(); }
+        onVisibleChanged: if (visible) { showNormal(); applyScaledSize(); floatTries = 0; floatTimer.restart(); if (root.glassState === "idle") root.startGlass(); }
         property int floatTries: 0
-        readonly property int preferredWidth: 800
-        readonly property int preferredHeight: 880
+        readonly property int preferredWidth: Math.round(800 * root.uiS)
+        readonly property int preferredHeight: Math.round(880 * root.uiS)
+        // the UI scale changed while the window is open: Hyprland keeps the old floating size (and its blur / shadow region), so
+        // tell it the new size again
+        // ── resize that only applies when you let go ──
+        // The edge handles no longer start the compositor's live resize: they remember where the drag began, and when the button is
+        // released the window is resized once, to the size the drag ended at (left / top edges also move the window so the opposite
+        // edge stays put).
+        property var rs: null
+        function rsBegin(edges, p) { rs = { e: edges, x: p.x, y: p.y, w: width, h: height }; }
+        function rsEnd(p) {
+            if (!rs) return;
+            var e = rs.e, dx = p.x - rs.x, dy = p.y - rs.y;
+            rs = null;
+            var minW = Math.round(560 * root.uiS), minH = Math.round(380 * root.uiS);
+            var nw = width, nh = height;
+            if (e & Qt.RightEdge)  nw = width + dx;
+            if (e & Qt.LeftEdge)   nw = width - dx;
+            if (e & Qt.BottomEdge) nh = height + dy;
+            if (e & Qt.TopEdge)    nh = height - dy;
+            nw = Math.max(minW, Math.round(nw)); nh = Math.max(minH, Math.round(nh));
+            console.log('[macshell-settings] resize on release:', width + 'x' + height, '->', nw + 'x' + nh);
+            if (nw === width && nh === height) return;
+            var sel = 'window = "title:^(' + title + ')$"';
+            // current position (left / top edges keep the opposite edge fixed by moving the window as well)
+            var ox = null, oy = null, cs = root.glassClients || [];
+            for (var i = 0; i < cs.length; i++) if (cs[i].title === title && cs[i].mapped) { ox = cs[i].at[0]; oy = cs[i].at[1]; break; }
+            Hyprland.dispatch('hl.dsp.window.resize({ x = ' + nw + ', y = ' + nh + ', "exact", ' + sel + ' })');
+            if (ox !== null && ((e & Qt.LeftEdge) || (e & Qt.TopEdge))) {
+                var nx = (e & Qt.LeftEdge) ? ox + (width - nw) : ox;
+                var ny = (e & Qt.TopEdge) ? oy + (height - nh) : oy;
+                Hyprland.dispatch('hl.dsp.window.move({ x = ' + nx + ', y = ' + ny + ', ' + sel + ' })');
+            }
+        }
+
+        function applyScaledSize() {
+            minimumWidth = Math.round(560 * root.uiS); minimumHeight = Math.round(380 * root.uiS);
+            width = preferredWidth; height = preferredHeight;
+        }
+        Component.onCompleted: applyScaledSize()
+        Connections {
+            target: root
+            function onUiSChanged() { prefsWindow.applyScaledSize(); if (prefsWindow.visible) { prefsWindow.floatTries = 0; floatTimer.restart(); } }
+        }
         Timer {
             id: floatTimer
-            interval: 140
+            interval: 60
             repeat: true
             onTriggered: {
                 // the compositor maps the window a moment after it becomes visible: send the dispatches a few times
                 var sel = 'window = "title:^(' + prefsWindow.title + ')$"';
                 Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
+                Hyprland.dispatch('hl.dsp.window.fullscreen({ mode = "maximized", action = "unset", ' + sel + ' })');
                 // the window draws its own macOS-style edge: no Hyprland border, and Hyprland's rounding (used for its
                 // shadow and the blur behind the sidebar) matches the window's own corner radius
                 Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "border_size", value = "0", ' + sel + ' })');
-                Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "rounding", value = "' + frame.radius + '", ' + sel + ' })');
+                Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "rounding", value = "' + Math.round(frame.radius * root.uiS) + '", ' + sel + ' })');
                 // Hyprland can remember an older floating size; reapply the compact size after mapping.
-                if (prefsWindow.floatTries >= 1) {
+                if (prefsWindow.floatTries >= 2) {
                     Hyprland.dispatch('hl.dsp.window.resize({ x = ' + prefsWindow.preferredWidth + ', y = ' + prefsWindow.preferredHeight + ', "exact", ' + sel + ' })');
                     Hyprland.dispatch('hl.dsp.window.center({ ' + sel + ' })');
                 }
-                if (++prefsWindow.floatTries >= 4) stop();
+                if (++prefsWindow.floatTries >= 12) stop();
             }
         }
 
@@ -747,7 +819,7 @@ Scope {
             readonly property color cardBorder: dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.12)
             readonly property color windowBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.22)
             // two-tone macOS window edge: a thin dark line outside, a soft highlight just inside it
-            readonly property color edgeOuter: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0, 0, 0, 0.40)
+            readonly property color edgeOuter: Qt.rgba(1, 1, 1, 0.50)
             readonly property color edgeInner: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.65)
             readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.12)
             readonly property color text: dark ? "#F5F5F7" : "#1D1D1F"
@@ -773,7 +845,9 @@ Scope {
         // ── frame ──
         Rectangle {
             id: frame
-            anchors.fill: parent
+            // drawn at a scaled size: the whole window content shrinks with the UI scale, the window itself shrinks to match
+            width: parent.width / root.uiS; height: parent.height / root.uiS
+            scale: root.uiS; transformOrigin: Item.TopLeft
             radius: 12
             color: "transparent"        // the sidebar is translucent (blur of what is behind the window), the pages are opaque
             border.width: 1
@@ -798,14 +872,14 @@ Scope {
             }
 
             // Native Wayland resize handles for this frameless window.
-            MouseArea { x: 12; y: 0; width: parent.width - 24; height: 6; z: 1000; cursorShape: Qt.SizeVerCursor; onPressed: prefsWindow.startSystemResize(Qt.TopEdge) }
-            MouseArea { x: 12; y: parent.height - 6; width: parent.width - 24; height: 6; z: 1000; cursorShape: Qt.SizeVerCursor; onPressed: prefsWindow.startSystemResize(Qt.BottomEdge) }
-            MouseArea { x: 0; y: 12; width: 6; height: parent.height - 24; z: 1000; cursorShape: Qt.SizeHorCursor; onPressed: prefsWindow.startSystemResize(Qt.LeftEdge) }
-            MouseArea { x: parent.width - 6; y: 12; width: 6; height: parent.height - 24; z: 1000; cursorShape: Qt.SizeHorCursor; onPressed: prefsWindow.startSystemResize(Qt.RightEdge) }
-            MouseArea { x: 0; y: 0; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeFDiagCursor; onPressed: prefsWindow.startSystemResize(Qt.TopEdge | Qt.LeftEdge) }
-            MouseArea { x: parent.width - 12; y: 0; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeBDiagCursor; onPressed: prefsWindow.startSystemResize(Qt.TopEdge | Qt.RightEdge) }
-            MouseArea { x: 0; y: parent.height - 12; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeBDiagCursor; onPressed: prefsWindow.startSystemResize(Qt.BottomEdge | Qt.LeftEdge) }
-            MouseArea { x: parent.width - 12; y: parent.height - 12; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeFDiagCursor; onPressed: prefsWindow.startSystemResize(Qt.BottomEdge | Qt.RightEdge) }
+            MouseArea { x: 12; y: 0; width: parent.width - 24; height: 6; z: 1000; cursorShape: Qt.SizeVerCursor; onPressed: m => { prefsWindow.rsBegin(Qt.TopEdge, mapToItem(null, m.x, m.y)); }; preventStealing: true; onReleased: m => { prefsWindow.rsEnd(mapToItem(null, m.x, m.y)); }; }
+            MouseArea { x: 12; y: parent.height - 6; width: parent.width - 24; height: 6; z: 1000; cursorShape: Qt.SizeVerCursor; onPressed: m => { prefsWindow.rsBegin(Qt.BottomEdge, mapToItem(null, m.x, m.y)); }; preventStealing: true; onReleased: m => { prefsWindow.rsEnd(mapToItem(null, m.x, m.y)); }; }
+            MouseArea { x: 0; y: 12; width: 6; height: parent.height - 24; z: 1000; cursorShape: Qt.SizeHorCursor; onPressed: m => { prefsWindow.rsBegin(Qt.LeftEdge, mapToItem(null, m.x, m.y)); }; preventStealing: true; onReleased: m => { prefsWindow.rsEnd(mapToItem(null, m.x, m.y)); }; }
+            MouseArea { x: parent.width - 6; y: 12; width: 6; height: parent.height - 24; z: 1000; cursorShape: Qt.SizeHorCursor; onPressed: m => { prefsWindow.rsBegin(Qt.RightEdge, mapToItem(null, m.x, m.y)); }; preventStealing: true; onReleased: m => { prefsWindow.rsEnd(mapToItem(null, m.x, m.y)); }; }
+            MouseArea { x: 0; y: 0; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeFDiagCursor; onPressed: m => { prefsWindow.rsBegin(Qt.TopEdge | Qt.LeftEdge, mapToItem(null, m.x, m.y)); }; preventStealing: true; onReleased: m => { prefsWindow.rsEnd(mapToItem(null, m.x, m.y)); }; }
+            MouseArea { x: parent.width - 12; y: 0; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeBDiagCursor; onPressed: m => { prefsWindow.rsBegin(Qt.TopEdge | Qt.RightEdge, mapToItem(null, m.x, m.y)); }; preventStealing: true; onReleased: m => { prefsWindow.rsEnd(mapToItem(null, m.x, m.y)); }; }
+            MouseArea { x: 0; y: parent.height - 12; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeBDiagCursor; onPressed: m => { prefsWindow.rsBegin(Qt.BottomEdge | Qt.LeftEdge, mapToItem(null, m.x, m.y)); }; preventStealing: true; onReleased: m => { prefsWindow.rsEnd(mapToItem(null, m.x, m.y)); }; }
+            MouseArea { x: parent.width - 12; y: parent.height - 12; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeFDiagCursor; onPressed: m => { prefsWindow.rsBegin(Qt.BottomEdge | Qt.RightEdge, mapToItem(null, m.x, m.y)); }; preventStealing: true; onReleased: m => { prefsWindow.rsEnd(mapToItem(null, m.x, m.y)); }; }
 
             // drag the window by its top strip
             Item {
@@ -1451,7 +1525,43 @@ Scope {
                             t: pal; from: 18; to: 48; stepSize: 1
                             value: root.bar ? root.bar.barHeight : 28
                             leftLabel: I18n.tr("Compact"); rightLabel: I18n.tr("Large")
+                            resetValue: 28
                             onMoved: v => { if (root.bar) root.bar.barHeight = Math.round(v); }
+                        }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Automatic scaling")
+                        subtitle: I18n.tr("Shrinks the menu bar, its menus, Control Center and the Settings / About windows on screens smaller than 1920\u00d71080")
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.uiScaleAuto : true
+                            onToggled: v => { if (root.bar) root.bar.uiScaleAuto = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("UI scale")
+                        subtitle: I18n.tr("Your own multiplier, applied on top of automatic scaling (") + Math.round((root.bar ? root.bar.uiScale : 1) * 100) + "%)"
+                        // The scale is applied only when the knob is released: applying it while dragging resizes this very window
+                        // under the pointer. While held, the knob follows the pointer through `pend` only.
+                        SSlider {
+                            id: scaleSlider
+                            property real pend: 1
+                            t: pal; from: 0.5; to: 1.25; stepSize: 0.05
+                            resetValue: 1.0
+                            value: pressed ? pend : (root.bar ? root.bar.uiScaleManual : 1)
+                            leftLabel: I18n.tr("Smaller"); rightLabel: I18n.tr("Larger")
+                            onMoved: v => {
+                                var r = Math.round(v * 100) / 100;
+                                if (pressed) pend = r;
+                                else if (root.bar) root.bar.uiScaleManual = r;     // e.g. "Reset to default"
+                            }
+                            onReleased: { if (root.bar) root.bar.uiScaleManual = Math.round(pend * 100) / 100; }
                         }
                     }
                 }
@@ -1533,6 +1643,7 @@ Scope {
                             from: 0; to: 0.6; stepSize: 0.01
                             value: root.bar ? root.bar.barBgOpacity : 0.10
                             leftLabel: I18n.tr("Hidden"); rightLabel: I18n.tr("Tinted")
+                            resetValue: 0.10
                             onMoved: v => { if (root.bar) root.bar.barBgOpacity = v; }
                         }
                     }
@@ -1796,7 +1907,7 @@ Scope {
                 }
                 SLabel {
                     t: pal
-                    text: I18n.tr("Translucency, accent color, appearance and font are in Appearance. Commands (terminal, launcher, files, clipboard) can be edited in ~/.config/macbar/settings.json.")
+                    text: I18n.tr("Accent color, appearance and font are in Appearance. Commands (terminal, launcher, files, clipboard) can be edited in ~/.config/macbar/settings.json.")
                 }
             }
         }
@@ -1893,6 +2004,7 @@ Scope {
                             from: 32; to: 128; stepSize: 1
                             value: root.iconSize
                             leftLabel: I18n.tr("Small"); rightLabel: I18n.tr("Large")
+                            resetValue: 52
                             onMoved: v => root.iconSize = Math.round(v)
                         }
                     }
@@ -1916,6 +2028,7 @@ Scope {
                             from: 1.1; to: 2.5; stepSize: 0.05
                             value: root.magnification
                             leftLabel: I18n.tr("Min"); rightLabel: I18n.tr("Max")
+                            resetValue: 1.7
                             onMoved: v => root.magnification = v
                         }
                     }
@@ -1981,6 +2094,7 @@ Scope {
                             from: 0.1; to: 1.0; stepSize: 0.05
                             value: root.iconTintStrength
                             leftLabel: I18n.tr("Subtle"); rightLabel: I18n.tr("Full")
+                            resetValue: 1.0
                             onMoved: v => root.iconTintStrength = Math.round(v * 100) / 100
                         }
                     }
@@ -1996,6 +2110,7 @@ Scope {
                             from: 0; to: 20; stepSize: 1
                             value: root.spacing
                             leftLabel: I18n.tr("Tight"); rightLabel: I18n.tr("Loose")
+                            resetValue: 6
                             onMoved: v => root.spacing = Math.round(v)
                         }
                     }
@@ -2007,6 +2122,7 @@ Scope {
                             from: 0; to: 40; stepSize: 1
                             value: root.margin
                             leftLabel: I18n.tr("Flush"); rightLabel: I18n.tr("Floating")
+                            resetValue: 6
                             onMoved: v => root.margin = Math.round(v)
                         }
                     }
@@ -2018,6 +2134,7 @@ Scope {
                             from: 0; to: 32; stepSize: 1
                             value: root.cornerRadius
                             leftLabel: I18n.tr("Square"); rightLabel: I18n.tr("Round")
+                            resetValue: 18
                             onMoved: v => root.cornerRadius = Math.round(v)
                         }
                     }
@@ -2121,19 +2238,7 @@ Scope {
 
                 SCard {
                     t: pal
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Translucency")
-                        subtitle: root.dockStyle === "liquid" ? I18n.tr("How much tint the glass adds over the refraction")
-                                                              : I18n.tr("How frosted the Dock's glass looks")
-                        SSlider {
-                            t: pal
-                            from: 0.0; to: 0.85; stepSize: 0.01
-                            value: root.glassOpacity
-                            leftLabel: I18n.tr("Clear"); rightLabel: I18n.tr("Frosted")
-                            onMoved: v => root.setLook("glassOpacity", v)
-                        }
-                    }
+                    visible: root.dockStyle === "liquid"     // both rows below are Liquid Glass only: no empty card in Normal Blur
                     SRow {
                         t: pal
                         visible: root.dockStyle === "liquid"
@@ -2144,6 +2249,7 @@ Scope {
                             from: 0; to: 80; stepSize: 1
                             value: root.glassBlur
                             leftLabel: I18n.tr("Sharp"); rightLabel: I18n.tr("Very blurry")
+                            resetValue: 5
                             onMoved: v => root.setLook("glassBlur", Math.round(v))
                         }
                     }
@@ -2157,6 +2263,7 @@ Scope {
                             from: 0.5; to: 2.5; stepSize: 0.05
                             value: root.glassLiquid
                             leftLabel: I18n.tr("Subtle"); rightLabel: I18n.tr("Very liquid")
+                            resetValue: 1.0
                             onMoved: v => root.setLook("glassLiquid", v)
                         }
                     }
@@ -2189,7 +2296,7 @@ Scope {
                 }
                 SLabel { t: pal; text: root.dockStyle === "liquid"
                                        ? I18n.tr("Liquid Glass refracts the wallpaper and windows behind the Dock in real time. Corner radius also shapes the glass.")
-                                       : I18n.tr("The blur behind the Dock comes from your Hyprland layer rule; translucency only controls the tint.") }
+                                       : I18n.tr("The blur behind the Dock comes from your Hyprland layer rule.") }
             }
         }
 
@@ -2224,6 +2331,7 @@ Scope {
                             from: 0; to: 1500; stepSize: 50
                             value: root.hideDelay
                             leftLabel: I18n.tr("Instant"); rightLabel: "1.5 s"
+                            resetValue: 450
                             onMoved: v => root.hideDelay = Math.round(v)
                         }
                     }
@@ -2672,6 +2780,7 @@ Scope {
                             from: 0.6; to: 1.5; stepSize: 0.05
                             value: wgPane.wdg ? wgPane.wdg.widgetScale : 1
                             leftLabel: I18n.tr("Small"); rightLabel: I18n.tr("Large")
+                            resetValue: 1.0
                             onMoved: v => { if (wgPane.wdg) wgPane.wdg.widgetScale = Math.round(v * 100) / 100; }
                         }
                     }
@@ -2883,7 +2992,7 @@ Scope {
                     t: pal
                     SRow {
                         t: pal; title: I18n.tr("Brightness")
-                        SSlider { t: pal; value: root.bar ? root.bar.brightness : 0.5; onMoved: v => { if (root.bar) root.bar.setBrightness(v); } }
+                        SSlider { t: pal; resetValue: 0.5; value: root.bar ? root.bar.brightness : 0.5; onMoved: v => { if (root.bar) root.bar.setBrightness(v); } }
                     }
                     SRow {
                         t: pal; title: I18n.tr("Night Shift")
@@ -2893,7 +3002,7 @@ Scope {
                     SRow {
                         t: pal; title: I18n.tr("Colour Temperature"); visible: root.bar && root.bar.nightOn
                         SSlider {
-                            t: pal; leftLabel: I18n.tr("Less Warm"); rightLabel: I18n.tr("More Warm")
+                            t: pal; resetValue: 0.571; leftLabel: I18n.tr("Less Warm"); rightLabel: I18n.tr("More Warm")
                             value: root.bar ? 1 - (root.bar.nightTemp - 2500) / 3500 : 0.5
                             onMoved: v => { if (root.bar) root.bar.nightTemp = Math.round(2500 + (1 - v) * 3500); }
                         }
@@ -3061,7 +3170,7 @@ Scope {
                     t: pal
                     SRow {
                         t: pal; title: I18n.tr("Output volume")
-                        SSlider { t: pal; value: root.bar ? (root.bar.muted ? 0 : root.bar.volume) : 0; onMoved: v => { if (root.bar) root.bar.setVolume(v); } }
+                        SSlider { t: pal; resetValue: 0.5; value: root.bar ? (root.bar.muted ? 0 : root.bar.volume) : 0; onMoved: v => { if (root.bar) root.bar.setVolume(v); } }
                     }
                     SRow {
                         t: pal; title: I18n.tr("Mute")
@@ -3085,7 +3194,7 @@ Scope {
                     t: pal
                     SRow {
                         t: pal; title: I18n.tr("Input volume")
-                        SSlider { t: pal; value: sndPane.src && sndPane.src.audio ? sndPane.src.audio.volume : 0; onMoved: v => { if (sndPane.src && sndPane.src.audio) sndPane.src.audio.volume = v; } }
+                        SSlider { t: pal; resetValue: 1.0; value: sndPane.src && sndPane.src.audio ? sndPane.src.audio.volume : 0; onMoved: v => { if (sndPane.src && sndPane.src.audio) sndPane.src.audio.volume = v; } }
                     }
                     Repeater {
                         model: sndPane.ins
@@ -3222,7 +3331,7 @@ Scope {
                     SRow {
                         t: pal; title: I18n.tr("Weight")
                         SSlider {
-                            t: pal; width: 220; from: 100; to: 1000; stepSize: 10
+                            t: pal; resetValue: 680; width: 220; from: 100; to: 1000; stepSize: 10
                             leftLabel: I18n.tr("Thin"); rightLabel: I18n.tr("Heavy")
                             value: root.bar ? root.bar.lockClockWeight : 680
                             onMoved: v => { if (root.bar) { root.bar.lockClockWeight = Math.round(v); root.bar.lockClockStyle = "custom"; } }
@@ -3240,7 +3349,7 @@ Scope {
                     SRow {
                         t: pal; title: root.bar && root.bar.lockClockMaterial === "solid" ? I18n.tr("Brightness") : I18n.tr("Glass")
                         SSlider {
-                            t: pal; width: 220; from: 0; to: 1
+                            t: pal; resetValue: 0.6; width: 220; from: 0; to: 1
                             leftLabel: root.bar && root.bar.lockClockMaterial === "solid" ? I18n.tr("Subtle") : I18n.tr("Clear")
                             rightLabel: root.bar && root.bar.lockClockMaterial === "solid" ? I18n.tr("Bright") : I18n.tr("Frosted")
                             value: root.bar ? root.bar.lockClockIntensity : 0.6
@@ -3345,11 +3454,11 @@ Scope {
                     t: pal
                     SRow {
                         t: pal; title: I18n.tr("Key repeat rate")
-                        SSlider { t: pal; leftLabel: I18n.tr("Slow"); rightLabel: I18n.tr("Fast"); from: 10; to: 80; value: root.bar ? root.bar.kbRepeatRate : 35; onMoved: v => { if (root.bar) root.bar.kbRepeatRate = Math.round(v); } }
+                        SSlider { t: pal; resetValue: 35; leftLabel: I18n.tr("Slow"); rightLabel: I18n.tr("Fast"); from: 10; to: 80; value: root.bar ? root.bar.kbRepeatRate : 35; onMoved: v => { if (root.bar) root.bar.kbRepeatRate = Math.round(v); } }
                     }
                     SRow {
                         t: pal; title: I18n.tr("Delay until repeat")
-                        SSlider { t: pal; leftLabel: I18n.tr("Long"); rightLabel: I18n.tr("Short"); from: 0; to: 1; value: root.bar ? 1 - (root.bar.kbRepeatDelay - 150) / 650 : 0.6; onMoved: v => { if (root.bar) root.bar.kbRepeatDelay = Math.round(150 + (1 - v) * 650); } }
+                        SSlider { t: pal; resetValue: 0.846; leftLabel: I18n.tr("Long"); rightLabel: I18n.tr("Short"); from: 0; to: 1; value: root.bar ? 1 - (root.bar.kbRepeatDelay - 150) / 650 : 0.6; onMoved: v => { if (root.bar) root.bar.kbRepeatDelay = Math.round(150 + (1 - v) * 650); } }
                     }
                 }
                 SLabel { t: pal; text: I18n.tr("Layout: ") + "us" + ". Changes apply right away." }
@@ -3365,7 +3474,7 @@ Scope {
                     t: pal
                     SRow {
                         t: pal; title: I18n.tr("Tracking speed")
-                        SSlider { t: pal; leftLabel: I18n.tr("Slow"); rightLabel: I18n.tr("Fast"); from: -1; to: 1; value: root.bar ? root.bar.mouseSens : 0; onMoved: v => { if (root.bar) root.bar.mouseSens = v; } }
+                        SSlider { t: pal; resetValue: 0; leftLabel: I18n.tr("Slow"); rightLabel: I18n.tr("Fast"); from: -1; to: 1; value: root.bar ? root.bar.mouseSens : 0; onMoved: v => { if (root.bar) root.bar.mouseSens = v; } }
                     }
                     SRow {
                         t: pal; title: I18n.tr("Natural scrolling")
@@ -3397,7 +3506,7 @@ Scope {
                     }
                     SRow {
                         t: pal; title: I18n.tr("Scrolling speed")
-                        SSlider { t: pal; leftLabel: I18n.tr("Slow"); rightLabel: I18n.tr("Fast"); from: 0.2; to: 2; value: root.bar ? root.bar.tpScroll : 0.7; onMoved: v => { if (root.bar) root.bar.tpScroll = v; } }
+                        SSlider { t: pal; resetValue: 0.7; leftLabel: I18n.tr("Slow"); rightLabel: I18n.tr("Fast"); from: 0.2; to: 2; value: root.bar ? root.bar.tpScroll : 0.7; onMoved: v => { if (root.bar) root.bar.tpScroll = v; } }
                     }
                 }
             }
@@ -5153,8 +5262,10 @@ Scope {
                             property color edgeCol: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
                             Behavior on edgeCol { ColorAnimation { duration: 450; easing.type: Easing.OutCubic } }
                             // blurring at half resolution is visually identical for radii >= 8 px and costs a quarter of the GPU work
-                            readonly property real ds: root.glassBlur >= 8 ? 0.5 : 1.0
-                            readonly property real bn: root.glassBlur * 1.5 * ds / 64.0
+                            // the Dock gets extra blur on top of the shared Blur slider (dockBlurBoost px), so it is frosted even at the default setting
+                            readonly property real eb: root.glassBlur + root.dockBlurBoost
+                            readonly property real ds: eb >= 8 ? 0.5 : 1.0
+                            readonly property real bn: eb * 1.5 * ds / 64.0
                             readonly property real margin: 72      // extra backdrop captured around the Dock (refraction + blur reach)
                             readonly property real padPx: root.dockGlassNew ? 30 : 10   // shader item padding (shadow room); dockglass.frag needs >= 30, the shared shader keeps its original 10
                             ShaderEffectSource {
@@ -5255,12 +5366,11 @@ Scope {
                         radius: root.cornerRadius
                         color: root.dockDark ? Qt.rgba(0.10, 0.10, 0.11, root.glassOpacity)
                                              : Qt.rgba(1, 1, 1, root.glassOpacity * 0.55)
-                        border.width: 0.35
-                        border.color: root.dockDark ? Qt.rgba(0, 0, 0, 0.12) : Qt.rgba(0, 0, 0, 0.03)
+                        border.width: 0      // dark outer border removed
 
                         Rectangle {
                             anchors.fill: parent
-                            anchors.margins: 0.35
+                            anchors.margins: 0
                             radius: parent.radius - 0.35
                             color: "transparent"
                             border.width: 0.25
@@ -5268,10 +5378,17 @@ Scope {
                         }
                     }
 
-                    // Control Center style border (same colour logic, follows the wallpaper), but even on all four corners and subtler.
-                    // With dockglass.frag the edge is drawn by the shader (crisp light line + outer hairline), so this Canvas - which repaints
-                    // every frame the Dock changes width while icons magnify - is not even created. It stays for Normal Blur and as the
-                    // fallback when the Dock's own shader is unavailable.
+                    // same extra edge detail as the top-bar menus: faint dominant-colour edge (no dark hairline)
+                    MenuBorder {
+                        anchors.fill: parent      // no z: stays below the icon row, so magnified icons are drawn over the border
+                        cornerR: root.cornerRadius
+                        dark: root.dockDark
+                        tint: root.bar ? root.bar.menuBorderColor : "#8A9AB5"
+                        outline: false      // no dark hairline / shade around the dock
+                    }
+
+                    // Natural edge: with Liquid Glass (dockglass.frag) the edge light is drawn by the shader, so this Canvas is not even created.
+                    // It stays for Normal Blur and as the fallback when the Dock's own shader is unavailable (a faint line in the wallpaper colour).
                     Loader {
                         anchors.fill: parent
                         active: !(root.liquidActive && root.dockGlassNew)
@@ -5367,7 +5484,7 @@ Scope {
                                     id: img
                                     visible: false
                                     property real lift: 0
-                                    width: root.iconSize * cell.s * cell.appear
+                                    width: root.iconSize * 0.99 * cell.s * cell.appear     // icon art drawn at 99%: the dock and the cells keep their size
                                     height: width
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     anchors.bottom: parent.bottom

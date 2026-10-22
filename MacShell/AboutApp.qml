@@ -91,10 +91,11 @@ Scope {
     Window {
         id: win
         title: "About This Linux"
-        readonly property int wantH: Math.ceil(content.implicitHeight) + 40 + 26
-        width: 300
+        readonly property real uiS: root.bar ? root.bar.uiScale : 1      // UI scale (Settings → Menu Bar)
+        readonly property int wantH: Math.round((Math.ceil(content.implicitHeight) + 40 + 26) * uiS)
+        width: Math.round(300 * uiS)
         height: wantH
-        minimumWidth: 300; maximumWidth: 300
+        minimumWidth: width; maximumWidth: width
         minimumHeight: wantH; maximumHeight: wantH
         visible: false
         color: "transparent"
@@ -102,20 +103,28 @@ Scope {
 
         onVisibleChanged: if (visible) { root.refresh(); floatTries = 0; floatTimer.restart(); }
         property int floatTries: 0
+        // the size changed while the window is open (UI scale, or the content grew): send Hyprland the new size again
+        onWidthChanged: if (visible) { floatTries = 0; floatTimer.restart(); }
+        onHeightChanged: if (visible) { floatTries = 0; floatTimer.restart(); }
         Timer {
             id: floatTimer
-            interval: 140
+            interval: 60
             repeat: true
             onTriggered: {
                 // the compositor maps the window a moment after it becomes visible: send the dispatches a few times
                 var sel = 'window = "title:^(' + win.title + ')$"';
                 Hyprland.dispatch('hl.dsp.window.float({ action = "enable", ' + sel + ' })');
+                Hyprland.dispatch('hl.dsp.window.fullscreen({ mode = "maximized", action = "unset", ' + sel + ' })');
                 // this window draws its own macOS-style edge: no Hyprland border, and Hyprland's corner rounding
                 // (also used for its shadow and blur) matches the window's own radius
                 Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "border_size", value = "0", ' + sel + ' })');
-                Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "rounding", value = "' + frame.radius + '", ' + sel + ' })');
-                if (win.floatTries >= 1) Hyprland.dispatch('hl.dsp.window.center({ ' + sel + ' })');
-                if (++win.floatTries >= 4) stop();
+                Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "rounding", value = "' + Math.round(frame.radius * win.uiS) + '", ' + sel + ' })');
+                if (win.floatTries >= 2) {
+                    // Hyprland keeps the size the window was first mapped with (and its blur / shadow region): force the scaled size
+                    Hyprland.dispatch('hl.dsp.window.resize({ x = ' + win.width + ', y = ' + win.height + ', "exact", ' + sel + ' })');
+                    Hyprland.dispatch('hl.dsp.window.center({ ' + sel + ' })');
+                }
+                if (++win.floatTries >= 12) stop();
             }
         }
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: win.visible = false }
@@ -128,7 +137,7 @@ Scope {
             readonly property color text2: dark ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.5)
             readonly property color text3: dark ? Qt.rgba(1, 1, 1, 0.38) : Qt.rgba(0, 0, 0, 0.42)
             readonly property color border: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.18)
-            readonly property color edgeOuter: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0, 0, 0, 0.40)     // thin dark line on the outside
+            readonly property color edgeOuter: Qt.rgba(1, 1, 1, 0.50)     // thin dark line on the outside
             readonly property color edgeInner: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.65)      // soft highlight just inside it
             function lightBorder(active, c) { return active ? Qt.darker(c, dark ? 1.12 : 1.22) : "transparent"; }
             readonly property color lightOff: dark ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(0, 0, 0, 0.15)
@@ -138,7 +147,9 @@ Scope {
 
         Rectangle {
             id: frame
-            anchors.fill: parent
+            // drawn at a scaled size: the window content shrinks with the UI scale, the window itself shrinks to match
+            width: parent.width / win.uiS; height: parent.height / win.uiS
+            scale: win.uiS; transformOrigin: Item.TopLeft
             radius: 18
             color: pal.bg
             border.width: 1; border.color: pal.edgeOuter

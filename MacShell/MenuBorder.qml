@@ -11,10 +11,12 @@ Item {
     property bool dark: true
     property real cornerR: 14
     property real amount: 1             // overall strength of both lines (1 = menus, <1 = subtler)
+    property bool outline: true         // false = skip the dark hairline just outside (used by the volume / brightness popup)
 
     Behavior on tint { ColorAnimation { duration: 450; easing.type: Easing.OutCubic } }
 
     Rectangle {                                         // dark hairline, just outside
+        visible: mb.outline
         anchors.fill: parent
         anchors.margins: -1
         radius: mb.cornerR + 1

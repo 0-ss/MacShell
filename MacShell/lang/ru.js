@@ -215,7 +215,6 @@ var strings = {
     "Graphite": "Графит",
     "White": "Белый",
     "Black": "Чёрный",
-    "Translucency": "Прозрачность",
     "Font": "Шрифт",
     "Used for labels and menus": "Для подписей и меню",
     "Open Runde": "Open Runde",
@@ -346,7 +345,6 @@ var strings = {
     "Show the Bluetooth status icon, even while Bluetooth is off": "Показывать значок Bluetooth, даже когда Bluetooth выключен",
     "Privacy indicators": "Индикаторы конфиденциальности",
     "Keyboard layout": "Раскладка клавиатуры",
-    "Translucency, accent color, appearance and font are in Appearance. Commands (terminal, launcher, files, clipboard) can be edited in ~/.config/macbar/settings.json.": "Прозрачность, цвет акцента, оформление и шрифт — в разделе «Оформление». Команды (терминал, запуск, файлы, буфер обмена) настраиваются в ~/.config/macbar/settings.json.",
 
     // Settings: Wallpaper
     "Wallpapers": "Обои",
@@ -632,7 +630,8 @@ var strings = {
     "Blur of the desktop, or refracting Liquid Glass": "Размытие рабочего стола или преломляющий Liquid Glass",
     "How frosted the Dock's glass looks": "Насколько матовое стекло у Dock",
     "Liquid Glass refracts the wallpaper and windows behind the Dock in real time. Corner radius also shapes the glass.": "Liquid Glass в реальном времени преломляет обои и окна за Dock. Скругление углов тоже меняет форму стекла.",
-    "The blur behind the Dock comes from your Hyprland layer rule; translucency only controls the tint.": "Размытие за Dock задаёт правило слоя в Hyprland; прозрачность меняет только оттенок.",
+    "Accent color, appearance and font are in Appearance. Commands (terminal, launcher, files, clipboard) can be edited in ~/.config/macbar/settings.json.": "Цвет акцента, оформление и шрифт — в разделе «Оформление». Команды (терминал, запуск, файлы, буфер обмена) настраиваются в ~/.config/macbar/settings.json.",
+    "The blur behind the Dock comes from your Hyprland layer rule.": "Размытие за Dock задаёт правило слоя в Hyprland.",
     "Cable unplugged": "Кабель не подключён",
     " Mb/s": " Мбит/с",
     "Copied ": "Скопировано ",

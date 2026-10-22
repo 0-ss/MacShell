@@ -17,6 +17,8 @@ Item {
     property string leftLabel: ""
     property string rightLabel: ""
     signal moved(real v)
+    signal released()                                   // the pointer let go of the knob (after the last moved())
+    readonly property bool pressed: sma.pressed         // the knob is being held
     signal glassFailed()
 
     // look
@@ -213,5 +215,7 @@ Item {
         }
         onPressed: mouse => setFrom(mouse.x)
         onPositionChanged: mouse => { if (pressed) setFrom(mouse.x); }
+        onReleased: s.released()
+        onCanceled: s.released()
     }
 }
