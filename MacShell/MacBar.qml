@@ -5119,6 +5119,7 @@ Scope {
                                 id: mt
                                 required property var modelData
                                 readonly property bool open: ui.pop === modelData.id
+                                readonly property bool activeApp: modelData.id === "app"
                                 width: modelData.id === "apple" ? 30 : tl.implicitWidth + 20
                                 height: 28
                                 Rectangle {
@@ -5170,9 +5171,10 @@ Scope {
                                     anchors.centerIn: parent
                                     text: I18n.tr(mt.modelData.label)
                                     color: bpal.fg
-                                    font.family: root.fontForWeight(font.weight, bpal.fam)
-                                    font.pixelSize: 13
-                                    font.weight: mt.modelData.bold ? Font.Bold : Font.Normal
+                                    font.family: mt.activeApp ? Fonts.forWeight(font.weight, root.boldFontFamily)
+                                                              : Fonts.forWeight(font.weight, "Open Runde")
+                                    font.pixelSize: 14
+                                    font.weight: mt.activeApp ? Font.DemiBold : Font.Normal
                                 }
                                 MouseArea {
                                     anchors.fill: parent
@@ -6271,8 +6273,9 @@ Scope {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "\u2713"
                                     color: it.hot ? "white" : panelPal.fg
-                                    font.family: root.fontForWeight(font.weight, panelPal.fam)
+                                    font.family: Fonts.forWeight(font.weight, "Open Runde")
                                     font.pixelSize: 13
+                                    font.weight: Font.Normal
                                 }
                                 Text {
                                     visible: !it.isSep
@@ -6282,8 +6285,9 @@ Scope {
                                     elide: Text.ElideRight
                                     text: it.isSep ? "" : (it.armedNow ? I18n.tr("Click again to confirm") : I18n.tr(it.modelData.label))
                                     color: it.hot ? "white" : (it.off ? panelPal.fg2 : panelPal.fg)
-                                    font.family: root.fontForWeight(font.weight, panelPal.fam)
+                                    font.family: Fonts.forWeight(font.weight, "Open Runde")
                                     font.pixelSize: 13
+                                    font.weight: Font.Normal
                                 }
                                 Text {
                                     id: sc
@@ -6293,8 +6297,9 @@ Scope {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: it.isSep ? "" : (it.modelData.shortcut || "")
                                     color: it.hot ? Qt.rgba(1, 1, 1, 0.8) : panelPal.fg2
-                                    font.family: root.fontForWeight(font.weight, panelPal.fam)
+                                    font.family: Fonts.forWeight(font.weight, "Open Runde")
                                     font.pixelSize: 12
+                                    font.weight: Font.Normal
                                 }
                                 MouseArea {
                                     id: ima

@@ -3778,7 +3778,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.3.3 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.3.4 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(font.weight, pal.fam)
                             font.pixelSize: 12
@@ -4522,7 +4522,7 @@ Scope {
 
     // live window geometry for the backdrop compositor (polled only while Liquid Glass is on)
     readonly property var glassClients: hub ? hub.glassClients : []
-    Binding { target: root.hub; property: "dockWantsGeo"; value: (root.liquidActive || root.hideMode === "smart") && (root.dockEnabled || prefsWindow.visible) }
+    Binding { target: root.hub; property: "dockWantsGeo"; value: root.liquidActive && (root.dockEnabled || prefsWindow.visible) }
     // window captures are admitted by the shared gate in shell.qml (hub.tlFor): 0.2 s after a window appears, one every 110 ms
 
     // ── smart hide: which monitors have a non-floating window on their active workspace ──
@@ -4530,70 +4530,29 @@ Scope {
     property var monData: []
     property bool refreshPending: false
 
-    function clearBusy() {
-        busyGrow.stop();
-        busyForce = false;
-        busyMonitors = ({});
-    }
-
     function refreshBusy() {
         if (monProc.running || clientProc.running) { refreshPending = true; return; }
         monProc.running = true;
     }
 
-    // Smart hide ignores floating windows. A window that is about to float (float rule, dialog, picker, the Dock's own settings window)
-    // is reported as TILED for a moment right after it opens, and the fast data path sees that moment, so the Dock must not hide on the
-    // first sighting: a monitor only turns "busy" after it has stayed busy for 220 ms. Un-hiding is immediate.
-    property var lastClients: []
-    property bool busyForce: false
-    Timer { id: busyGrow; interval: 220; onTriggered: { root.busyForce = true; root.computeBusy(root.lastClients); root.busyForce = false; } }
-
+    // Match the 0.3.0 method: recompute directly from hyprctl's monitor/client snapshot after each compositor event.
     function computeBusy(clients) {
-        if (!Array.isArray(clients)) {
-            lastClients = [];
-            clearBusy();
-            return;
-        }
-        lastClients = clients;
+        if (!Array.isArray(clients)) clients = [];
         var busy = {};
         for (var m = 0; m < monData.length; m++) {
             var mon = monData[m];
-            if (!mon || mon.id === undefined || !mon.name || !mon.activeWorkspace || mon.activeWorkspace.id === undefined) continue;
-            var ids = [mon.activeWorkspace.id];
+            if (!mon || mon.id === undefined || !mon.name) continue;
+            var ids = [mon.activeWorkspace && mon.activeWorkspace.id !== undefined ? mon.activeWorkspace.id : -999];
             if (mon.specialWorkspace && mon.specialWorkspace.id !== undefined && mon.specialWorkspace.id !== 0) ids.push(mon.specialWorkspace.id);
             for (var c = 0; c < clients.length; c++) {
                 var cl = clients[c];
-                if (!cl || !!cl.floating || cl.mapped !== true || !!cl.hidden) continue; // only confirmed, mapped tiled windows count
-                if (cl.monitor === undefined || String(cl.monitor) !== String(mon.id)) continue;
-                if (!cl.workspace || cl.workspace.id === undefined) continue; // workspace can be absent during close/move events
-                for (var w = 0; w < ids.length; w++) {
-                    if (String(ids[w]) === String(cl.workspace.id)) { busy[mon.name] = true; break; }
-                }
-                if (busy[mon.name]) break;
+                if (!cl || cl.floating || !cl.mapped || cl.hidden) continue;
+                if (cl.monitor !== mon.id) continue;
+                if (!cl.workspace || cl.workspace.id === undefined) continue;
+                if (ids.indexOf(cl.workspace.id) >= 0) { busy[mon.name] = true; break; }
             }
         }
-        if (!busyForce) {
-            var grows = false, keep = {}, k;
-            for (k in busy) { if (busyMonitors[k] === true) keep[k] = true; else grows = true; }
-            if (grows) { if (!busyGrow.running) busyGrow.start(); busy = keep; }
-            else busyGrow.stop();
-        }
-        if (JSON.stringify(busy) !== JSON.stringify(busyMonitors)) busyMonitors = busy;
-    }
-
-    // Smart hide + the glass backdrop follow the hub's fast Hyprland IPC data (≈60 Hz while something moves) instead of spawning
-    // hyprctl 120 ms after every event: a workspace switch is picked up within a frame or two.
-    readonly property bool fastGeoActive: !!hub && hub.ipcOk && hub.dockWantsGeo
-    function fastGeo() {
-        if (!fastGeoActive) return;
-        if (!hub.monData || hub.monData.length === 0) { root.monData = []; root.computeBusy([]); return; }
-        root.monData = hub.monData;          // (bd.sync() of every backdrop listens to this)
-        computeBusy(hub.glassClients);
-    }
-    Connections {
-        target: root.hub
-        function onGlassClientsChanged() { root.fastGeo(); }
-        function onIpcOkChanged() { root.fastGeo(); }
+        busyMonitors = busy;
     }
 
     Process {
@@ -4601,7 +4560,7 @@ Scope {
         command: ["hyprctl", "-j", "monitors"]
         stdout: StdioCollector {
             onStreamFinished: {
-                try { root.monData = JSON.parse(text); } catch (err) { root.monData = []; root.clearBusy(); }
+                try { root.monData = JSON.parse(text); } catch (err) { root.monData = []; }
                 clientProc.running = true;
             }
         }
@@ -4611,7 +4570,7 @@ Scope {
         command: ["hyprctl", "-j", "clients"]
         stdout: StdioCollector {
             onStreamFinished: {
-                try { root.computeBusy(JSON.parse(text)); } catch (err) { root.clearBusy(); }
+                try { root.computeBusy(JSON.parse(text)); } catch (err) { root.computeBusy([]); }
                 if (root.refreshPending) { root.refreshPending = false; monProc.running = true; }
             }
         }
@@ -4620,7 +4579,7 @@ Scope {
         target: Hyprland
         function onRawEvent(event) { busyDebounce.restart(); tickDebounce.restart(); }
     }
-    Timer { id: busyDebounce; interval: 120; onTriggered: { if (!root.fastGeoActive) root.refreshBusy(); } }
+    Timer { id: busyDebounce; interval: 120; onTriggered: root.refreshBusy() }
 
     Component.onCompleted: {
         Quickshell.execDetached(["mkdir", "-p", configDir]);
