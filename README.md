@@ -278,15 +278,13 @@ The Best way to make sure you have the latest update Is to delete the MacShell f
    cd MacShell
    bash install.sh
    ```
-or you can use this method :
-
-Run the installer (`./install.sh` in your clone, or `macshell-install` from anywhere). It shows a menu:
+Then Choose install
 
 ```
 MacShell (installed: a1b2c3d4e5f6)
 
   1) Install shell (Best for install and updating)
-  2) Check for updates
+  2) Check for updates (Only checks for updates)
   3) Uninstall shell
   4) Bind help
   q) Quit
