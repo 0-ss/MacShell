@@ -195,7 +195,7 @@ ShellRoot {
             + "jq -r '.lockArtBackground' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.use24h' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.language // \"auto\"' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo auto; "
-            + "jq -c '{f: .lockClockFont, w: .lockClockWeight, m: .lockClockMaterial, t: .lockClockTall, d: .lockClockDate, i: .lockClockIntensity, c: .lockClockTint}' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo '{}'"]
+            + "jq -c '{f: .lockClockFont, w: .lockClockWeight, m: .lockClockMaterial, d: .lockClockDate, i: .lockClockIntensity, c: .lockClockTint}' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo '{}'"]
         stdout: StdioCollector {
             onStreamFinished: {
                 var l = text.split("\n");

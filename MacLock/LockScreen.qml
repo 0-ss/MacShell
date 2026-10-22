@@ -551,10 +551,8 @@ Item {
                 text: ls.st.use24h ? Qt.formatTime(ls.st.now, I18n.tr("H:mm")) : ((ls.st.now.getHours() % 12) || 12) + Qt.formatTime(ls.st.now, ":mm")
                 color: "white"
                 font.family: ls.ckFamily; font.pixelSize: ls.clockPx; font.weight: Font.Bold
-                font.variableAxes: ls.ckFamily === "Roboto Flex"
-                    ? ({ "wdth": ls.clockWdth, "YTFI": ls.clockYtfi, "wght": ls.clockWght, "opsz": 144 })
-                    : ({ "wght": ls.clockWght })
-                font.letterSpacing: (ls.ckFont === "condensed" ? -2 : (ls.ckWeight < 330 ? 0 : -1.5)) * ls.u
+                font.variableAxes: ({ "wght": ls.clockWght })
+                font.letterSpacing: (ls.ckWeight < 330 ? 0 : -1.5) * ls.u
                 renderType: Text.QtRendering
                 visible: false
             }
@@ -580,7 +578,7 @@ Item {
                 source: timeMask
                 // the rim is a fixed share of the digit size (thin weights get a finer one)
                 blurEnabled: true; blurMax: 16
-                blur: Math.max(0.12, Math.min(0.6, ls.clockPx * (ls.ckWeight < 330 ? 0.016 : 0.03) / 16))
+                blur: Math.max(0.12, Math.min(0.6, ls.clockPx * (ls.ckWeight < 330 ? 0.02 : 0.04) / 16))
                 autoPaddingEnabled: false
                 visible: false
             }
@@ -700,22 +698,19 @@ Item {
     function clamp01(v) { return Math.max(0, Math.min(1, v)); }
     // how much the clock gives way (follows the cover / lyrics ease-out)
     readonly property real squash: Math.max(artT, lyrT)
-    // iOS 26 stretched clock, done the way Apple does it: with the FONT, not by stretching pixels. Roboto Flex has a
-    // figure-height axis (YTFI) plus width and weight, so the digits get taller/condensed with even strokes.
-    //   room to spare → tall, condensed digits;  artwork / lyrics open → regular-width, shorter, smaller digits
     // ── clock style (Settings → Lock Screen → Clock) ──
-    //   font: condensed (Roboto Flex, can go tall) | rounded (Nunito) | serif (Noto Serif Display) | inter (Open Runde)
-    //   material: frosted (milky glass) | liquid (clear glass with a bright rim)
+    //   font: rounded (default; Nunito, falls back to the bundled Open Runde) | serif (Noto Serif Display) | inter (Open Runde)
+    //   material: solid (vibrancy) | glass (Liquid Glass)
     readonly property var ckCfg: (ls.st.clockCfg && !ls.st.clockCfg.__ignore) ? ls.st.clockCfg : ({})
-    readonly property string ckFont: ["condensed", "rounded", "serif", "inter"].indexOf(ckCfg.f) >= 0 ? ckCfg.f : "condensed"
+    // anything else (including the removed "condensed" font) falls back to rounded
+    readonly property string ckFont: ["rounded", "serif", "inter"].indexOf(ckCfg.f) >= 0 ? ckCfg.f : "rounded"
     readonly property bool ckFontOk: {
-        var want = ckFont === "rounded" ? "Nunito" : (ckFont === "serif" ? "Noto Serif Display" : (ckFont === "inter" ? "Open Runde" : "Roboto Flex"));
+        var want = ckFont === "serif" ? "Noto Serif Display" : (ckFont === "inter" ? "Open Runde" : "Nunito");
         return Qt.fontFamilies().indexOf(want) >= 0;
     }
     readonly property string ckFamily: !ckFontOk ? "Open Runde"
-        : (ckFont === "rounded" ? "Nunito" : (ckFont === "serif" ? "Noto Serif Display" : (ckFont === "inter" ? "Open Runde" : "Roboto Flex")))
+        : (ckFont === "serif" ? "Noto Serif Display" : (ckFont === "inter" ? "Open Runde" : "Nunito"))
     readonly property int ckWeight: (typeof ckCfg.w === "number" && ckCfg.w >= 100 && ckCfg.w <= 1000) ? ckCfg.w : 680
-    readonly property bool ckTall: ckFont === "condensed" && ckCfg.t !== false
     // material: "solid" (vibrancy) | "glass" (Liquid Glass); older settings: liquid → clear glass, frosted → frosted glass
     readonly property bool ckGlass: ckCfg.m !== "solid"
     readonly property real ckIntensity: typeof ckCfg.i === "number" ? Math.max(0, Math.min(1, ckCfg.i))
@@ -740,11 +735,9 @@ Item {
     }
     readonly property bool ckShortDate: ckCfg.d === "short"
     // size per font (all shrink together when the cover / lyrics need the room)
-    readonly property real ckBase: ckTall ? 226 : (ckFont === "condensed" ? 196 : (ckFont === "serif" ? 168 : (ckFont === "rounded" ? 176 : 172)))
+    readonly property real ckBase: (ckFont === "serif" ? 168 : (ckFont === "rounded" ? 176 : 172))
                                    * (ckWeight < 330 ? 1.12 : 1.0)
     readonly property real clockPx: ckBase * (1 - 0.46 * squash) * u
-    readonly property real clockWdth: ckTall ? Math.max(25, Math.min(151, 40 + 60 * squash)) : 100
-    readonly property real clockYtfi: ckTall ? Math.max(560, Math.min(788, 788 - 188 * squash)) : 712
     readonly property real clockWght: Math.max(100, Math.min(1000, ckWeight - 80 * squash * (ckWeight / 680)))
     readonly property real lyricsH: Math.min(ls.height * 0.42, 440 * ls.u)
     // vertical room above the bubble: the cover, the lyrics, or (side by side) the taller of the two
