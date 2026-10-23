@@ -1,4 +1,4 @@
-// About This Linux — the "About This Mac" window for MacShell.
+//0.3.8// About This Linux — the "About This Mac" window for MacShell.
 //
 //   qs -c MacShell ipc call about open | close | toggle        (the Apple menu's "About This Linux" opens it too)
 //
@@ -344,7 +344,7 @@ Scope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.3.7"
+                    text: "Linux® is a registered trademark of Linus Torvalds.\nMacShell 0.3.8"
                     color: pal.text3
                     font.family: root.fontForWeight(font.weight, root.fam); font.pixelSize: 10
                     lineHeight: 1.1

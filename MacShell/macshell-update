@@ -22,7 +22,7 @@ REPO="${MACSHELL_REPO:-$(state_get repo)}"; REPO="${REPO:-0-ss/MacShell}"
 BRANCH="${MACSHELL_BRANCH:-$(state_get branch)}"; BRANCH="${BRANCH:-main}"
 DEST="$(state_get dest)"; DEST="${DEST:-$CONFIG_HOME/quickshell/MacShell}"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Version of the code that is actually running: the VERSION file shipped next to this script (e.g. "0.3.6").
+# Version of the code that is actually running: the VERSION file shipped next to this script (e.g. "0.3.7").
 # The state file (written by install.sh) is only the fallback, so a stale/missing state can no longer cause a false "update".
 LOCAL_VERSION=""
 [ -f "$SELF_DIR/VERSION" ] && LOCAL_VERSION="$(head -n1 "$SELF_DIR/VERSION" | tr -d '[:space:]')"

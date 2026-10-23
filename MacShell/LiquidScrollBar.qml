@@ -9,10 +9,12 @@ Item {
     property Flickable flick: null
     property string material: "liquid"
     property bool dark: true
-    width: 16
+    property bool alwaysVisible: false   // keep the thumb showing (dimmed) so people can tell there is more to scroll to
+    property bool compact: false         // slimmer thumb and track
+    width: compact ? 10 : 16
     readonly property real contentH: flick ? Math.max(flick.contentHeight, 1) : 1
     readonly property real ratio: flick ? Math.min(1, flick.height / contentH) : 1
-    readonly property real thumbH: Math.max(32, ratio * height)
+    readonly property real thumbH: Math.max(compact ? 18 : 32, ratio * height)
     readonly property real travel: Math.max(1, contentH - (flick ? flick.height : 0))
     readonly property real frac: flick ? Math.max(0, Math.min(1, (flick.contentY - flick.originY) / travel)) : 0
     // stays hoverable while faded out, so moving the pointer to the edge brings it back
@@ -20,7 +22,7 @@ Item {
 
     readonly property bool hot: ma.containsMouse || ma.pressed
     property bool awake: false
-    opacity: awake || hot ? 1 : 0
+    opacity: awake || hot ? 1 : (alwaysVisible ? 0.6 : 0)
     Behavior on opacity { NumberAnimation { duration: sb.opacity < 0.5 ? 160 : 420; easing.type: Easing.OutCubic } }
     Timer { id: sleep; interval: 900; onTriggered: sb.awake = false }
     Connections {
@@ -35,8 +37,8 @@ Item {
 
     Rectangle {
         id: thumb
-        width: 6 + 5 * sb.glass
-        x: sb.width - width - 3
+        width: (sb.compact ? 3 : 6) + (sb.compact ? 3 : 5) * sb.glass
+        x: sb.width - width - (sb.compact ? 2 : 3)
         y: sb.frac * (sb.height - sb.thumbH)
         height: sb.thumbH
         radius: width / 2

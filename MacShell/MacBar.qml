@@ -37,6 +37,7 @@
 //   bind = ALT, space, exec, qs -c macbar ipc call spotlight toggle
 // Hyprland (Lua):
 //   hl.bind("ALT + Space", hl.dsp.exec_cmd("qs -c macbar ipc call spotlight toggle"))
+//   Reduced motion: set "reduceMotion": true in ~/.config/macbar/settings.json to turn off Spotlight's pop / stagger / slide animations.
 // Wallpapers: Ctrl+Alt+W opens the wallpaper picker (Liquid Glass). Bind it with:
 //   hl.bind("CTRL + ALT + W", hl.dsp.exec_cmd("qs -c macbar ipc call wallpapers toggle"))
 //   (hyprlang:  bind = CTRL ALT, W, exec, qs -c macbar ipc call wallpapers toggle)
@@ -92,6 +93,7 @@ Scope {
     property bool barEnabled: true           // the menu bar strip itself
     // every part of the shell can be switched off on its own (the installer's feature picker writes these too)
     property bool spotlightEnabled: true     // Spotlight (the magnifier / its keybind)
+    property bool reduceMotion: false        // Spotlight: no pop / stagger / slide animations (settings.json: "reduceMotion": true)
     property bool ccEnabled: true            // Control Center
     property string ccStyle: "tiles"         // tiles = every control its own glass | macos = one frosted panel behind them
     property bool notificationsEnabled: true // banners + Notification Center (off = no D-Bus daemon at all, so mako/dunst can take over)
@@ -390,7 +392,7 @@ Scope {
     readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "accent", "fontFamily", "barHeight", "uiScaleAuto", "uiScaleManual", "glassOpacity",
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "liveWallGlass", "glassDebug", "wallpaperPath", "use24h", "language", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch",
-        "spotlightEnabled", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
+        "spotlightEnabled", "reduceMotion", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
         "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
         "notifDnd", "dnd", "nightOn", "keepAwake",
@@ -2604,7 +2606,7 @@ Scope {
     function pickColor() { sh("c=$(hyprpicker -a) && [ -n \"$c\" ] && notify-send -a macbar 'Color copied' \"$c\""); }
     Process {
         id: fileSearchProc
-        command: ["sh", "-c", "find \"$HOME\" -type f -iname \"*$1*\" -not -path '*/.cache/*' -not -path '*/.local/share/Trash/*' 2>/dev/null | head -n 8", "sh", root.fileQuery]
+        command: ["sh", "-c", "find \"$HOME\" -type f -iname \"*$1*\" -not -path '*/.cache/*' -not -path '*/.local/share/Trash/*' 2>/dev/null | head -n 60", "sh", root.fileQuery]
         stdout: StdioCollector { onStreamFinished: {
             var a=text.trim().split("\n").filter(function(x){return x!=="";});
             if (root.fileSearchFor === root.fileQuery) { root.fileHits=a; root.fileSearchPending=false; }
@@ -3176,7 +3178,7 @@ Scope {
         return out;
     }
     function fileItems(q) {
-        var out=[]; for(var i=0;i<fileHits.length&&out.length<5;i++){var path=fileHits[i];out.push({title:path.substring(path.lastIndexOf("/")+1)||path,sub:path,glyph:"folder",run:(function(p){return function(){Quickshell.execDetached(["xdg-open",p]);};})(path)});} return out;
+        var out=[], home=Quickshell.env("HOME")||""; for(var i=0;i<fileHits.length&&out.length<60;i++){var path=fileHits[i];out.push({title:path.substring(path.lastIndexOf("/")+1)||path,sub:(home&&path.indexOf(home+"/")===0?"~"+path.substring(home.length):path),path:true,glyph:"folder",run:(function(p){return function(){Quickshell.execDetached(["xdg-open",p]);};})(path)});} return out;
     }
     function homeItems(q) {
         var out = [], s = (q || "").trim().toLowerCase();
@@ -8961,7 +8963,7 @@ Scope {
                     opacity: vis
                     visible: vis > 0.001
                     readonly property real uiS: root.barPopupScale      // Settings → Menu Bar → UI scale
-                    scale: uiS * (ui.spCalm ? 0.98 : 0.94)
+                    scale: uiS * (ui.spCalm ? 0.98 : 0.97)
                     transformOrigin: Item.Center
                     states: State {
                         name: "open"
@@ -8972,15 +8974,17 @@ Scope {
                         Transition {
                             from: ""; to: "open"
                             ParallelAnimation {
-                                NumberAnimation { property: "vis"; duration: 260; easing.type: Easing.OutCubic }
-                                NumberAnimation { property: "scale"; duration: ui.spCalm ? 240 : 300; easing.type: Easing.OutQuint }
+                                // opening: 220 ms OutCubic, opacity 0 -> 1 and scale 0.97 -> 1 (no bounce: the surface is revealed, it doesn't fly in)
+                                NumberAnimation { property: "vis"; duration: root.reduceMotion ? 0 : 220; easing.type: Easing.OutCubic }
+                                NumberAnimation { property: "scale"; duration: root.reduceMotion ? 0 : 220; easing.type: Easing.OutCubic }
                             }
                         },
                         Transition {
                             from: "open"; to: ""
                             ParallelAnimation {
-                                NumberAnimation { property: "vis"; duration: 190; easing.type: Easing.OutCubic }
-                                NumberAnimation { property: "scale"; to: spot.uiS * 0.95; duration: 190; easing.type: Easing.OutCubic }
+                                // closing: faster than opening (160 ms InCubic), opacity 1 -> 0 and scale 1 -> 0.98
+                                NumberAnimation { property: "vis"; duration: root.reduceMotion ? 0 : 160; easing.type: Easing.InCubic }
+                                NumberAnimation { property: "scale"; to: spot.uiS * 0.98; duration: root.reduceMotion ? 0 : 160; easing.type: Easing.InCubic }
                             }
                         }
                     ]
@@ -9030,7 +9034,7 @@ Scope {
                             TextInput {
                                 id: spInput
                                 x: 46
-                                width: parent.width - 46 - 18
+                                width: parent.width - 46 - 44          // constant width: the field never changes size while typing
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
                                 color: panelPal.fg
@@ -9041,6 +9045,29 @@ Scope {
                                 onTextChanged: { if (!ui.spFull) { ui.spQuery = text; ui.spSel = 0; ui.armed = ""; if (/^(file|find)\s+/i.test(text)) root.updateFileSearch(text.replace(/^(file|find)\s+/i, "").trim()); } }
                                 Keys.onPressed: event => ui.spKey(event)
                             }
+                            // clear button: appears once there is a query; keeps focus in the field
+                            Item {
+                                id: spClear
+                                anchors.right: parent.right; anchors.rightMargin: 14
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 22; height: 22
+                                opacity: spInput.text !== "" && !ui.spFull ? 1 : 0
+                                visible: opacity > 0
+                                scale: 0.8 + 0.2 * opacity
+                                Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 140; easing.type: Easing.OutCubic } }
+                                Rectangle {
+                                    anchors.fill: parent; radius: 11
+                                    color: root.panelDarkMode ? Qt.rgba(1, 1, 1, clearMa.containsMouse ? 0.24 : 0.14) : Qt.rgba(0, 0, 0, clearMa.containsMouse ? 0.16 : 0.09)
+                                    Behavior on color { ColorAnimation { duration: root.reduceMotion ? 0 : 120 } }
+                                }
+                                Glyph { anchors.centerIn: parent; width: 14; height: 14; kind: "close"; color: panelPal.fg2 }
+                                MouseArea {
+                                    id: clearMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked: { spInput.text = ""; spInput.forceActiveFocus(); }
+                                }
+                            }
                         }
                         Repeater {
                             model: [
@@ -9048,10 +9075,29 @@ Scope {
                                 { k: "layers", id: "actions", label: I18n.tr("Actions") }, { k: "clipboard", id: "clip", label: I18n.tr("Clipboard") }, { k: "smile", id: "emoji", label: I18n.tr("Emoji") }
                             ]
                             delegate: CCBtn {
+                                id: navBtn
                                 required property var modelData
+                                required property int index
                                 t: pal; gx: spg
                                 d: 48
                                 matchMenuBorder: true
+                                // entrance when Spotlight opens: fade + scale 0.88 -> 1 + rise 4 px, 24 ms stagger (never blocks clicks / keys)
+                                property real inT: 1
+                                opacity: inT
+                                transform: [
+                                    Translate { y: (1 - navBtn.inT) * 4 },
+                                    Scale { origin.x: navBtn.d / 2; origin.y: navBtn.d / 2; xScale: 0.88 + 0.12 * navBtn.inT; yScale: 0.88 + 0.12 * navBtn.inT }
+                                ]
+                                SequentialAnimation {
+                                    id: navEnter
+                                    PropertyAction { target: navBtn; property: "inT"; value: 0 }
+                                    PauseAnimation { duration: navBtn.index * 24 }
+                                    NumberAnimation { target: navBtn; property: "inT"; to: 1; duration: 200; easing.type: Easing.OutCubic }
+                                }
+                                Connections {
+                                    target: ui
+                                    function onPopChanged() { if (ui.pop === "spot" && !root.reduceMotion && !ui.spCalm) navEnter.restart(); }
+                                }
                                 bounce: true
                                 shadow: 0.18
                                 kind: modelData.k
@@ -9069,7 +9115,13 @@ Scope {
                                 onClicked: {
                                     if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
                                     else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");
-                                    else if (modelData.id === "files") { ui.pop = ""; root.sh("dolphin \"$HOME\""); }
+                                    else if (modelData.id === "files") {
+                                        // Files = file search: prefill the "file " prefix in the Spotlight field (click again to clear)
+                                        if (ui.spMode !== "home") ui.spSetMode("home");
+                                        if (/^(file|find)\s/i.test(spInput.text)) { spInput.text = ""; }
+                                        else { spInput.text = "file "; spInput.cursorPosition = spInput.text.length; }
+                                        spInput.forceActiveFocus();
+                                    }
                                     else if (modelData.id === "clip") ui.spSetMode(ui.spMode === "clip" ? "home" : "clip");
                                     else ui.spSetMode(ui.spMode === "emoji" ? "home" : "emoji");
                                 }
@@ -9085,12 +9137,22 @@ Scope {
                         readonly property var items: ui.spFull ? [] : ui.spResults      // clipboard / emoji / apps have their own panels
                         property int keep: 1                         // last non-empty row count, so the panel shrinks while it fades out
                         onItemsChanged: if (items.length > 0) keep = items.length
+                        onSelIdxChanged: {
+                            // keep the selected row inside the 5-row window (pointer hover must not scroll)
+                            if (ui.spHover) { ui.spHover = false; return; }
+                            var top = selIdx * 46, vh = resFlick.height;
+                            if (top < resFlick.contentY) resFlick.contentY = top;
+                            else if (top + 46 > resFlick.contentY + vh) resFlick.contentY = top + 46 - vh;
+                        }
                         readonly property int selIdx: Math.max(0, Math.min(ui.spSel, items.length - 1))
                         opacity: (!ui.spFull && items.length > 0) ? 1 : 0
                         visible: opacity > 0
-                        Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-                        height: (items.length > 0 ? items.length : keep) * 46 + 16
-                        Behavior on height { NumberAnimation { duration: 320; easing.type: Easing.OutQuint } }
+                        Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 160; easing.type: Easing.OutCubic } }
+                        // file search shows 5 rows at a time; more results scroll
+                        readonly property int maxRows: /^(file|find)\s+/i.test(ui.spQuery) ? 5 : 99
+                        height: Math.min(items.length > 0 ? items.length : keep, maxRows) * 46 + 16
+                        // expands / contracts downward only: the pill above never moves
+                        Behavior on height { NumberAnimation { duration: root.reduceMotion ? 0 : 220; easing.type: Easing.OutCubic } }
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 26; thickness: 26; strengthMul: 1.0; shadowAmt: 0.10 }
                         MenuBorder { amount: 0.5; anchors.fill: parent; cornerR: 26; dark: root.panelDarkMode; tint: root.menuBorderColor }
                         Item {
@@ -9098,13 +9160,22 @@ Scope {
                             width: parent.width - 16
                             height: parent.height - 16
                             clip: true
+                        Flickable {
+                            id: resFlick
+                            anchors.fill: parent
+                            contentWidth: width
+                            contentHeight: resPanel.items.length * 46
+                            boundsBehavior: Flickable.StopAtBounds
+                            interactive: contentHeight > height
+                            flickableDirection: Flickable.VerticalFlick
+                            Behavior on contentY { enabled: !resFlick.moving && !resFlick.dragging; NumberAnimation { duration: root.reduceMotion ? 0 : 120; easing.type: Easing.OutCubic } }
                             Rectangle {
                                 y: resPanel.selIdx * 46
                                 width: parent.width; height: 46; radius: 16
                                 color: (resPanel.items[resPanel.selIdx] && resPanel.items[resPanel.selIdx].confirm === true
                                         && ui.armed === resPanel.items[resPanel.selIdx].title) ? "#FF453A" : root.accent
-                                Behavior on y { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                Behavior on color { ColorAnimation { duration: 120 } }
+                                Behavior on y { NumberAnimation { duration: root.reduceMotion ? 0 : 120; easing.type: Easing.OutCubic } }
+                                Behavior on color { ColorAnimation { duration: root.reduceMotion ? 0 : 120 } }
                             }
                         Column {
                             width: parent.width
@@ -9115,10 +9186,26 @@ Scope {
                                     required property var modelData
                                     required property int index
                                     readonly property string ico: (modelData && modelData.icon) ? String(modelData.icon) : ""
+                                    readonly property bool twoLine: !!(modelData && modelData.path)
                                     readonly property bool sel: index === Math.min(ui.spSel, resPanel.items.length - 1)
                                     readonly property bool armedNow: modelData.confirm === true && ui.armed === modelData.title
                                     width: parent.width
                                     height: 46
+                                    // Entrance: fade + rise 4 px, 16 ms stagger. Delegates are rebuilt on every keystroke, so this only
+                                    // plays while the results panel itself is still (almost) invisible, i.e. when results first appear.
+                                    property real enterY: 0
+                                    transform: Translate { y: rr.enterY }
+                                    Component.onCompleted: {
+                                        if (!root.reduceMotion && resPanel.opacity < 0.5) { rr.opacity = 0; rr.enterY = 4; rowEnter.start(); }
+                                    }
+                                    SequentialAnimation {
+                                        id: rowEnter
+                                        PauseAnimation { duration: Math.min(rr.index, 7) * 16 }
+                                        ParallelAnimation {
+                                            NumberAnimation { target: rr; property: "opacity"; to: 1; duration: 160; easing.type: Easing.OutCubic }
+                                            NumberAnimation { target: rr; property: "enterY"; to: 0; duration: 160; easing.type: Easing.OutCubic }
+                                        }
+                                    }
                                     Item {
                                         x: 12
                                         anchors.verticalCenter: parent.verticalCenter
@@ -9143,29 +9230,37 @@ Scope {
                                     Text {
                                         x: 54
                                         anchors.verticalCenter: parent.verticalCenter
-                                        width: parent.width - 54 - 140
+                                        anchors.verticalCenterOffset: rr.twoLine ? -8 : 0
+                                        width: rr.twoLine ? parent.width - 54 - 16
+                                               : parent.width - 54 - 16 - Math.min(rowSub.implicitWidth, parent.width * 0.4) - 12
                                         elide: Text.ElideRight
                                         text: rr.armedNow ? I18n.tr("Press Return again to confirm") : (rr.modelData ? rr.modelData.title : "")
                                         color: rr.sel ? "white" : panelPal.fg
                                         font.family: root.fontForWeight(font.weight, panelPal.fam); font.pixelSize: 14
                                     }
                                     Text {
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 16
+                                        id: rowSub
+                                        // file results: the path sits on its own line under the name, so long names/paths never overlap
+                                        x: rr.twoLine ? 54 : parent.width - 16 - width
                                         anchors.verticalCenter: parent.verticalCenter
+                                        anchors.verticalCenterOffset: rr.twoLine ? 9 : 0
+                                        width: rr.twoLine ? parent.width - 54 - 16 : Math.min(implicitWidth, parent.width * 0.4)
+                                        elide: rr.twoLine ? Text.ElideMiddle : Text.ElideRight
                                         text: rr.modelData ? rr.modelData.sub : ""
                                         color: rr.sel ? Qt.rgba(1, 1, 1, 0.8) : panelPal.fg2
-                                        font.family: root.fontForWeight(font.weight, panelPal.fam); font.pixelSize: 12
+                                        font.family: root.fontForWeight(font.weight, panelPal.fam); font.pixelSize: rr.twoLine ? 11 : 12
                                     }
                                     MouseArea {
                                         anchors.fill: parent
                                         hoverEnabled: true
-                                        onEntered: ui.spSel = rr.index
+                                        onEntered: { if (ui.spSel !== rr.index) { ui.spHover = true; ui.spSel = rr.index; } }
                                         onClicked: ui.spActivate(rr.index)
                                     }
                                 }
                             }
                         }
+                        }
+                        LiquidScrollBar { flick: resFlick; compact: true; alwaysVisible: true; anchors.right: parent.right; anchors.rightMargin: 2; anchors.top: parent.top; anchors.topMargin: 6; anchors.bottom: parent.bottom; anchors.bottomMargin: 6; dark: root.panelDarkMode }
                         }
                     }
 
