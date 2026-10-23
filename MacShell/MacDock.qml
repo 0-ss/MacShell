@@ -734,7 +734,7 @@ Scope {
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: prefsWindow.visible = false }
 
         // Settings always opens as a floating, centred window (no windowrule needed in hyprland.conf)
-        onVisibleChanged: if (visible) { showNormal(); applyScaledSize(); floatTries = 0; floatTimer.restart(); if (root.glassState === "idle") root.startGlass(); }
+        onVisibleChanged: if (visible) { if (root.bar) { root.bar.updateDialogOpen = root.bar.updateState === "available"; root.bar.checkForUpdates(true); } showNormal(); applyScaledSize(); floatTries = 0; floatTimer.restart(); if (root.glassState === "idle") root.startGlass(); }
         property int floatTries: 0
         readonly property int preferredWidth: Math.round(800 * root.uiS)
         readonly property int preferredHeight: Math.round(880 * root.uiS)
@@ -860,6 +860,55 @@ Scope {
                 color: "transparent"
                 border.width: 1; border.color: pal.edgeInner
                 z: 900
+            }
+
+            // "New update x.x.x": shown by itself when Settings opens and a newer version exists. Nothing is downloaded.
+            Item {
+                id: updateOverlay
+                anchors.fill: parent
+                z: 1000
+                visible: root.bar && root.bar.updateDialogOpen
+                MouseArea { anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.AllButtons }     // modal: blocks the page underneath
+                Rectangle { anchors.fill: parent; radius: frame.radius; color: Qt.rgba(0, 0, 0, pal.dark ? 0.45 : 0.25) }
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 300; height: 176
+                    radius: 14
+                    color: pal.contentSolid
+                    border.width: 1; border.color: pal.buttonBorder
+                    Text {
+                        x: 0; y: 28; width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: I18n.tr("New update ") + (root.bar ? root.bar.updateVersion : "")
+                        color: pal.text
+                        font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.weight: Font.DemiBold
+                        font.pixelSize: 17
+                    }
+                    Text {
+                        x: 20; y: 62; width: parent.width - 40
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: I18n.tr("A new version of MacShell is available.")
+                        color: pal.text2
+                        font.family: root.fontForWeight(font.weight, pal.fam)
+                        font.pixelSize: 13
+                    }
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom; anchors.bottomMargin: 20
+                        spacing: 10
+                        SButton {
+                            t: pal
+                            text: I18n.tr("Update")
+                            onClicked: { if (root.bar) root.bar.openUpdateLink(); }
+                        }
+                        SButton {
+                            t: pal
+                            text: I18n.tr("Close")
+                            onClicked: { if (root.bar) root.bar.updateDialogOpen = false; }
+                        }
+                    }
+                }
             }
 
             // opaque page area: from the sidebar's right edge to the window edge (rounded on the right only)
@@ -1478,6 +1527,35 @@ Scope {
                     text: I18n.tr("If you turn both off, reopen this window with:  qs -c MacShell ipc call settings open")
                 }
 
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Software Update")
+                        subtitle: !root.bar ? ""
+                                  : root.bar.updateChecking ? I18n.tr("Checking for updates…")
+                                  : root.bar.updateState === "available" ? I18n.tr("New update ") + root.bar.updateVersion
+                                  : root.bar.updateState === "uptodate" ? I18n.tr("MacShell is up to date")
+                                  : root.bar.updateState === "error" ? I18n.tr("Couldn't check for updates")
+                                  : ""
+                        Row {
+                            spacing: 8
+                            SButton {
+                                t: pal
+                                visible: root.bar && root.bar.updateState === "available"
+                                text: I18n.tr("Update")
+                                onClicked: { if (root.bar) root.bar.openUpdateLink(); }
+                            }
+                            SButton {
+                                t: pal
+                                opacity: root.bar && root.bar.updateChecking ? 0.5 : 1
+                                text: I18n.tr("Check for updates")
+                                onClicked: { if (root.bar && !root.bar.updateChecking) root.bar.checkForUpdates(false); }
+                            }
+                        }
+                    }
+                }
+
             }
         }
 
@@ -1536,7 +1614,7 @@ Scope {
                     SRow {
                         t: pal
                         title: I18n.tr("Automatic scaling")
-                        subtitle: I18n.tr("Shrinks the menu bar, its menus, Control Center and the Settings / About windows on screens smaller than 1920\u00d71080")
+                        subtitle: I18n.tr("Shrinks the menu bar, its menus, Spotlight, Control Center and the Settings / About windows on screens smaller than 1920\u00d71080")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.uiScaleAuto : true
@@ -3887,7 +3965,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.3.6 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.3.7 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(font.weight, pal.fam)
                             font.pixelSize: 12
