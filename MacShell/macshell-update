@@ -21,7 +21,14 @@ state_get() { [ -f "$STATE_FILE" ] && sed -n "s/^$1=//p" "$STATE_FILE" | head -n
 REPO="${MACSHELL_REPO:-$(state_get repo)}"; REPO="${REPO:-0-ss/MacShell}"
 BRANCH="${MACSHELL_BRANCH:-$(state_get branch)}"; BRANCH="${BRANCH:-main}"
 DEST="$(state_get dest)"; DEST="${DEST:-$CONFIG_HOME/quickshell/MacShell}"
-INSTALLED="$(state_get installed)"; INSTALLED="${INSTALLED:-unknown}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Version of the code that is actually running: the VERSION file shipped next to this script (e.g. "0.3.6").
+# The state file (written by install.sh) is only the fallback, so a stale/missing state can no longer cause a false "update".
+LOCAL_VERSION=""
+[ -f "$SELF_DIR/VERSION" ] && LOCAL_VERSION="$(head -n1 "$SELF_DIR/VERSION" | tr -d '[:space:]')"
+INSTALLED="$LOCAL_VERSION"
+[ -z "$INSTALLED" ] && INSTALLED="$(state_get installed)"
+INSTALLED="${INSTALLED:-unknown}"
 
 JSON=0 YES=0 FORCE=0 REF=""
 
@@ -32,11 +39,21 @@ latest_release() {
 }
 branch_sha() { gh_api application/vnd.github.sha "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null | head -c 40; }
 
+norm() { printf '%s' "$1" | sed 's/^[vV]\([0-9]\)/\1/' | tr -d '[:space:]'; }
+is_ver() { [[ "$(norm "$1")" =~ ^[0-9]+(\.[0-9]+)*([-+.][0-9A-Za-z.-]+)?$ ]]; }
+# returns 0 if $1 is the same as or newer than $2 (numeric dotted compare)
+ver_ge() { [ "$(printf '%s\n%s\n' "$(norm "$2")" "$(norm "$1")" | sort -V | tail -n1)" = "$(norm "$1")" ]; }
+branch_version() {
+    gh_api text/plain "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
+}
+
 LATEST="" LATEST_TYPE=""
 fetch_latest() {
     local rel sha
     rel=$(latest_release)
     if [ -n "$rel" ]; then LATEST="$rel"; LATEST_TYPE="release"; return 0; fi
+    rel=$(branch_version)
+    if [ -n "$rel" ] && is_ver "$rel"; then LATEST="$rel"; LATEST_TYPE="release"; return 0; fi
     sha=$(branch_sha)
     if [ -n "$sha" ]; then LATEST="$sha"; LATEST_TYPE="branch"; return 0; fi
     return 1
@@ -65,7 +82,7 @@ cmd_check() {
         emit error "Could not reach GitHub (or the repository $REPO was not found)"
         [ "$JSON" = 1 ] && return 0; return 1
     fi
-    if [ "$INSTALLED" = "$LATEST" ]; then
+    if [ "$INSTALLED" = "$LATEST" ] || { is_ver "$INSTALLED" && is_ver "$LATEST" && ver_ge "$INSTALLED" "$LATEST"; }; then
         emit uptodate "MacShell is up to date ($(short "$INSTALLED"))"; return 0
     fi
     if [ "$INSTALLED" = unknown ] || [ "$INSTALLED" = local ]; then
@@ -86,7 +103,7 @@ cmd_update() {
         fetch_latest || { echo "Could not reach GitHub (repository $REPO)." >&2; return 1; }
         id="$LATEST"; type="$LATEST_TYPE"
     fi
-    if [ "$id" = "$INSTALLED" ] && [ "$FORCE" = 0 ]; then
+    if { [ "$id" = "$INSTALLED" ] || { is_ver "$INSTALLED" && is_ver "$id" && ver_ge "$INSTALLED" "$id"; }; } && [ "$FORCE" = 0 ] && [ -z "$REF" ]; then
         echo "Already up to date ($(short "$id"))."; return 0
     fi
     if [ "$YES" = 0 ]; then

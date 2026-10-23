@@ -102,7 +102,10 @@ Scope {
     // Panels (top bar menus / popovers, Spotlight, Control Center, notifications) are light or dark by what is BEHIND them
     // (panelTone, measured live, see "Auto contrast" below); the Light / Dark / Auto setting is the fallback while nothing is
     // measured yet and the tie-break when the backdrop is neither clearly bright nor clearly dark.
-    readonly property bool panelDarkMode: (autoContrast && panelTone !== 0) ? (panelTone === -1) : darkMode
+    // Readability only ever changes the TEXT: panelDarkMode (glass tint, cards, borders) always follows the Light / Dark setting,
+    // while panelTextWhite (text + glyph colour) follows the measured backdrop.
+    readonly property bool panelDarkMode: darkMode
+    readonly property bool panelTextWhite: (autoContrast && panelTone !== 0) ? (panelTone === -1) : darkMode
     property color accent: "#0A84FF"
     // The UI font is Open Runde (bundled in assets/fonts, loaded by shell.qml). Settings that still say Inter move over to it.
     property string fontFamily: "Open Runde"
@@ -178,6 +181,45 @@ Scope {
     //    flips it between light and dark by itself.
     // The choice is made by worst-case contrast (white text on the brightest part vs dark text on the darkest part, spread
     // included), with hysteresis so it never flickers, and falls back to the system look when both read equally well.
+    // ═════════ UPDATE CHECK ═════════
+    // Only ASKS whether a newer MacShell exists (`macshell-update check --json`, one tiny request to GitHub). It never downloads or
+    // installs anything: the "Update" button just opens updateUrl in the browser.
+    readonly property string updateScript: decodeURIComponent(String(Qt.resolvedUrl("macshell-update")).replace(/^file:\/\//, ""))
+    property string updateUrl: "https://github.com/0-ss/MacShell/releases/latest"     // ← the link the "Update" button opens
+    property bool updateChecking: false
+    property string updateState: ""            // "" = not checked yet | uptodate | available | error
+    property string updateVersion: ""          // the new version, e.g. "1.2.0"
+    property bool updateDialogOpen: false      // the "New update x.x.x" window in Settings
+    property bool updateAnnounce: false        // this check may open that window
+    function checkForUpdates(announce) {
+        updateAnnounce = announce === true;
+        if (updateProc.running) return;
+        updateChecking = true;
+        updateProc.command = ["bash", updateScript, "check", "--json"];
+        updateProc.running = true;
+    }
+    function openUpdateLink() { Quickshell.execDetached(["xdg-open", updateUrl]); }
+    Process {
+        id: updateProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.updateChecking = false;
+                var o = null;
+                try { o = JSON.parse(text.trim().split("\n").pop()); } catch (e) { o = null; }
+                if (!o) { root.updateState = "error"; return; }
+                if (o.status === "available") {
+                    root.updateVersion = String(o.latest || "").replace(/^v(?=[0-9])/, "");
+                    root.updateState = "available";
+                    if (root.updateAnnounce) root.updateDialogOpen = true;
+                } else {
+                    root.updateState = o.status === "uptodate" ? "uptodate" : "error";
+                    root.updateDialogOpen = false;
+                }
+            }
+        }
+        onExited: root.updateChecking = false
+    }
+
     readonly property string toneScript: decodeURIComponent(String(Qt.resolvedUrl("assets/tone.sh")).replace(/^file:\/\//, ""))
     // cur: 1 = dark text now (bright backdrop), -1 = white text now, 0 = undecided; v/sd = brightness / spread 0..1
     function pickTone(cur, v, sd, fresh) {
@@ -508,7 +550,7 @@ Scope {
     property real btk: barTextDark ? 0 : 1
     Behavior on btk { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
     function mixb(l, d) { return Qt.rgba(l.r + (d.r - l.r) * btk, l.g + (d.g - l.g) * btk, l.b + (d.b - l.b) * btk, l.a + (d.a - l.a) * btk); }
-    readonly property bool panelTextDark: !panelDarkMode
+    readonly property bool panelTextDark: !panelTextWhite
     property real ptk: panelTextDark ? 0 : 1
     Behavior on ptk { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
     function mixp(l, d) { return Qt.rgba(l.r + (d.r - l.r) * ptk, l.g + (d.g - l.g) * ptk, l.b + (d.b - l.b) * ptk, l.a + (d.a - l.a) * ptk); }
@@ -587,8 +629,8 @@ Scope {
         readonly property color tileBorder: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.70)
         readonly property color btnOff: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.10)
         readonly property color btnHover: dark ? Qt.rgba(1, 1, 1, 0.30) : Qt.rgba(0, 0, 0, 0.16)
-        readonly property color hover: root.mixp(Qt.rgba(0, 0, 0, 0.09), Qt.rgba(1, 1, 1, 0.14))
-        readonly property color sep: root.mixp(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.14))
+        readonly property color hover: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.09)
+        readonly property color sep: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.12)
         readonly property color track: dark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.12)
         readonly property color content: dark ? "#1E1E1E" : "#F5F5F7"
         readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
@@ -607,9 +649,9 @@ Scope {
         readonly property color tileBorder: root.mixc(Qt.rgba(1, 1, 1, 0.70), Qt.rgba(1, 1, 1, 0.16))
         readonly property color btnOff: root.mixc(Qt.rgba(0, 0, 0, 0.10), Qt.rgba(1, 1, 1, 0.20))
         readonly property color btnHover: root.mixc(Qt.rgba(0, 0, 0, 0.16), Qt.rgba(1, 1, 1, 0.30))
-        readonly property color hover: root.mixp(Qt.rgba(0, 0, 0, 0.09), Qt.rgba(1, 1, 1, 0.14))
-        readonly property color sep: root.mixp(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.14))
-        readonly property color track: root.mixp(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.20))
+        readonly property color hover: root.mixc(Qt.rgba(0, 0, 0, 0.09), Qt.rgba(1, 1, 1, 0.14))
+        readonly property color sep: root.mixc(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.14))
+        readonly property color track: root.mixc(Qt.rgba(0, 0, 0, 0.12), Qt.rgba(1, 1, 1, 0.20))
         readonly property color content: dark ? "#1E1E1E" : "#F5F5F7"
         readonly property color card: dark ? "#2B2B2D" : "#FFFFFF"
         readonly property color cardBorder: root.mixc(Qt.rgba(0, 0, 0, 0.08), Qt.rgba(1, 1, 1, 0.07))
@@ -621,9 +663,9 @@ Scope {
         // the Control Center follows the selected UI font like everything else (Open Runde by default)
         readonly property string fam: root.fontFamily
         readonly property color accent: root.accent
-        readonly property color fg: root.ccMix(Qt.color("#1D1D1F"), Qt.color("#FFFFFF"))
-        readonly property color fg2: root.ccMix(Qt.rgba(0, 0, 0, 0.55), Qt.rgba(1, 1, 1, 0.62))
-        readonly property color fg3: root.ccMix(Qt.rgba(0, 0, 0, 0.32), Qt.rgba(1, 1, 1, 0.34))
+        readonly property color fg: root.mixp(Qt.color("#1D1D1F"), Qt.color("#FFFFFF"))
+        readonly property color fg2: root.mixp(Qt.rgba(0, 0, 0, 0.55), Qt.rgba(1, 1, 1, 0.62))
+        readonly property color fg3: root.mixp(Qt.rgba(0, 0, 0, 0.32), Qt.rgba(1, 1, 1, 0.34))
         readonly property color tile: root.ccMix(Qt.rgba(1, 1, 1, 0.42), Qt.rgba(1, 1, 1, 0.10))
         readonly property color tileBorder: root.ccMix(Qt.rgba(1, 1, 1, 0.70), Qt.rgba(1, 1, 1, 0.16))
         readonly property color btnOff: root.ccMix(Qt.rgba(0, 0, 0, 0.10), Qt.rgba(1, 1, 1, 0.20))
@@ -1701,7 +1743,7 @@ Scope {
         Rectangle { visible: r.y > 0.5; x: 14; width: parent.width - 14; height: 1; color: r.t.sep }
         Text {
             x: 14; anchors.verticalCenter: parent.verticalCenter
-            text: r.title; color: r.t.dark ? "#F5F5F7" : "#1D1D1F"
+            text: r.title; color: r.t.fg
             font.family: root.fontForWeight(font.weight, r.t.fam); font.pixelSize: 13
         }
         Item {
@@ -1781,7 +1823,7 @@ Scope {
                     width: sg.segWidth; height: sg.height - 4
                     Text {
                         anchors.centerIn: parent; text: I18n.tr(parent.modelData)
-                        color: sg.t.dark ? "#F5F5F7" : "#1D1D1F"
+                        color: sg.t.fg
                         font.family: root.fontForWeight(font.weight, sg.t.fam); font.pixelSize: 12
                     }
                     MouseArea { anchors.fill: parent; onClicked: sg.picked(parent.index) }
@@ -8810,7 +8852,7 @@ Scope {
                         anchors.fill: parent; anchors.margins: 12
                         text: clipGhost.en ? clipGhost.en.text : ""
                         wrapMode: Text.Wrap; elide: Text.ElideRight; maximumLineCount: 2
-                        color: root.panelDarkMode ? "white" : "#1d1d1f"; font.family: root.fontForWeight(font.weight, root.fontFamily); font.pixelSize: 13
+                        color: root.panelTextWhite ? "white" : "#1d1d1f"; font.family: root.fontForWeight(font.weight, root.fontFamily); font.pixelSize: 13
                     }
                     SequentialAnimation {
                         id: wiggleClip; loops: Animation.Infinite
@@ -8849,53 +8891,43 @@ Scope {
                 // Backdrop capture + blur for Spotlight's glass. Deliberately NOT inside `spot`: as children they inherited
                 // spot's opacity while it faded, so the glass refracted a half-transparent backdrop and turned into a milky
                 // blob mid-fade (the fade looked broken). Out here they always produce the real backdrop.
+                readonly property rect spCapLocal: Qt.rect(spot.x - 128, spot.y - 128, spot.width + 256, 684)
+                readonly property real spCapS: root.barPopupScale
+                readonly property rect spCapScreen: {
+                    var cx = spot.x + spot.width / 2, cy = spot.y + spot.height / 2, k = spCapS, l = spCapLocal;
+                    return Qt.rect(cx + (l.x - cx) * k, cy + (l.y - cy) * k, l.width * k, l.height * k);
+                }
                 ShaderEffectSource {
                     id: spSrc
                     sourceItem: spotBackdrop.item     // wallpaper + live windows, captured inside this layer
                     hideSource: true
                     live: spotWin.openish
                     visible: false
-                    sourceRect: Qt.rect(spot.x - 128, spot.y - 128, spot.width + 256, 684)
+                    // The Spotlight is drawn scaled by the UI scale around its centre, but the glass shaders map pixels in its UNSCALED
+                    // coordinates (spg.srcRect = spCapLocal). So the capture (spCapScreen) is where that same region really is on screen.
+                    sourceRect: spotRoot.spCapScreen
                 }
                 MultiEffect {
                     id: spBlurFx
                     source: spSrc
                     width: spSrc.sourceRect.width; height: spSrc.sourceRect.height
                     blurEnabled: true
-                    blurMax: 6
-                    blur: Math.min(1.0, (spg.blur * spg.blurMul) * 1.4 / 6.0)
+                    blurMax: 64                              // same single-pass blur the Control Center / popovers use
+                    blur: Math.min(1.0, (spg.blur * spg.blurMul) * 1.4 / 64.0)
                     autoPaddingEnabled: false
                     visible: false
                 }
-                // real Gaussian pre-blur of the backdrop (Qt MultiEffect): the glass shader refracts THIS texture,
-                // so there are no sampled copies of the background any more
                 ShaderEffectSource {
                     id: spBlur
                     sourceItem: spBlurFx
                     live: spotWin.openish
-                    visible: false
-                }
-                MultiEffect {
-                    id: spBlur2Fx
-                    source: spBlur
-                    width: spSrc.sourceRect.width; height: spSrc.sourceRect.height
-                    blurEnabled: true
-                    blurMax: 64
-                    blur: Math.max(0.0, Math.min(1.0, (spg.blur * spg.blurMul) * 1.4 / 64.0 - 1.0))
-                    autoPaddingEnabled: false
-                    visible: false
-                }
-                // second Gaussian pass: stacks on the first one so Spotlight can blur past a single pass's 64 px limit
-                ShaderEffectSource {
-                    id: spBlur2
-                    sourceItem: spBlur2Fx
-                    live: spotWin.openish
+                    mipmap: true                    // liquidglass.frag samples this with textureLod(): it needs mip levels (see its header)
                     visible: false
                 }
                 GlassCtx {
                     id: spg
-                    src: spBlur2
-                    srcRect: spSrc.sourceRect
+                    src: spBlur
+                    srcRect: spotRoot.spCapLocal
                     frame: spotRoot
                     liquid: root.liquidActive
                     shaderUrl: root.glassShaderUrl
@@ -8928,12 +8960,13 @@ Scope {
                     property real vis: 0
                     opacity: vis
                     visible: vis > 0.001
-                    scale: ui.spCalm ? 0.98 : 0.94
+                    readonly property real uiS: root.barPopupScale      // Settings → Menu Bar → UI scale
+                    scale: uiS * (ui.spCalm ? 0.98 : 0.94)
                     transformOrigin: Item.Center
                     states: State {
                         name: "open"
                         when: ui.pop === "spot"
-                        PropertyChanges { target: spot; vis: 1; scale: 1 }
+                        PropertyChanges { target: spot; vis: 1; scale: spot.uiS }
                     }
                     transitions: [
                         Transition {
@@ -8947,7 +8980,7 @@ Scope {
                             from: "open"; to: ""
                             ParallelAnimation {
                                 NumberAnimation { property: "vis"; duration: 190; easing.type: Easing.OutCubic }
-                                NumberAnimation { property: "scale"; to: 0.95; duration: 190; easing.type: Easing.OutCubic }
+                                NumberAnimation { property: "scale"; to: spot.uiS * 0.95; duration: 190; easing.type: Easing.OutCubic }
                             }
                         }
                     ]

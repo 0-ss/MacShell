@@ -157,6 +157,14 @@ var strings = {
 
     // Settings: General
     "Language": "Язык",
+    "Software Update": "Обновление ПО",
+    "Checking for updates…": "Проверка обновлений…",
+    "New update ": "Новое обновление ",
+    "MacShell is up to date": "MacShell обновлён",
+    "Couldn't check for updates": "Не удалось проверить обновления",
+    "Update": "Обновить",
+    "Check for updates": "Проверить обновления",
+    "A new version of MacShell is available.": "Доступна новая версия MacShell.",
     "Automatic follows the system language": "«Автоматически» — как язык системы",
     "Shell": "Оболочка",
     "Show the Dock at the bottom of the screen": "Показывать Dock внизу экрана",
