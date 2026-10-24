@@ -184,9 +184,10 @@ Scope {
     // The choice is made by worst-case contrast (white text on the brightest part vs dark text on the darkest part, spread
     // included), with hysteresis so it never flickers, and falls back to the system look when both read equally well.
     // ═════════ UPDATE CHECK ═════════
-    // Only ASKS whether a newer MacShell exists (`macshell-update check --json`, one tiny request to GitHub). It never downloads or
-    // installs anything: the "Update" button just opens updateUrl in the browser.
-    readonly property string updateScript: decodeURIComponent(String(Qt.resolvedUrl("macshell-update")).replace(/^file:\/\//, ""))
+    // Only ASKS whether a newer MacShell exists (assets/check-update.sh: the latest release, else VERSION on the main branch of
+    // github.com/0-ss/MacShell, compared with the VERSION file of this install). It never downloads or installs anything:
+    // the "Update" button just opens updateUrl in the browser.
+    readonly property string updateScript: decodeURIComponent(String(Qt.resolvedUrl("assets/check-update.sh")).replace(/^file:\/\//, ""))
     property string updateUrl: "https://github.com/0-ss/MacShell/releases/latest"     // ← the link the "Update" button opens
     property bool updateChecking: false
     property string updateState: ""            // "" = not checked yet | uptodate | available | error
@@ -197,7 +198,7 @@ Scope {
         updateAnnounce = announce === true;
         if (updateProc.running) return;
         updateChecking = true;
-        updateProc.command = ["bash", updateScript, "check", "--json"];
+        updateProc.command = ["sh", updateScript];
         updateProc.running = true;
     }
     function openUpdateLink() { Quickshell.execDetached(["xdg-open", updateUrl]); }
@@ -209,6 +210,7 @@ Scope {
                 var o = null;
                 try { o = JSON.parse(text.trim().split("\n").pop()); } catch (e) { o = null; }
                 if (!o) { root.updateState = "error"; return; }
+                if (o.url) root.updateUrl = String(o.url);
                 if (o.status === "available") {
                     root.updateVersion = String(o.latest || "").replace(/^v(?=[0-9])/, "");
                     root.updateState = "available";

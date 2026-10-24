@@ -120,6 +120,7 @@ FROM_DIR=""
 CHANNEL="${MACSHELL_CHANNEL:-}"
 RESOLVED_ID=""
 RESOLVED_TYPE=""
+RESOLVED_VER=""     # the version number of RESOLVED_ID (e.g. 0.3.8), when known
 
 # ───────────────────────── output helpers ─────────────────────────
 if [ -t 1 ]; then B=$'\033[1m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; D=$'\033[2m'; N=$'\033[0m'; else B=""; G=""; Y=""; R=""; D=""; N=""; fi
@@ -135,6 +136,12 @@ sedi() { sed -i --follow-symlinks "$@" 2>/dev/null || sed -i "$@"; }
 # early and cmd is killed by SIGPIPE, which made the installer claim that installed fonts were missing.
 text_has() { grep -Eqi -- "$2" <<<"$1"; }
 same_version() { [ "${1#v}" = "${2#v}" ]; }
+# version helpers (0.3.7, v1.2 ...)
+is_ver() { [[ "${1:-}" =~ ^v?[0-9]+(\.[0-9]+)*$ ]]; }
+ver_ge() { # ver_ge A B: is A the same as, or newer than, B?
+    local a="${1#v}" b="${2#v}"
+    [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)" = "$a" ]
+}
 
 # confirm "question" [default y|n]
 confirm() {
@@ -207,6 +214,8 @@ setup_auto_update() {
         return 0
     fi
     mkdir -p "$UNIT_DIR"
+    local upd="$BIN_DIR/macshell-update update --yes --notify"
+    [ -x "$BIN_DIR/macshell-update" ] || upd="$BIN_DIR/macshell-install --update"
     cat > "$UNIT_DIR/macshell-update.service" <<UNIT
 [Unit]
 Description=Update MacShell and MacLock from GitHub
@@ -215,7 +224,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=$BIN_DIR/macshell-update update --yes --notify
+ExecStart=$upd
 UNIT
     cat > "$UNIT_DIR/macshell-update.timer" <<UNIT
 [Unit]
@@ -1080,10 +1089,13 @@ run_doctor() {
     # version
     if have curl; then
         local inst latest
-        inst=$(state_get installed); latest=$(RESOLVED_ID=""; resolve_version >/dev/null 2>&1 && printf '%s' "$RESOLVED_ID" || true)
-        if [ -z "$latest" ]; then say "  ${D}- could not reach GitHub to look for updates${N}"
-        elif same_version "$latest" "$inst"; then d_ok "up to date (${inst:0:12})"
-        else warn "an update is available (${inst:0:12} -> ${latest:0:12}): run  bash install.sh"; fi
+        inst=$(installed_version); inst="${inst:-$(state_get installed)}"
+        if ! try_resolve; then say "  ${D}- could not reach GitHub ($REPO) to look for updates${N}"
+        else
+            latest="${RESOLVED_VER:-$RESOLVED_ID}"
+            if is_current; then d_ok "up to date (${inst:0:12})"
+            else warn "an update is available (${inst:0:12} -> ${latest:0:12}): run  bash install.sh"; fi
+        fi
     fi
     echo
     if [ "$bad" -eq 0 ]; then printf '%sEverything looks good.%s\n' "$G" "$N"; else printf '%s%s problem(s) found%s (see the lines marked !).\n' "$Y" "$bad" "$N"; fi
@@ -1095,7 +1107,7 @@ maybe_menu() {
     [ "$MODE_FLAG" = 1 ] || [ "$ASSUME_YES" = 1 ] && return 0
     [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
     local inst ans latest
-    inst=$(state_get installed)
+    inst=$(installed_version); inst="${inst:-$(state_get installed)}"
     say ""
     if [ -f "$STATE_DIR/state.env" ] && [ -d "$DEST" ]; then say "${B}MacShell${N} (installed: ${inst:-unknown})"; else say "${B}MacShell${N} (not installed yet)"; fi
     {
@@ -1113,14 +1125,15 @@ maybe_menu() {
         2)
             have curl || die "curl is required to check for updates"
             step "Checking for updates"
-            latest=$(RESOLVED_ID=""; resolve_version >/dev/null 2>&1 && printf '%s' "$RESOLVED_ID" || true)
-            if [ -z "$latest" ]; then warn "could not reach GitHub, check your connection"; exit 1; fi
+            if ! try_resolve; then warn "could not reach GitHub (repo $REPO), check your connection"; exit 1; fi
+            latest="${RESOLVED_VER:-$RESOLVED_ID}"
             if [ ! -f "$STATE_DIR/state.env" ] || [ ! -d "$DEST" ]; then
                 say "  MacShell is not installed (latest: ${latest:0:12})"
                 confirm "Install it now?" y && return 0
                 exit 0
             fi
-            if same_version "$latest" "$inst"; then ok "up to date (${latest:0:12})"; exit 0; fi
+            inst=$(installed_version); inst="${inst:-$(state_get installed)}"
+            if is_current; then ok "up to date (${inst:0:12})"; exit 0; fi
             say "  installed: ${inst:0:12}"
             say "  latest:    ${latest:0:12}"
             confirm "An update is available. Install it now?" y && return 0
@@ -1145,9 +1158,54 @@ CURL=(curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused)
 gh_api() { # gh_api <accept> <url>
     "${CURL[@]}" --max-time 20 ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} -H "Accept: $1" "$2"
 }
+# The version number also lives in AboutApp.qml ("MacShell 0.3.8") and the VERSION file is easy to forget: take the highest.
+qml_ver() { # qml_ver <AboutApp.qml>
+    [ -f "$1" ] || return 0
+    grep -oE 'MacShell [0-9]+(\.[0-9]+)+' "$1" 2>/dev/null | head -n1 | cut -d' ' -f2 || true
+}
+max_ver() { # max_ver <version>...: the highest valid one
+    local best="" v
+    for v in "$@"; do
+        is_ver "$v" || continue
+        v="${v#v}"
+        if [ -z "$best" ] || ! ver_ge "$best" "$v"; then best="$v"; fi
+    done
+    printf '%s' "$best"
+}
+dir_version() { # dir_version <shell folder>
+    local v=""
+    if [ -f "$1/VERSION" ]; then v=$(tr -d ' \t\r\n' < "$1/VERSION" | cut -c1-40); fi
+    max_ver "$v" "$(qml_ver "$1/AboutApp.qml")"
+}
+# The newest release tag. The redirect of github.com/<repo>/releases/latest is asked first: it has no API rate limit (the
+# unauthenticated API allows 60 requests an hour per IP, which is what made the update check fail), the API is the fallback.
 latest_release() {
-    gh_api application/vnd.github+json "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-        | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1 || true
+    local url="" tag=""
+    url=$("${CURL[@]}" --max-time 20 -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null || true)
+    case "$url" in
+        */releases/tag/*) tag="${url##*/releases/tag/}"; tag="${tag%%[?#]*}" ;;
+    esac
+    if ! is_ver "$tag"; then
+        tag=$(gh_api application/vnd.github+json "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+            | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1 || true)
+    fi
+    if is_ver "$tag"; then printf '%s' "$tag"; fi
+    return 0
+}
+# the VERSION file on the main branch of the repository
+remote_version() {
+    local p v="" found=()
+    for p in MacShell/VERSION VERSION; do
+        v=$("${CURL[@]}" --max-time 20 "https://raw.githubusercontent.com/$REPO/$BRANCH/$p" 2>/dev/null | head -n1 | tr -d ' \t\r\n' || true)
+        found+=("$v")
+    done
+    for p in MacShell/AboutApp.qml AboutApp.qml; do
+        v=$("${CURL[@]}" --max-time 20 "https://raw.githubusercontent.com/$REPO/$BRANCH/$p" 2>/dev/null \
+            | grep -oE 'MacShell [0-9]+(\.[0-9]+)+' | head -n1 | cut -d' ' -f2 || true)
+        found+=("$v")
+    done
+    max_ver "${found[@]}"
+    return 0
 }
 branch_sha() {
     local s
@@ -1156,23 +1214,49 @@ branch_sha() {
     if ! [[ "$s" =~ ^[0-9a-f]{40}$ ]] && have git; then
         s=$(git ls-remote "https://github.com/$REPO.git" "refs/heads/$BRANCH" 2>/dev/null | cut -c1-40 | head -n1 || true)
     fi
-    [[ "$s" =~ ^[0-9a-f]{40}$ ]] && printf '%s' "$s" || true
+    if [[ "$s" =~ ^[0-9a-f]{40}$ ]]; then printf '%s' "$s"; fi
+    return 0
 }
-resolve_version() {
-    [ -n "$RESOLVED_ID" ] && return 0
-    local rel sha
+# Find what the newest version is (sets RESOLVED_ID / RESOLVED_TYPE / RESOLVED_VER). Returns 1 when GitHub cannot be reached.
+try_resolve() {
+    [ -z "$RESOLVED_ID" ] || return 0
+    local rel="" sha="" ver=""
     if [ -n "$REF" ]; then
         RESOLVED_ID="$REF"
         if [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]]; then RESOLVED_TYPE="commit"; else RESOLVED_TYPE="release"; fi
+        if is_ver "$REF"; then RESOLVED_VER="${REF#v}"; fi
         return 0
     fi
     if [ "$CHANNEL" = release ]; then
         rel=$(latest_release)
-        if [ -n "$rel" ]; then RESOLVED_ID="$rel"; RESOLVED_TYPE="release"; return 0; fi
+        if [ -n "$rel" ]; then RESOLVED_ID="$rel"; RESOLVED_TYPE="release"; RESOLVED_VER="${rel#v}"; return 0; fi
     fi
-    sha=$(branch_sha)
-    if [ -n "$sha" ]; then RESOLVED_ID="$sha"; RESOLVED_TYPE="branch"; return 0; fi
-    die "could not reach GitHub (repo $REPO). Check your connection, or use --from-dir with a local copy."
+    # no release (yet): the newest commit of the branch, with the version number from its VERSION file
+    sha=$(branch_sha); ver=$(remote_version)
+    if [ -n "$sha" ]; then RESOLVED_ID="$sha"; RESOLVED_TYPE="branch"; RESOLVED_VER="$ver"; return 0; fi
+    if [ -n "$ver" ]; then RESOLVED_ID="$BRANCH"; RESOLVED_TYPE="branch"; RESOLVED_VER="$ver"; return 0; fi
+    return 1
+}
+resolve_version() {
+    try_resolve || die "could not reach GitHub (repo $REPO). Check your connection, or use --from-dir with a local copy."
+}
+# the version that is installed now (the VERSION file of the installed shell, else what the state file remembers)
+installed_version() {
+    local v=""
+    v=$(dir_version "$DEST")
+    is_ver "$v" || v=$(state_get installed_version)
+    is_ver "$v" || v=$(state_get installed)
+    if is_ver "$v"; then printf '%s' "${v#v}"; fi
+    return 0
+}
+# is what is installed as new as RESOLVED_ID? (call try_resolve first)
+is_current() {
+    local inst iver
+    inst=$(state_get installed); iver=$(installed_version)
+    if [[ "$inst" =~ ^[0-9a-f]{40}$ ]] && [[ "$RESOLVED_ID" =~ ^[0-9a-f]{40}$ ]]; then [ "$inst" = "$RESOLVED_ID" ]; return; fi
+    if [ -n "$inst" ] && same_version "$inst" "$RESOLVED_ID"; then return 0; fi
+    if is_ver "$RESOLVED_VER" && [ -n "$iver" ]; then ver_ge "$iver" "$RESOLVED_VER"; return; fi
+    return 1
 }
 
 # --check: compare the installed version with GitHub, change nothing
@@ -1180,14 +1264,14 @@ run_check() {
     step "Checking for updates"
     have curl || die "curl is required"
     resolve_version
-    local inst; inst=$(state_get installed)
-    inst="${inst:-none}"
-    if same_version "$inst" "$RESOLVED_ID"; then
-        ok "up to date (${RESOLVED_ID:0:12})"; exit 0
+    local inst; inst=$(installed_version); [ -n "$inst" ] || inst=$(state_get installed); inst="${inst:-none}"
+    local latest="${RESOLVED_VER:-$RESOLVED_ID}"
+    if is_current; then
+        ok "up to date (${inst:0:12})"; exit 0
     fi
     say "  installed: ${inst:0:12}"
-    say "  latest:    ${RESOLVED_ID:0:12} ($RESOLVED_TYPE)"
-    say "  Update available. Run ./install.sh, or: macshell-update update"
+    say "  latest:    ${latest:0:12} ($RESOLVED_TYPE)"
+    say "  Update available. Run ./install.sh, or: macshell-install --update"
     exit 10
 }
 
@@ -1555,7 +1639,7 @@ install_extras() {
         ln -sf "$BIN_DIR/macshell-update" "$LINK_DIR/macshell-update"
         ok "update tool -> $BIN_DIR/macshell-update"
     else
-        warn "macshell-update not found in the source: update checks will not work"
+        say "  ${D}- no macshell-update tool in the source: use  macshell-install  (it checks GitHub and updates)${N}"
     fi
     write_start_script
     ok "start script -> $BIN_DIR/macshell-start"
@@ -1572,12 +1656,16 @@ install_extras() {
 
 write_state() {
     mkdir -p "$STATE_DIR"
+    local iv=""
+    iv=$(dir_version "$DEST")
+    is_ver "$iv" || iv="$RESOLVED_VER"
     {
         echo "repo=$REPO"
         echo "branch=$BRANCH"
         echo "channel=$RESOLVED_TYPE"
         echo "channel_pref=$CHANNEL"
         echo "installed=$RESOLVED_ID"
+        echo "installed_version=${iv#v}"
         echo "installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         echo "dest=$DEST"
         echo "lock_dest=$LOCK_DEST"
@@ -1760,9 +1848,9 @@ QML_ROOT=$(find_component_root "$SRC_ROOT" "$NAME" fallback || true)
 [ -n "$QML_ROOT" ] || die "shell.qml not found in the source: is this the MacShell repository?"
 # a release download is not a git clone: take its version from the VERSION file (so "update available" compares against
 # the real release, not against "local")
-if [ "$RESOLVED_ID" = local ] && [ -f "$QML_ROOT/VERSION" ]; then
-    ver=$(tr -d ' \t\r\n' < "$QML_ROOT/VERSION" | cut -c1-40)
-    if [[ "$ver" =~ ^v?[0-9]+(\.[0-9]+)*$ ]]; then RESOLVED_ID="$ver"; RESOLVED_TYPE="release"; fi
+if [ "$RESOLVED_ID" = local ]; then
+    ver=$(dir_version "$QML_ROOT")
+    if [ -n "$ver" ]; then RESOLVED_ID="$ver"; RESOLVED_TYPE="release"; RESOLVED_VER="$ver"; fi
 fi
 safe_dest "$DEST" MACSHELL_DEST
 safe_dest "$LOCK_DEST" MACLOCK_DEST
