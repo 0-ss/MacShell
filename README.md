@@ -258,6 +258,7 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 | `--no-services` | Don't enable system services (bluetooth, NetworkManager, power-profiles-daemon, PipeWire). |
 | `--no-autostart` | Don't touch the Hyprland config. |
 | `--no-rules` | Don't add the Liquid Glass layer rules to the Hyprland config. |
+| `--no-float` | Don't make all windows float by default. The choice is saved, so updates keep it. |
 | `--channel release\|main` | `release` (default): latest release, or the newest commit if there are none. `main`: always the newest commit. |
 | `--no-lock` | Install MacShell only, without MacLock. |
 | `--check` | Only check for a newer version (exit 0 = up to date, 10 = update available). |
