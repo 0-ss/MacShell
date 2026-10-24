@@ -145,6 +145,10 @@ Scope {
         }
     }
     property string barLogoMode: "arch"       // "arch", "apple", or "custom"
+    property bool windowBar: true
+    property bool windowBarTitle: true
+    property bool tlAlwaysSymbols: false
+    property bool tlColorOnHover: false
     property string barCustomLogoPath: ""     // absolute path, ~/path, or file URL for the custom menu-bar logo
     // The bar-size slider scales its widget groups while the left/right groups stay pinned to their corners.
     readonly property real barWidgetScale: Math.max(0.45, Math.min(1.55, barHeight / 28 * uiScale))
@@ -2054,13 +2058,14 @@ Scope {
     property bool wifiOn: true
     property string wifiSsid: ""
     property int wifiSignal: 0
+    property string wifiIp: ""
     property bool ethernetUp: false             // a wired connection is up (shown with Apple's <···> symbol when Wi-Fi isn't in use)
     readonly property bool showEthernet: ethernetUp && wifiSsid === ""
     readonly property int wifiLevel: !wifiOn ? 0 : (wifiSsid === "" ? 0 : (wifiSignal > 66 ? 3 : (wifiSignal > 33 ? 2 : 1)))
     function refreshWifi() { if (!wifiProc.running) wifiProc.running = true; }
     Process {
         id: wifiProc
-        command: ["sh", "-c", "nmcli radio wifi 2>/dev/null; nmcli -t -f ACTIVE,SSID,SIGNAL dev wifi 2>/dev/null | grep '^yes' | head -n1; echo; nmcli -t -f TYPE,STATE dev 2>/dev/null | grep -q '^ethernet:connected$' && echo eth || echo -"]
+        command: ["sh", "-c", "nmcli radio wifi 2>/dev/null; nmcli -t -f IN-USE,SSID,SIGNAL dev wifi 2>/dev/null | grep '^\\*' | head -n1; echo; nmcli -t -f TYPE,STATE dev 2>/dev/null | grep -q '^ethernet:connected$' && echo eth || echo -; ifc=$(nmcli -t -f DEVICE,TYPE dev 2>/dev/null | awk -F: '$2==\"wifi\"{print $1; exit}'); ip -4 -o addr show dev \"$ifc\" 2>/dev/null | awk '{print \"IP:\"$4}' | head -n1"]
         stdout: StdioCollector {
             onStreamFinished: {
                 var l = text.split("\n");
@@ -2072,6 +2077,9 @@ Scope {
                     root.wifiSignal = parseInt(parts[parts.length - 1]) || 0;
                     root.wifiSsid = parts.slice(1, parts.length - 1).join(":").replace(/\\/g, "");
                 } else { root.wifiSsid = ""; root.wifiSignal = 0; }
+                var ip = "";
+                for (var j = 0; j < l.length; j++) if (l[j].indexOf("IP:") === 0) { ip = l[j].slice(3); break; }
+                root.wifiIp = ip ? ip.split("/")[0] : "";
             }
         }
     }
@@ -6633,6 +6641,14 @@ Scope {
                             }
                         }
                         Rectangle { width: parent.width; height: 1; color: pp.sep }
+                        Text {
+                            visible: root.wifiSsid !== ""
+                            width: parent.width; leftPadding: 6
+                            text: root.wifiSsid + " · " + root.wifiSignal + "%" + (root.wifiIp !== "" ? " · " + root.wifiIp : "")
+                            color: pp.fg2
+                            font.family: root.fontForWeight(font.weight, pp.fam); font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
                         Text { visible: root.otherConnections.length>0; width:parent.width; leftPadding:6; text:I18n.tr("Ethernet & VPN"); color:pp.fg2; font.family: root.fontForWeight(font.weight, pp.fam); font.pixelSize:11; font.weight:Font.DemiBold }
                         Column {
                             width: parent.width
