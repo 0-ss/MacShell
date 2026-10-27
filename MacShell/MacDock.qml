@@ -3965,7 +3965,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.4.1 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.4.2 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(font.weight, pal.fam)
                             font.pixelSize: 12
@@ -4133,6 +4133,8 @@ Scope {
     }
 
     readonly property real effMag: magnificationEnabled ? magnification : 1
+    // hover labels and the right-click menu scale with the Dock (52 px icons = the reference size)
+    readonly property real labelK: Math.max(0.7, Math.min(2.2, iconSize / 52))
     readonly property int bgHeight: iconSize + topPad + bottomPad
     readonly property int sepWidth: 9
     readonly property real magRadius: (iconSize + spacing) * 2.6
@@ -4937,6 +4939,26 @@ Scope {
                 property string armed: ""            // label of a confirm-type entry that was clicked once (e.g. Empty Trash)
                 onMenuItemChanged: armed = ""
                 property real menuCx: 0
+                // the menu is as wide as its longest entry (measured here whenever a menu is built)
+                property real menuTextW: 0
+                readonly property real menuW: Math.max(Math.round(168 * root.labelK), Math.min(Math.round(360 * root.labelK), Math.ceil(menuTextW) + Math.round(38 * root.labelK)))
+                TextMetrics {
+                    id: menuTm
+                    font.pixelSize: Math.max(9, Math.round(13 * root.labelK))
+                    font.family: root.fontForWeight(Font.Normal, root.fontFamily)
+                }
+                function measureMenu() {
+                    var w = 0;
+                    for (var i = 0; i < menuModel.length; i++) {
+                        var e = menuModel[i];
+                        if (e.kind === "sep") continue;
+                        menuTm.text = I18n.tr(e.label);
+                        w = Math.max(w, menuTm.advanceWidth);
+                        if (e.confirm === true) { menuTm.text = I18n.tr("Click again to confirm"); w = Math.max(w, menuTm.advanceWidth); }
+                    }
+                    menuTextW = w;
+                }
+                onMenuModelChanged: measureMenu()
                 readonly property bool menuOpen: menuItem !== null
                 readonly property bool wantsHide: root.hideMode === "always"
                     || (root.hideMode === "smart" && root.busyMonitors[win.modelData.name] === true)
@@ -5748,38 +5770,62 @@ Scope {
                                     onFinished: cell.bounceStep()              // relaunched while settling: bounce again
                                 }
 
-                                Rectangle {
+                                // ── hover label ──
+                                // macOS Tahoe style: a heavily blurred Liquid Glass bubble with a pointer tail, light / dark with the system
+                                // appearance, sized from the Dock (see DockGlassPanel.qml). It is only built while it is shown.
+                                readonly property bool tipOn: root.showLabels && !cell.isSep && ma.containsMouse && !ma.pressed && !ui.menuOpen && !ui.dragging
+                                Loader {
                                     id: tip
-                                    visible: opacity > 0
-                                    opacity: (root.showLabels && !cell.isSep && ma.containsMouse && !ma.pressed && !ui.menuOpen && !ui.dragging) ? 1 : 0
-                                    Behavior on opacity { NumberAnimation { duration: 120 } }
                                     z: 10
-                                    width: label.implicitWidth + 22
-                                    height: label.implicitHeight + 10
-                                    radius: 9
-                                    color: Qt.rgba(0.12, 0.12, 0.13, 0.72)
-                                    border.width: 1
-                                    border.color: Qt.rgba(1, 1, 1, 0.14)
-                                    // dark hairline just outside, so the label keeps its edge over a bright window behind it
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        anchors.margins: -1
-                                        z: -1
-                                        radius: parent.radius + 1
-                                        color: "transparent"
-                                        border.width: 1
-                                        border.color: Qt.rgba(0, 0, 0, 0.22)
-                                    }
+                                    opacity: cell.tipOn ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                                    active: cell.tipOn || opacity > 0
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    y: cell.height - img.height - img.lift - height - 10
+                                    // (no explicit width / height: the Loader takes the bubble's size from it)
+                                    // the tail's tip sits just above the icon (above the magnified / bouncing icon, too)
+                                    y: cell.height - img.height - img.lift - height - Math.round(9 * root.labelK)
+                                    sourceComponent: DockGlassPanel {
+                                        id: lp
+                                        readonly property string title: cell.isSep ? "" : ((cell.modelData.kind === "win" && cell.modelData.tl && cell.modelData.tl.title) ? cell.modelData.tl.title : cell.modelData.name)
+                                        // a window cell names its window and, underneath, the app it belongs to
+                                        readonly property string sub: (!cell.isSep && cell.modelData.kind === "win" && cell.modelData.name && cell.modelData.name !== title) ? cell.modelData.name : ""
+                                        readonly property real fs: Math.max(9, Math.round(13 * k))
+                                        backdrop: glassBackdrop.item
+                                        live: root.liquidActive && glassBackdrop.item !== null
+                                        dark: root.darkMode
+                                        k: root.labelK
+                                        radius: Math.min(11.7 * k, bodyH / 2)
+                                        tailW: 21 * k
+                                        tailH: 5.8 * k
+                                        tailTipR: 2.4 * k
+                                        bodyH: sub !== "" ? 32 * k : 26 * k
+                                        width: Math.ceil(Math.max(tt.width, st.visible ? st.width : 0)) + 2 * Math.round(12 * k)
 
-                                    Text {
-                                        id: label
-                                        anchors.centerIn: parent
-                                        text: cell.isSep ? "" : ((cell.modelData.kind === "win" && cell.modelData.tl && cell.modelData.tl.title) ? cell.modelData.tl.title : cell.modelData.name)
-                                        color: "white"
-                                        font.pixelSize: 13
-                                        font.family: root.fontForWeight(font.weight, root.fontFamily)
+                                        Text {
+                                            id: tt
+                                            text: lp.title
+                                            width: Math.min(implicitWidth, Math.round(320 * lp.k))
+                                            elide: Text.ElideRight
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            anchors.verticalCenter: parent.top
+                                            anchors.verticalCenterOffset: lp.sub !== "" ? 9.2 * lp.k : lp.bodyH / 2 + 0.5 * lp.k
+                                            color: lp.dark ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(0, 0, 0, 0.86)
+                                            font.pixelSize: lp.fs
+                                            font.family: root.fontForWeight(font.weight, root.fontFamily)
+                                        }
+                                        Text {
+                                            id: st
+                                            visible: lp.sub !== ""
+                                            text: lp.sub
+                                            width: Math.min(implicitWidth, Math.round(320 * lp.k))
+                                            elide: Text.ElideRight
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            anchors.verticalCenter: parent.top
+                                            anchors.verticalCenterOffset: 22.4 * lp.k
+                                            color: lp.dark ? Qt.rgba(1, 1, 1, 0.60) : Qt.rgba(0, 0, 0, 0.58)
+                                            font.pixelSize: Math.max(8, Math.round(10.2 * lp.k))
+                                            font.family: root.fontForWeight(font.weight, root.fontFamily)
+                                        }
                                     }
                                 }
 
@@ -5850,7 +5896,10 @@ Scope {
                     onPressed: ui.menuItem = null
                 }
 
-                Rectangle {
+                // ── right-click menu ──
+                // Same Tahoe Liquid Glass bubble as the hover label: blurred, light / dark, pointer tail towards the icon, scaled with the
+                // Dock. Rows are 22 pt with capsule highlights, as in macOS 26.
+                DockGlassPanel {
                     id: menu
                     z: 60
                     visible: opacity > 0
@@ -5860,20 +5909,28 @@ Scope {
                     Behavior on opacity { NumberAnimation { duration: 110 } }
                     Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
-                    width: 230
-                    height: menuCol.height + 10
+                    backdrop: glassBackdrop.item
+                    live: root.liquidActive && glassBackdrop.item !== null
+                    dark: root.darkMode
+                    k: root.labelK
+                    radius: 16 * k
+                    tailW: 24 * k
+                    tailH: 9 * k
+                    tailTipR: 3.6 * k
+                    readonly property real pad: Math.round(5 * k)
+
+                    width: ui.menuW
+                    bodyH: menuCol.height + 2 * pad
                     x: Math.max(8, Math.min(ui.width - width - 8, ui.menuCx - width / 2))
-                    y: ui.height - root.margin - root.bgHeight - root.iconSize * (root.effMag - 1) - 14 - height
-                    radius: 10
-                    color: Qt.rgba(0.14, 0.14, 0.15, 0.62)
-                    border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.16)
+                    y: ui.height - root.margin - root.bgHeight - root.iconSize * (root.effMag - 1) - Math.round(10 * k) - height
+                    // the tail points at the icon the menu belongs to
+                    tailX: ui.menuCx - x
 
                     Column {
                         id: menuCol
-                        x: 5
-                        y: 5
-                        width: parent.width - 10
+                        x: menu.pad
+                        y: menu.pad
+                        width: menu.width - 2 * menu.pad
 
                         Repeater {
                             model: ui.menuModel
@@ -5885,31 +5942,32 @@ Scope {
                                 readonly property bool off: !isSep && modelData.disabled === true
                                 readonly property bool armedNow: !isSep && modelData.confirm === true && ui.armed === modelData.label
                                 width: menuCol.width
-                                height: isSep ? 9 : 26
+                                height: isSep ? Math.round(11 * menu.k) : Math.round(22 * menu.k)
 
                                 Rectangle {
                                     visible: mi.isSep
                                     anchors.verticalCenter: parent.verticalCenter
-                                    x: 6
-                                    width: parent.width - 12
+                                    width: parent.width
                                     height: 1
-                                    color: Qt.rgba(1, 1, 1, 0.14)
+                                    color: menu.dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.12)
                                 }
                                 Rectangle {
                                     visible: !mi.isSep && !mi.off && mia.containsMouse
                                     anchors.fill: parent
-                                    radius: 5
+                                    radius: Math.round(8 * menu.k)          // softly rounded selection
                                     color: mi.armedNow ? "#FF453A" : root.accent
                                 }
                                 Text {
                                     visible: !mi.isSep
-                                    x: 10
+                                    x: Math.round(11 * menu.k)
                                     anchors.verticalCenter: parent.verticalCenter
-                                    width: parent.width - 20
+                                    width: parent.width - 2 * Math.round(11 * menu.k)
                                     elide: Text.ElideRight
                                     text: mi.isSep ? "" : (mi.armedNow ? I18n.tr("Click again to confirm") : I18n.tr(mi.modelData.label))
-                                    color: mi.off ? Qt.rgba(1, 1, 1, 0.4) : "white"
-                                    font.pixelSize: 13
+                                    color: (!mi.isSep && !mi.off && mia.containsMouse) ? "white"
+                                         : (mi.off ? (menu.dark ? Qt.rgba(1, 1, 1, 0.30) : Qt.rgba(0, 0, 0, 0.28))
+                                                   : (menu.dark ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(0, 0, 0, 0.86)))
+                                    font.pixelSize: Math.max(9, Math.round(13 * menu.k))
                                     font.family: root.fontForWeight(font.weight, root.fontFamily)
                                 }
                                 MouseArea {

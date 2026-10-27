@@ -4843,7 +4843,7 @@ Scope {
                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
                 onPopChanged: {
                     if (pop !== "" && pop !== "spot") toneT.restart();
-                    if (pop === "spot" && ui.toastScreen) root.measureTone(win.modelData.x + ui.width / 2 - 320, win.modelData.y + ui.height * 0.4 - 30, 640, 60);
+                    if (pop === "spot" && ui.toastScreen) spotToneT.restart();      // measured once the open animation is over (see spotToneT)
                     armed = "";
                     wifiPrompt = "";
                     spHoverLabel = "";
@@ -4858,6 +4858,13 @@ Scope {
                         spInput.text = ""; appsInput.text = ""; clipInput.text = ""; emojiInput.text = "";
                         spFocusTimer.restart();
                     }
+                }
+                // grim + ImageMagick are started 330 ms after Spotlight opens, not at the first frame: spawning them in the middle of the pop
+                // animation (together with a compositor screen copy) made it hitch
+                Timer {
+                    id: spotToneT
+                    interval: 330
+                    onTriggered: if (ui.pop === "spot" && ui.toastScreen) root.measureTone(win.modelData.x + ui.width / 2 - 320, win.modelData.y + ui.height * 0.4 - 30, 640, 60)
                 }
                 Connections {
                     target: root
@@ -5092,7 +5099,7 @@ Scope {
                                     // hidden right now (Spotlight, switcher, ...) are only kept warm with slow single captures.
                                     // While recording only the windows behind visible glass stay live (so the glass is real-time exactly where you see it,
                                     // e.g. a video behind the Control Center), every other window sits out.
-                                    live: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || levelOsd.visible || spotWin.openish || swWin.visible || wpWin.visible)
+                                    live: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || levelOsd.visible || spotWin.glassGo || swWin.visible || wpWin.visible)
                                     onCaptureSourceChanged: {
                                         // a brand-new capture grabs its first frame immediately instead of waiting for the timer
                                         // (a short delay: asking before the capture context exists only logged "no recording context is ready")
@@ -8901,7 +8908,12 @@ Scope {
             // Hyprland's layer animation, which is what made Spotlight flicker or vanish. Closed = invisible + click-through.
             visible: root.spotlightEnabled
             readonly property bool openish: ui.pop === "spot" || spot.vis > 0
-            onOpenishChanged: root.popCount += (openish ? 1 : -1)     // keeps the window-geometry poller running while Spotlight is open
+            onOpenishChanged: { root.popCount += (openish ? 1 : -1); if (!openish) glassGo = false; }     // keeps the window-geometry poller running while Spotlight is open
+            // The windows behind Spotlight only start STREAMING once its open animation is over: starting every window capture
+            // (a compositor round trip each) in the middle of the 220 ms pop was what made toggling Spotlight stutter. Until then the
+            // backdrop shows the warm single captures (refreshed 4x a second), which is not visible in a half-transparent pop.
+            property bool glassGo: false
+            Timer { interval: 420; running: spotWin.openish && !spotWin.glassGo; onTriggered: spotWin.glassGo = true }
             mask: Region { item: spotWin.openish ? spotRoot : spotNoInput }
             Item { id: spotNoInput; width: 0; height: 0 }
             // Auto contrast, live: while a panel (menu, Control Center, Spotlight) is open on this screen, the area around it is
@@ -8919,7 +8931,7 @@ Scope {
                 if (pr) root.measureAround(perScreen.modelData, pr, false);
             }
             Timer { interval: 700; repeat: true; running: root.autoContrast && ui.pop !== "" && ui.toastScreen; onTriggered: spotWin.measureLive() }
-            Timer { id: liveKick; interval: 180; onTriggered: spotWin.measureLive() }
+            Timer { id: liveKick; interval: 450; onTriggered: spotWin.measureLive() }
             Connections { target: root; function onGlassClientsChanged() { if (ui.pop !== "") liveKick.restart(); } }
             anchors { left: true; right: true; top: true; bottom: true }
             color: "transparent"
