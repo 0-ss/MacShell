@@ -60,7 +60,7 @@ Item {
 
     readonly property real tint:
         Math.min(0.92,
-                 dark ? 0.25 + glassOpacity * 0.8
+                 dark ? 0.06 + glassOpacity * 0.5
                       : 0.45 + glassOpacity * 0.9)
 
     width: (isSmall ? 158 : 358) * scaleF

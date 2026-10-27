@@ -81,7 +81,7 @@ Item {
     readonly property color barTrack: dark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.14)
     readonly property color barFill: dark ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(0, 0, 0, 0.62)
     // glass tint: the same as Clock / Calendar, so dark (light mode) / white (dark mode) text stays readable on any wallpaper
-    readonly property real tint: Math.min(0.92, dark ? 0.25 + glassOpacity * 0.8 : 0.45 + glassOpacity * 0.9)
+    readonly property real tint: Math.min(0.92, dark ? 0.06 + glassOpacity * 0.5 : 0.45 + glassOpacity * 0.9)
 
     // ───────────────────────── background ─────────────────────────
     // Normal: solid card

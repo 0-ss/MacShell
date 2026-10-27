@@ -96,7 +96,7 @@ Item {
 
     readonly property bool glassOn: style === "liquid" && glassReady && !preview && wallUrl != ""
     readonly property bool dark: style === "dark" || (style === "liquid" && darkGlass)
-    readonly property real tint: Math.min(0.92, dark ? 0.25 + glassOpacity * 0.8 : 0.45 + glassOpacity * 0.9)
+    readonly property real tint: Math.min(0.92, dark ? 0.06 + glassOpacity * 0.5 : 0.45 + glassOpacity * 0.9)
 
     // ───────────────────────── colours ─────────────────────────
     function fileUrl(p) {

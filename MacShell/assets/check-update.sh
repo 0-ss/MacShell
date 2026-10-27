@@ -1,6 +1,6 @@
 #!/bin/sh
 # check-update.sh: asks GitHub whether a newer MacShell exists and prints ONE line of JSON. It never downloads or installs.
-#   {"status":"available|uptodate|error","latest":"0.4.0","current":"0.3.9","url":"https://github.com/..."}
+#   {"status":"available|uptodate|error","latest":"0.4.1","current":"0.4.0","url":"https://github.com/..."}
 # Used by Settings (MacBar.qml: checkForUpdates). Repository: MACSHELL_REPO (default 0-ss/MacShell), branch: MACSHELL_BRANCH (main).
 REPO="${MACSHELL_REPO:-0-ss/MacShell}"
 BRANCH="${MACSHELL_BRANCH:-main}"

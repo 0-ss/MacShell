@@ -69,7 +69,7 @@ Item {
     readonly property color red: dark ? "#FF453A" : "#FF3B30"
     readonly property color line: dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.12)
     // glass tint: stronger than the Weather widget's, so black (light mode) / white (dark mode) text stays readable on any wallpaper
-    readonly property real tint: Math.min(0.92, dark ? 0.25 + glassOpacity * 0.8 : 0.45 + glassOpacity * 0.9)
+    readonly property real tint: Math.min(0.92, dark ? 0.06 + glassOpacity * 0.5 : 0.45 + glassOpacity * 0.9)
 
     // ── date ──
     property var now: new Date()

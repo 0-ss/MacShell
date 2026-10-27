@@ -162,28 +162,20 @@ void main()
     float ty = clamp((q.y + hs.y) / glassSize.y, 0.0, 1.0);
     col += (1.0 - ty) * mix(0.040, 0.034, dark);
 
-    // ── edge light, from the top-left ──
-    // identical to the top-bar menus (rimTint = 1): the rim / border take a darker shade of what the glass looks like at this spot
-    vec3 rimCol   = clamp(col * 1.2, 0.0, 1.0);          // 120% of the glass colour (100% = natural) of the glass's own colour (menus use a brighter one: col * 1.5 + 0.12)
-
-    vec2  L      = normalize(vec2(-0.55, -0.83));
-    float facing = dot(g, L);
-    float spec   = pow(max(facing, 0.0), 1.6) + 0.55 * pow(max(-facing, 0.0), 2.2);
-    float crisp  = 1.0 - smoothstep(0.55, 1.55, t);                // the ~1 px line itself
-    float pool   = exp(-t / 3.2);                                  // light pooling just inside it
-    float edgeHi = crisp * (0.26 + 0.74 * spec) * 0.80 + pool * (0.05 + 0.10 * spec);
-    edgeHi *= rim * 1.1 * mix(0.85, 1.0, dark);
-    col += edgeHi * rimCol;
-
-    // thin border line along the very edge, exactly as the menus draw it (ringW = 1 px here)
-    float ringW = 1.0;
-    float ring  = 1.0 - smoothstep(ringW * 0.5, ringW * 0.5 + 1.0, t);
-    col = mix(col, rimCol, ring * (0.55 + 0.35 * clamp(facing * 0.5 + 0.5, 0.0, 1.0)));
-
-    // meniscus: a very faint, wide second highlight inside the rim (kept soft so it never reads as an inner outline)
-    float mx  = (t - bz * 0.5) / (bz * 0.35 + 1.0);
-    float men = exp(-mx * mx);
-    col += men * 0.03 * (0.35 + spec) * rim * rimCol;
+    // ── edge light, measured from the real macOS Dock ──
+    // a thin bright line along the top (+18%) and bottom (+30%) that fades out around the corners, only a whisper on the straight
+    // sides (+2.5%), and a short glow just inside the top / bottom edge. All of it scales from the glass's own colour (which is the
+    // blurred wallpaper behind the Dock), so the border takes the colour of what is behind it. The dark hairline on the sides is
+    // drawn by the QML Canvas around the Dock (the shader draws nothing outside the glass).
+    vec3 rimCol = clamp(col * 1.2, 0.0, 1.0);
+    float rs    = clamp(rim * 11.111111, 0.0, 3.0);                 // 1.0 at the default glass rim (0.45 * 0.20)
+    float aY    = pow(abs(g.y), 1.5);                               // 0 on the sides, 1 on the top / bottom
+    float wT    = smoothstep(-0.3, 0.3, -g.y);                      // 1 on the top, 0 on the bottom
+    float lineA = 0.025 + aY * mix(0.275, 0.155, wT);
+    float poolA = aY * mix(0.10, 0.055, wT);
+    float kk    = (t - 0.7) / 0.55;
+    float fE    = (lineA * exp(-(kk * kk)) + poolA * exp(-t / mix(3.0, 4.5, wT))) * rs;
+    col = col * (1.0 + fE) + vec3(fE * 0.10);
 
     // fine triangular-distribution grain, same on every channel so it reads as texture, not colour noise
     float gn = hash12(gl_FragCoord.xy) + hash12(gl_FragCoord.xy * 1.7 + 17.0) - 1.0;

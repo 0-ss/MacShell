@@ -3965,7 +3965,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.4.0 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.4.1 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(font.weight, pal.fam)
                             font.pixelSize: 12
@@ -5465,6 +5465,54 @@ Scope {
                         outline: false      // no dark hairline / shade around the dock
                     }
 
+                    // The dark hairline of the real macOS Dock: ~1.5 px wide, centred ON the edge of the glass (half outside, half inside),
+                    // about 12% dark along the straight left and right sides, easing out around the corners until it is gone where the
+                    // top and bottom edges start (those carry the bright line from the glass shader instead). Plain black with alpha, so it
+                    // darkens whatever is behind it and follows the wallpaper. The canvas is 3 px larger than the Dock on every side so
+                    // the outer half of the line can be drawn; it only repaints when the Dock's size, corner radius or mode changes.
+                    Canvas {
+                        id: sideBorder
+                        anchors.fill: parent
+                        anchors.margins: -3
+                        antialiasing: true
+                        readonly property real strength: root.dockDark ? 0.14 : 0.12
+                        onStrengthChanged: requestPaint()
+                        onWidthChanged: requestPaint()
+                        onHeightChanged: requestPaint()
+                        Connections { target: root; function onCornerRadiusChanged() { sideBorder.requestPaint(); } }
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            var m = 3, W = width, H = height;
+                            var w = W - 2 * m, h = H - 2 * m;          // the Dock itself
+                            if (w < 4 || h < 4) return;
+                            var r = Math.max(2, Math.min(root.cornerRadius, h / 2, w / 2));
+                            // fully dark at the very left / right, easing out (smootherstep) over one corner radius: gone by the straight top / bottom
+                            var fade = Math.min(w / 2, r * 1.05);
+                            var g = ctx.createLinearGradient(m, 0, m + w, 0);
+                            var N = 24;
+                            for (var k = 0; k <= N; k++) {
+                                var u = k / N, sm = u * u * u * (u * (u * 6 - 15) + 10), al = (strength * (1 - sm)).toFixed(4);
+                                g.addColorStop(u * fade / w, "rgba(0,0,0," + al + ")");
+                                g.addColorStop(1 - u * fade / w, "rgba(0,0,0," + al + ")");
+                            }
+                            ctx.strokeStyle = g;
+                            ctx.lineWidth = 1.6;
+                            ctx.beginPath();
+                            ctx.moveTo(m + r, m);
+                            ctx.lineTo(m + w - r, m);
+                            ctx.arc(m + w - r, m + r, r, 1.5 * Math.PI, 2 * Math.PI, false);
+                            ctx.lineTo(m + w, m + h - r);
+                            ctx.arc(m + w - r, m + h - r, r, 0, 0.5 * Math.PI, false);
+                            ctx.lineTo(m + r, m + h);
+                            ctx.arc(m + r, m + h - r, r, 0.5 * Math.PI, Math.PI, false);
+                            ctx.lineTo(m, m + r);
+                            ctx.arc(m + r, m + r, r, Math.PI, 1.5 * Math.PI, false);
+                            ctx.closePath();
+                            ctx.stroke();
+                        }
+                    }
+
                     // Natural edge: with Liquid Glass (dockglass.frag) the edge light is drawn by the shader, so this Canvas is not even created.
                     // It stays for Normal Blur and as the fallback when the Dock's own shader is unavailable (a faint line in the wallpaper colour).
                     Loader {
@@ -5562,11 +5610,14 @@ Scope {
                                     id: img
                                     visible: false
                                     property real lift: 0
-                                    width: root.iconSize * 0.99 * cell.s * cell.appear     // icon art drawn at 99%: the dock and the cells keep their size
+                                    // icon art drawn at ~99%: the dock and the cells keep their size. Whole pixels only: at rest this was
+                                    // 51.48 px wide and centred on a fractional x, so the GPU re-sampled the icon texture (blurry) until the
+                                    // magnification made it big enough that the blur was no longer noticeable
+                                    width: Math.max(1, Math.round(root.iconSize * 0.99 * cell.s * cell.appear))
                                     height: width
-                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    x: Math.round((parent.width - width) / 2)
                                     anchors.bottom: parent.bottom
-                                    anchors.bottomMargin: lift
+                                    anchors.bottomMargin: Math.round(lift)
                                     source: cell.isSep ? "" : root.cellIconSrc(cell.modelData)
                                     sourceSize: Qt.size(Math.ceil(root.iconSize * root.magnification * 1.25),
                                                         Math.ceil(root.iconSize * root.magnification * 1.25))
