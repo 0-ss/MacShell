@@ -170,7 +170,7 @@ var strings = {
     "Show the panel at the top of the screen. Spotlight, Control Center and the calendar belong to it.": "Показывать панель вверху экрана. К ней относятся Spotlight, Пункт управления и календарь.",
     "Light, Dark, or Auto for everything: Dock, Menu Bar, menus, Spotlight, Settings and About. The Control Center tile and the Dark Mode menu item use this same setting.": "Светлое, тёмное или авто для всего: Dock, строки меню, меню, Spotlight, настроек и «Об этой системе». Плитка Пункта управления и пункт «Тёмный режим» используют эту же настройку.",
     "Set Light or Dark appearance for Spotlight and dropdown menus only": "Светлое или тёмное оформление только для Spotlight и выпадающих меню",
-    "If you turn both off, reopen this window with:  qs -c macbar ipc call settings open": "Если выключить оба, это окно можно снова открыть командой:  qs -c macbar ipc call settings open",
+    "If you turn both off, reopen this window with:  qs -c MacShell ipc call settings open": "Если выключить оба, это окно можно снова открыть командой:  qs -c MacShell ipc call settings open",
     "Desktop Widgets": "Виджеты рабочего стола",
     "Arrange widgets": "Расстановка виджетов",
     "Stop Editing": "Завершить правку",
@@ -538,7 +538,7 @@ var strings = {
     "Save location": "Куда сохранять",
     "Leave empty for ~/Pictures/Screenshots": "Пусто = ~/Pictures/Screenshots",
     "Choose…": "Выбрать…",
-    "Bind the Print key:  bind = , Print, exec, qs -c macbar ipc call screenshot region.  Choose… needs zenity, kdialog or yad; otherwise type the path. Screenshots need grim.": "Назначьте клавишу Print:  bind = , Print, exec, qs -c macbar ipc call screenshot region.  Для «Выбрать…» нужен zenity, kdialog или yad; иначе введите путь. Для снимков нужен grim.",
+    "Bind the Print key:  bind = , Print, exec, qs -c MacShell ipc call screenshot region.  Choose… needs zenity, kdialog or yad; otherwise type the path. Screenshots need grim.": "Назначьте клавишу Print:  bind = , Print, exec, qs -c MacShell ipc call screenshot region.  Для «Выбрать…» нужен zenity, kdialog или yad; иначе введите путь. Для снимков нужен grim.",
     "Drag to select an area   •   Return: whole screen   •   Esc: cancel": "Выделите область   •   Return: весь экран   •   Esc: отмена",
     "Quick folders": "Быстрые папки",
 

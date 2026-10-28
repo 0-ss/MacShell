@@ -34,33 +34,33 @@
 // Test with: notify-send "Fitness" "Move goal achieved"
 //
 // Spotlight (the search icon) is built in and drawn in Liquid Glass. Bind it to a key with:
-//   bind = ALT, space, exec, qs -c macbar ipc call spotlight toggle
+//   bind = ALT, space, exec, qs -c MacShell ipc call spotlight toggle
 // Hyprland (Lua):
-//   hl.bind("ALT + Space", hl.dsp.exec_cmd("qs -c macbar ipc call spotlight toggle"))
+//   hl.bind("ALT + Space", hl.dsp.exec_cmd("qs -c MacShell ipc call spotlight toggle"))
 //   Reduced motion: set "reduceMotion": true in ~/.config/macbar/settings.json to turn off Spotlight's pop / stagger / slide animations.
 // Wallpapers: Ctrl+Alt+W opens the wallpaper picker (Liquid Glass). Bind it with:
-//   hl.bind("CTRL + ALT + W", hl.dsp.exec_cmd("qs -c macbar ipc call wallpapers toggle"))
-//   (hyprlang:  bind = CTRL ALT, W, exec, qs -c macbar ipc call wallpapers toggle)
+//   hl.bind("CTRL + ALT + W", hl.dsp.exec_cmd("qs -c MacShell ipc call wallpapers toggle"))
+//   (hyprlang:  bind = CTRL ALT, W, exec, qs -c MacShell ipc call wallpapers toggle)
 // Folder: ~/Pictures/Wallpapers by default (change it inside the picker, or "wallpaperDir" in settings.json).
 // Star a wallpaper to pin it to the top. Applied through Noctalia / awww / swww / hyprpaper, or your own "wallpaperCmd" ({} = image path).
 // Clipboard history + Emoji live inside Spotlight (the clipboard and smiley buttons next to the search field):
 //   needs wl-clipboard + cliphist (this shell starts the `wl-paste --watch cliphist store` watchers itself, unless you already run them).
-//   bind = SUPER, V, exec, qs -c macbar ipc call spotlight clipboard       # Clipboard history (replace any default SUPER+V bind)
-//   bind = SUPER, period, exec, qs -c macbar ipc call spotlight emoji      # Emoji picker
+//   bind = SUPER, V, exec, qs -c MacShell ipc call spotlight clipboard       # Clipboard history (replace any default SUPER+V bind)
+//   bind = SUPER, period, exec, qs -c MacShell ipc call spotlight emoji      # Emoji picker
 // Hyprland (Lua):
-//   hl.bind("SUPER + V", hl.dsp.exec_cmd("qs -c macbar ipc call spotlight clipboard"))
-//   hl.bind("SUPER + period", hl.dsp.exec_cmd("qs -c macbar ipc call spotlight emoji"))
+//   hl.bind("SUPER + V", hl.dsp.exec_cmd("qs -c MacShell ipc call spotlight clipboard"))
+//   hl.bind("SUPER + period", hl.dsp.exec_cmd("qs -c MacShell ipc call spotlight emoji"))
 //   (use the same `qs -c <name>` prefix you use for the Spotlight bind; `ipc call spotlight apps` opens the Applications panel)
 // Return pastes the entry into the focused app, Shift+Return only copies it, Delete removes it from the history.
 // Files runs filesCmd.
 //
 // Screenshots (Print key): the screen freezes and dims, drag to select an area (a size badge follows the pointer), release to capture.
 // Return/Space = whole screen, Esc or right-click = cancel. Where it is saved (and clipboard / notification) is in System Settings → Menu Bar.
-//   bind = , Print, exec, qs -c macbar ipc call screenshot region
-//   bind = SHIFT, Print, exec, qs -c macbar ipc call screenshot screen
-//   bind = ALT, Print, exec, qs -c macbar ipc call screenshot window
+//   bind = , Print, exec, qs -c MacShell ipc call screenshot region
+//   bind = SHIFT, Print, exec, qs -c MacShell ipc call screenshot screen
+//   bind = ALT, Print, exec, qs -c MacShell ipc call screenshot window
 // Hyprland (Lua):
-//   hl.bind("Print", hl.dsp.exec_cmd("qs -c macbar ipc call screenshot region"))
+//   hl.bind("Print", hl.dsp.exec_cmd("qs -c MacShell ipc call screenshot region"))
 // Optional (no fade on the picker):  layerrule = noanim, macshot   (Lua: hl.layer_rule({ name = "macshot", match = { namespace = "macshot" }, no_anim = true }))
 // Needs grim (and wl-clipboard for the clipboard copy).
 
@@ -4152,7 +4152,7 @@ Scope {
     }
 
     // ═════════════ WALLPAPER PICKER (CTRL + ALT + W) ═════════════
-    //   hl.bind("CTRL + ALT + W", hl.dsp.exec_cmd("qs -c macbar ipc call wallpapers toggle"))
+    //   hl.bind("CTRL + ALT + W", hl.dsp.exec_cmd("qs -c MacShell ipc call wallpapers toggle"))
     property string wallpaperDir: ""          // "" = ~/Pictures/Wallpapers
     property var wallpaperFavs: []            // favourite image paths, shown first
     property string wallpaperVideo: ""        // animated wallpaper (video) playing right now, "" = a still picture
@@ -4488,9 +4488,9 @@ Scope {
 
     // ═════════════ WINDOW SWITCHER (ALT + TAB) ═════════════
     // Hyprland binds (put these in hyprland.conf, and remove any existing ALT+TAB bind):
-    //   bind   = ALT, TAB, exec, qs -c macshell ipc call switcher next
-    //   bind   = ALT SHIFT, TAB, exec, qs -c macshell ipc call switcher prev
-    //   bindrt = ALT, Alt_L, exec, qs -c macshell ipc call switcher commit     # optional safety net: switch on ALT release
+    //   bind   = ALT, TAB, exec, qs -c MacShell ipc call switcher next
+    //   bind   = ALT SHIFT, TAB, exec, qs -c MacShell ipc call switcher prev
+    //   bindrt = ALT, Alt_L, exec, qs -c MacShell ipc call switcher commit     # optional safety net: switch on ALT release
     // (use the same `qs ...` prefix you use for the Spotlight bind). Hold ALT, tap TAB to cycle, release ALT to switch.
     // Layer namespace: "macswitch" (only needed for a blur layerrule if you are NOT using the Liquid Glass style).
     property real switcherBlur: 15           // blur of the switcher glass (smooth Gaussian; less than Spotlight / notifications)

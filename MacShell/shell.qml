@@ -9,7 +9,7 @@
 //
 // Settings stay where they were: ~/.config/macbar/settings.json and ~/.config/macdock/settings.json (+ pinned.json).
 // Layer namespaces are unchanged ("macbar" / "macdock"), so your existing layerrule / windowrule lines keep working.
-// The Spotlight IPC bind is unchanged:  qs -c macbar ipc call spotlight toggle
+// The Spotlight IPC bind is unchanged:  qs -c MacShell ipc call spotlight toggle
 //
 // What is shared now (this is where the memory saving comes from):
 //   * one Quickshell / Qt process instead of two,
@@ -321,7 +321,7 @@ ShellRoot {
     }
 
     // reopen settings even when both the Dock and the Menu Bar are disabled:
-    //   qs -c macbar ipc call settings open
+    //   qs -c MacShell ipc call settings open
     IpcHandler {
         target: "settings"
         function open(): void { macDock.openPrefs("general"); }
