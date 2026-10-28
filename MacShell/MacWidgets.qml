@@ -5,8 +5,8 @@
 //   * Weather data from Open-Meteo, a local-date Calendar, a live local-time Clock, and a Music player (MPRIS) widget
 //   * settings + placed widgets are saved to ~/.config/macwidgets/settings.json
 //
-//   qs -c macbar ipc call widgets refresh        re-fetch the weather now
-//   qs -c macbar ipc call widgets edit true      start / stop editing
+//   qs -c MacShell ipc call widgets refresh        re-fetch the weather now
+//   qs -c MacShell ipc call widgets edit true      start / stop editing
 //
 // Hyprland: nothing is required. (No blur layerrule is needed, the Liquid Glass style blurs the wallpaper itself.)
 

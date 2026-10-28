@@ -1968,7 +1968,7 @@ Scope {
                 }
                 SLabel {
                     t: pal
-                    text: I18n.tr("Bind the Print key:  bind = , Print, exec, qs -c macbar ipc call screenshot region.  Choose\u2026 needs zenity, kdialog or yad; otherwise type the path. Screenshots need grim.")
+                    text: I18n.tr("Bind the Print key:  bind = , Print, exec, qs -c MacShell ipc call screenshot region.  Choose\u2026 needs zenity, kdialog or yad; otherwise type the path. Screenshots need grim.")
                 }
                 Process {
                     id: shotPick
