@@ -121,6 +121,8 @@ Scope {
                             TLGlyph {
                                 anchors.fill: parent
                                 kind: parent.modelData.g
+                                // symbols only on hover, like macOS
+                                visible: hover.hovered
                                 Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                             }
                             MouseArea {
