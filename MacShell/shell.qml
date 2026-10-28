@@ -309,7 +309,6 @@ ShellRoot {
 
     MacBar { id: macBar; hub: sharedHub }
     MacDock { id: macDock; hub: sharedHub; bar: macBar }
-    WindowBar { hub: sharedHub }
     MacWidgets { id: macWidgets; hub: sharedHub }
     // The Settings toggle governs the app; a manual components.json override wins when present.
     ClockApp { id: clockApp; hub: sharedHub; appEnabled: clockApp.manualOverride ? clockApp.manualVal : macBar.clockAppEnabled }
