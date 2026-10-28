@@ -1,5 +1,6 @@
 .pragma library
 .import "lang/ru.js" as Ru
+.import "lang/es.js" as Es
 
 // Interface translations. I18n.tr("English text") returns the text in the chosen language, or the English text
 // itself when there is no translation. The language is Qt.uiLanguage (System Settings → General → Language,
@@ -7,7 +8,7 @@
 // read Qt.uiLanguage, so they update when the language changes.
 // To add a language: copy lang/ru.js to lang/<code>.js, translate the values, and add it to `dicts` below.
 
-var dicts = { ru: Ru.strings };
+var dicts = { ru: Ru.strings, es: Es.strings };
 
 function code() {
     return Qt.uiLanguage !== "" ? Qt.uiLanguage : String(Qt.locale().name || "en").split("_")[0];
