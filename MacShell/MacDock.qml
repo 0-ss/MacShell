@@ -1493,9 +1493,9 @@ Scope {
                         subtitle: I18n.tr("Automatic follows the system language")
                         SSegmented {
                             t: pal
-                            readonly property var codes: ["auto", "en", "ru"]
-                            model: ["Automatic", "English", "Русский"]
-                            segWidth: 96
+                            readonly property var codes: ["auto", "en", "ru", "es"]
+                            model: ["Automatic", "English", "Русский", "Español"]
+                            segWidth: 88
                             current: codes.indexOf(root.bar ? root.bar.language : "auto")
                             onPicked: i => { if (root.bar) root.bar.language = codes[i]; }
                         }
