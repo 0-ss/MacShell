@@ -532,7 +532,9 @@ Scope {
         sh('sh ~/.config/quickshell/MacLock/lock-via-ipc.sh');
     }
     function sleepMachine() {
-        sh('sh ~/.config/quickshell/MacLock/lock-via-ipc.sh; sleep 0.5; systemctl suspend');
+        // If suspend is unavailable (no sleep states, inhibitors), tell the
+        // user instead of hanging on a black screen with the session locked.
+        sh('sh ~/.config/quickshell/MacLock/lock-via-ipc.sh; sleep 0.5; systemctl suspend || notify-send "MacShell" "Suspend not available on this machine"');
     }
     function logOut() {
         sh('if command -v uwsm >/dev/null 2>&1 && uwsm check is-active >/dev/null 2>&1; then uwsm stop; '
