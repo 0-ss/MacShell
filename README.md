@@ -299,27 +299,6 @@ MacShell (installed: x.x.x)
 
 The other tools are still available as options: `--doctor`, `--low-power`, `--deps-only` (see `--help`).
 
-An update also installs the dependencies the new version needs, updates MacShell and MacLock together, saves the old
-install first, and never touches your settings. The command-line tool is still there for scripts and the daily timer:
-
-```sh
-macshell-update check       # is there a newer version?
-macshell-update log         # what changed since the installed version
-macshell-update update      # download and install it (MacShell and MacLock), including new dependencies
-macshell-update rollback    # go back to the previous install (MacShell and MacLock)
-macshell-update channel main   # follow the newest commit instead of releases (or: release)
-macshell-update status
-```
-
-`macshell-update update` runs the *new* version's installer too, so new files, new dependencies and a new start script
-come along. It keeps the last 3 installs, and does one update at a time. Dependencies are installed only when `sudo` works without a password (an unattended timer
-cannot type one); otherwise you get a notice listing what to install with `bash install.sh --deps-only`.
-
-The shell also checks by itself and tells you. `bash install.sh --check` does the same check from a clone, and
-`bash install.sh --auto-update` installs a daily timer (`systemctl --user list-timers macshell-update.timer`) so updates
-install without you doing anything. MacShell reloads itself after an update; MacLock picks up the new files the next
-time it locks.
-
 ## Hyprland configuration (Lua)
 
 ```lua
