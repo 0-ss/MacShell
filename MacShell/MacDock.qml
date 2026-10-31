@@ -3942,7 +3942,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.4.5 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.4.6 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(Font.Normal, pal.fam)
                             font.pixelSize: 12
@@ -5163,13 +5163,20 @@ Scope {
                         y: -(win.modelData.height - ui.height)
                         width: win.modelData.width
                         height: win.modelData.height
-                        Rectangle { anchors.fill: parent; color: "#000000" }
+                        Rectangle { x: -160; y: -160; width: parent.width + 320; height: parent.height + 320; color: "#000000" }
                         ShaderEffectSource {
+                            id: flatSrc
                             anchors.fill: parent
                             sourceItem: bd
                             live: true
                             hideSource: false
                         }
+                        // Edge padding: the glass blurs and refracts up to ~64 px beyond the screen edge, where the backdrop used to be empty (alpha 0),
+                        // which pulled the blur toward see-through near the screen edges (e.g. popovers on the right). Mirror the edge pixels outward instead.
+                        ShaderEffectSource { x: flatRoot.width; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(flatRoot.width - 160, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: true; hideSource: false }
+                        ShaderEffectSource { x: -160; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: true; hideSource: false }
+                        ShaderEffectSource { x: 0; y: -160; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: true; hideSource: false }
+                        ShaderEffectSource { x: 0; y: flatRoot.height; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, flatRoot.height - 160, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: true; hideSource: false }
                     Item {
                         id: bd
                         x: 0; y: 0

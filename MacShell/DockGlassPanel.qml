@@ -9,8 +9,9 @@ import "GlassShape.js" as GS
 //   * live (Apple Liquid Glass Dock style): the wallpaper and windows behind the bubble (the same backdrop the Dock glass uses) are
 //     captured, Gaussian-blurred very hard, saturated a little and cut to the bubble's outline; a light / dark tint, a specular rim
 //     and a dark hairline go on top, and a soft shadow underneath.
-//   * not live (Normal Blur Dock style, or the glass shader is unavailable): the same outline and rim with a firmer tint; the
-//     compositor's own blur (which the Dock window already relies on) frosts what is behind it.
+//   * not live (Normal Blur Dock style, or the glass shader is unavailable): the same outline and rim with a SOLID fill. There is no
+//     backdrop of our own to blur here and the compositor does not blur the part of the Dock window above the Dock, so anything less
+//     than opaque shows the real window behind it sharp (btop in a transparent terminal, for instance).
 //
 // Everything is sized from `k` (the Dock's size / 52), so the bubble grows and shrinks with the Dock.
 //
@@ -41,6 +42,11 @@ Item {
     // with the magnified icon it belongs to)
     property real bx: 0
     property real by: 0
+    // how much the bubble is scaled on its way into the backdrop's coordinates (1 unless it, or something it sits in, is scaled: the
+    // right-click menu pops in at 0.96, a label can ride a magnified icon). The backdrop under it has to be captured at that scale, or
+    // the picture inside the bubble is displaced / zoomed against the real screen (same idea as capLocal / capScreen in the menu bar).
+    property real capSx: 1
+    property real capSy: 1
     // everything that changes the picture: any of these repaints the canvases
     readonly property string shapeKey: [width, bodyH, tailW, tailH, tailTipR, tailX, radius, dark, live, k].join("|")
 
@@ -49,6 +55,11 @@ Item {
         var p = gp.backdrop.mapFromItem(gp, 0, 0);
         if (Math.abs(p.x - gp.bx) > 0.01) gp.bx = p.x;
         if (Math.abs(p.y - gp.by) > 0.01) gp.by = p.y;
+        var px = gp.backdrop.mapFromItem(gp, 1, 0), py = gp.backdrop.mapFromItem(gp, 0, 1);
+        var sx = Math.sqrt((px.x - p.x) * (px.x - p.x) + (px.y - p.y) * (px.y - p.y));
+        var sy = Math.sqrt((py.x - p.x) * (py.x - p.x) + (py.y - p.y) * (py.y - p.y));
+        if (sx > 0.05 && Math.abs(sx - gp.capSx) > 0.001) gp.capSx = sx;
+        if (sy > 0.05 && Math.abs(sy - gp.capSy) > 0.001) gp.capSy = sy;
     }
     FrameAnimation {
         running: gp.live && gp.visible && gp.backdrop !== null
@@ -87,6 +98,30 @@ Item {
         Component.onCompleted: requestPaint()
     }
 
+    // ── solid base under the blurred backdrop (only while live) ──
+    // The blurred picture covers this completely. It is here for the moments when the backdrop capture is missing or still empty
+    // (first frame, a window geometry change, a capture that lands outside the backdrop): without it the bubble is then just a
+    // half-transparent tint and the real window behind it (btop, ...) shows through sharp.
+    Canvas {
+        id: baseCv
+        visible: gp.live
+        x: -gp.hp; y: -gp.hp
+        width: gp.width + 2 * gp.hp
+        height: gp.height + 2 * gp.hp
+        onPaint: {
+            var ctx = getContext("2d");
+            ctx.reset();
+            if (gp.width < 2 || gp.bodyH < 2) return;
+            GS.build(ctx, gp.hp, gp.hp, gp.width, gp.bodyH, gp.radius, gp.tailX, gp.tailW, gp.tailH, gp.tailTipR);
+            ctx.fillStyle = gp.dark ? "rgb(40,40,44)" : "rgb(232,232,237)";
+            ctx.fill();
+        }
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        Connections { target: gp; function onShapeKeyChanged() { baseCv.requestPaint(); } }
+        Component.onCompleted: requestPaint()
+    }
+
     // ── the blurred backdrop, cut to the bubble's outline (only while live) ──
     Loader {
         id: blurLoader
@@ -98,7 +133,7 @@ Item {
             ShaderEffectSource {
                 id: ses
                 sourceItem: gp.backdrop
-                sourceRect: Qt.rect(gp.bx - gp.m, gp.by - gp.m, gp.width + 2 * gp.m, gp.height + 2 * gp.m)
+                sourceRect: Qt.rect(gp.bx - gp.m * gp.capSx, gp.by - gp.m * gp.capSy, (gp.width + 2 * gp.m) * gp.capSx, (gp.height + 2 * gp.m) * gp.capSy)
                 live: gp.visible
                 visible: false
             }
@@ -159,11 +194,11 @@ Item {
             // tint over the blurred backdrop (a firmer one when there is no backdrop of our own to blur)
             var g = ctx.createLinearGradient(0, pd, 0, pd + H + TH);
             if (gp.dark) {
-                g.addColorStop(0, gp.live ? "rgba(56,56,62,0.50)" : "rgba(54,54,59,0.78)");
-                g.addColorStop(1, gp.live ? "rgba(30,30,34,0.58)" : "rgba(34,34,38,0.82)");
+                g.addColorStop(0, gp.live ? "rgba(56,56,62,0.50)" : "rgb(54,54,59)");
+                g.addColorStop(1, gp.live ? "rgba(30,30,34,0.58)" : "rgb(34,34,38)");
             } else {
-                g.addColorStop(0, gp.live ? "rgba(255,255,255,0.44)" : "rgba(246,246,249,0.80)");
-                g.addColorStop(1, gp.live ? "rgba(255,255,255,0.36)" : "rgba(236,236,241,0.84)");
+                g.addColorStop(0, gp.live ? "rgba(255,255,255,0.44)" : "rgb(246,246,249)");
+                g.addColorStop(1, gp.live ? "rgba(255,255,255,0.36)" : "rgb(236,236,241)");
             }
             outline();
             ctx.fillStyle = g;

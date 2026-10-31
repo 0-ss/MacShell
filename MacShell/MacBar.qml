@@ -1041,6 +1041,7 @@ Scope {
         // position everything in the slab's own UNSCALED coordinates, but the backdrop that is captured has to be the region that really
         // sits behind the scaled menu (same idea as capLocal / capScreen of the Control Center). 1 = the slab is not scaled.
         property real capScale: 1
+        property real magnifyMul: 1         // 0 = no vertical lens (menus: the backdrop stays exactly where it really is)
         // true: when the menu bar changes size the capture is dropped, re-attached and every stage re-rendered (the Control Center's method),
         // because the capture used to stay stuck on the old rectangle
         property bool refreshOnResize: false
@@ -1159,7 +1160,7 @@ Scope {
                     property real bezel: Math.min(g.height * 0.36, 26)
                     property real thickness: g.thickness * g.strength * 1.6      // bar popovers: boosted to match the stronger dock glass
                     property real dispersion: 0.06 * g.strength * 1.3
-                    property real magnify: 0.05 * g.strength * 1.6
+                    property real magnify: 0.05 * g.strength * g.magnifyMul * 1.6
                     property real rim: g.rim
                     property real grain: g.grain * 0.2
                     property real blurPx: 1.5
@@ -1190,6 +1191,7 @@ Scope {
         property real blur: 5               // base backdrop blur radius, px (settings slider)
         property real blurMul: 1.0          // scales the backdrop blur radius of every slab in this context
         property real liquidMul: 1.0        // scales refraction / dispersion / magnify of every slab in this context
+        property real magnifyMul: 1.0       // 0 = no vertical lens across the whole slab: what is behind lines up exactly with the real screen
         property real paneOpacity: 1.0      // <1 lets the compositor blur show through the shader pane
         property real rim: 0.45
         property real rimTint: 0            // 1 = rim + border line take a brighter shade of the glass's own local colour
@@ -1214,14 +1216,24 @@ Scope {
         property bool fromCC: false                 // opened from the Control Center: keeps the global blur setting
         readonly property real topBarBlur: 42       // opened from the top bar: the stronger blur of the old version
         property alias ctx: pgc
-        readonly property real m: 64 * root.barPopupScale
+        readonly property real m: 64
+        // The popover is drawn scaled by barPopupScale around its top-left corner, but the glass shaders position every slab in the
+        // popover's own UNSCALED coordinates (same situation as the Control Center). So the backdrop is described twice:
+        //   capLocal  = the region in those unscaled coordinates (what the shaders map their pixels against)
+        //   capScreen = where that same region really is on screen (what is captured): scaled about the popover's top-left corner
+        // Mapping the scaled capture with scaled coordinates made the backdrop land displaced (window content "a bit up") at any bar size
+        // other than the default.
+        readonly property real capS: root.barPopupScale
+        readonly property rect capLocal: Qt.rect(pg.pop.x - pg.m, pg.pop.y - pg.m, pg.fullW + 2 * pg.m, pg.fullH + 2 * pg.m)
+        readonly property rect capScreen: Qt.rect(pg.pop.x - pg.m * pg.capS, pg.pop.y - pg.m * pg.capS,
+                                                  (pg.fullW + 2 * pg.m) * pg.capS, (pg.fullH + 2 * pg.m) * pg.capS)
         ShaderEffectSource {
             id: pgSrc
             sourceItem: pg.source
             hideSource: true
             live: pg.pop.visible
             visible: false
-            sourceRect: Qt.rect(pg.pop.x - pg.m, pg.pop.y - pg.m, pg.fullW * root.barPopupScale + 2 * pg.m, pg.fullH * root.barPopupScale + 2 * pg.m)
+            sourceRect: pg.capScreen
         }
         MultiEffect {
             id: pgFx
@@ -1242,7 +1254,8 @@ Scope {
         GlassCtx {
             id: pgc
             src: pgBlur
-            srcRect: pgSrc.sourceRect
+            srcRect: pg.capLocal
+            magnifyMul: 0          // popovers: no vertical lens, the backdrop stays exactly where it really is
             frame: pg.frame
             liquid: root.liquidActive
             shaderUrl: root.glassShaderUrl
@@ -1322,7 +1335,7 @@ Scope {
                     property real bezel: Math.min(gg.height * 0.36, 26)
                     property real thickness: gg.thickness * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul * 1.6
                     property real dispersion: 0.06 * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul * 1.3
-                    property real magnify: 0.05 * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul * 1.6
+                    property real magnify: 0.05 * gg.gx.strength * gg.strengthMul * gg.gx.liquidMul * gg.gx.magnifyMul * 1.6
                     property real rim: gg.gx.rim
                     property real grain: gg.gx.grain * 0.2
                     property real blurPx: 1.5
@@ -5042,13 +5055,20 @@ Scope {
                         x: 0; y: 0
                         width: win.modelData.width
                         height: win.modelData.height
-                        Rectangle { anchors.fill: parent; color: "#000000" }
+                        Rectangle { x: -160; y: -160; width: parent.width + 320; height: parent.height + 320; color: "#000000" }
                         ShaderEffectSource {
+                            id: flatSrc
                             anchors.fill: parent
                             sourceItem: bd
                             live: bd.hostShown
                             hideSource: false
                         }
+                        // Edge padding: the glass blurs and refracts up to ~64 px beyond the screen edge, where the backdrop used to be empty (alpha 0),
+                        // which pulled the blur toward see-through near the screen edges (e.g. popovers on the right). Mirror the edge pixels outward instead.
+                        ShaderEffectSource { x: flatRoot.width; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(flatRoot.width - 160, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: bd.hostShown; hideSource: false }
+                        ShaderEffectSource { x: -160; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: bd.hostShown; hideSource: false }
+                        ShaderEffectSource { x: 0; y: -160; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: bd.hostShown; hideSource: false }
+                        ShaderEffectSource { x: 0; y: flatRoot.height; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, flatRoot.height - 160, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: bd.hostShown; hideSource: false }
                     Item {
                         id: bd
                         // never drawn on screen: only captured by the glass (a ShaderEffectSource ignores its source's own
@@ -6465,6 +6485,7 @@ Scope {
                         dark: root.panelDarkMode
                         bx: menuPop.x; by: menuPop.y
                         capScale: root.barPopupScale
+                        magnifyMul: 0
                         refreshOnResize: true
                         shadowAmt: 0
                         flatInner: 1
@@ -6615,6 +6636,7 @@ Scope {
                         dark: root.panelDarkMode
                         bx: trayPop.x; by: trayPop.y
                         capScale: root.barPopupScale
+                        magnifyMul: 0
                         refreshOnResize: true
                         shadowAmt: 0
                         flatInner: 1
@@ -9223,9 +9245,6 @@ Scope {
                             height: 48
                             GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 22; strengthMul: 1.0; shadowAmt: 0; flatInner: 1      // flatInner: no darker inner edge
                                      opacity: spot.joined ? 0 : 1; Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 160; easing.type: Easing.OutCubic } } }
-                            HoverHandler { id: pillHover }
-                            ContourGlow { cornerR: 24; hovered: pillHover.hovered && !spot.joined; at: pillHover.point.position; glowColor: root.panelDarkMode ? "white" : root.accent
-                                          opacity: spot.joined ? 0 : 1; Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 160 } } }
                             MenuBorder { amount: 1; anchors.fill: parent; cornerR: 24; dark: root.panelDarkMode; tint: root.menuBorderColor
                                          opacity: spot.joined ? 0 : 1; Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 160; easing.type: Easing.OutCubic } } }
                             Glyph {
@@ -9329,7 +9348,6 @@ Scope {
                                         else if (ui.spHoverLabel === modelData.label) spHoverClear.restart();
                                     }
                                 }
-                                ContourGlow { cornerR: 24; hovered: btnHover.hovered; at: btnHover.point.position; glowColor: root.panelDarkMode ? "white" : root.accent }
                                 onClicked: {
                                     if (modelData.id === "apps") ui.spSetMode(ui.spMode === "apps" ? "home" : "apps");
                                     else if (modelData.id === "actions") ui.spSetMode(ui.spMode === "actions" ? "home" : "actions");
