@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # MacShell installer / updater
 #
-#   curl -fsSL https://raw.githubusercontent.com/0-ss/MacShell/main/install.sh | bash
-#   ./install.sh            (from a clone of the repository)
+#   git clone https://github.com/0-ss/MacShell && cd MacShell
+#   ./install.sh            (installs exactly what is in the clone)
+#   ./install.sh --gui      (same, in the graphical installer)
 #
 # What it does
 #   1. checks every tool, library, QML module, font and service MacShell / MacLock need and installs the missing ones
 #      (pacman, dnf or apt; packages the main repositories lack come from the AUR / the Fedora COPR, and on Arch it can
 #      even set up an AUR helper for you). It also enables the bluetooth service, which Bluetooth needs.
+#      In a Hyprland session on Arch it offers to open the graphical installer (MacInstaller) instead of installing in the terminal.
 #   2. downloads the latest release (or the latest commit of the main branch)
 #   3. installs the shell to   ~/.config/quickshell/MacShell        (start it with:  qs -c MacShell)
 #      the lock screen to      ~/.config/quickshell/MacLock         (lock with:  sh ~/.config/quickshell/MacLock/lock-via-ipc.sh)
@@ -55,6 +57,8 @@
 #       --update          quiet update mode (used by macshell-update)
 #       --uninstall       remove MacShell (settings are kept)
 #       --no-lock         do not install MacLock
+#       --gui             use the graphical installer (MacInstaller): installs what it needs to run, then opens it
+#       --no-gui          never offer the graphical installer
 #       --check           only check whether a newer version exists (exit 0 = up to date, 10 = update available)
 #       --local           install the local copy as it is, do not look for a newer version on GitHub
 #       --auto-update     install a daily systemd user timer that updates MacShell + MacLock by itself
@@ -64,7 +68,8 @@
 # Environment variables for the shell itself (icon theme, Qt platform, software rendering, ...) go in
 #   ~/.config/macshell/env   (the installer creates it with comments; macshell-start reads it)
 #
-# Environment: MACSHELL_REPO (default 0-ss/MacShell), MACSHELL_BRANCH (default main), MACSHELL_CHANNEL, MACSHELL_DEST,
+# Environment: MACSHELL_FROM_DIR (install from this folder instead of downloading: the graphical installer sets it),
+#              MACSHELL_REPO (default 0-ss/MacShell), MACSHELL_BRANCH (default main), MACSHELL_CHANNEL, MACSHELL_DEST,
 #              MACLOCK_DEST, GITHUB_TOKEN
 
 set -euo pipefail
@@ -78,6 +83,8 @@ DEST="${MACSHELL_DEST:-$CONFIG_HOME/quickshell/$NAME}"
 LOCK_NAME="MacLock"
 LOCK_DEST="${MACLOCK_DEST:-$CONFIG_HOME/quickshell/$LOCK_NAME}"
 STATE_DIR="$DATA_HOME/macshell"
+GUI_NAME="MacInstaller"
+GUI_DEST="$STATE_DIR/$GUI_NAME"
 BIN_DIR="$STATE_DIR/bin"
 BACKUP_DIR="$STATE_DIR/backups"
 HYPR_MAC_DIR="$CONFIG_HOME/hypr-macshell"
@@ -97,6 +104,9 @@ CONF_END="# <<< MacShell <<<"
 
 ENV_DIR="$CONFIG_HOME/macshell"
 DOCTOR=0
+GUI=""            # yes | no | "" (ask)
+GUI_ASKED=0
+GUI_SKIPPED_DEPS=0
 DEPS_PLAN=0
 NO_START=0
 NO_VERIFY=0
@@ -174,6 +184,8 @@ while [ $# -gt 0 ]; do
         --no-autostart) SKIP_AUTOSTART=1 ;;
         --no-rules) SKIP_RULES=1 ;;
         --no-lock) SKIP_LOCK=1 ;;
+        --gui) GUI=yes; MODE_FLAG=1 ;;
+        --no-gui) GUI=no ;;
         --check) CHECK_ONLY=1; SKIP_DEPS=1; MODE_FLAG=1 ;;
         --local) LOCAL_ONLY=1; MODE_FLAG=1 ;;
         --auto-update) AUTO_UPDATE=yes ;;
@@ -190,6 +202,9 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# set by the macshell-installer launcher: install from the clone it was started from (if that folder still exists)
+if [ -z "$FROM_DIR" ] && [ -n "${MACSHELL_FROM_DIR:-}" ] && [ -d "$MACSHELL_FROM_DIR" ]; then FROM_DIR="$MACSHELL_FROM_DIR"; fi
 
 state_get() { [ -f "$STATE_DIR/state.env" ] && sed -n "s/^$1=//p" "$STATE_DIR/state.env" | head -n1 || true; }
 [ -n "$CHANNEL" ] || CHANNEL="$(state_get channel_pref)"
@@ -276,6 +291,7 @@ do_uninstall() {
     fi
     remove_auto_update quiet
     remove_hypr_blocks
+    rm -rf "$GUI_DEST"; rm -f "$LINK_DIR/macshell-installer" "$BIN_DIR/macshell-installer" "$APPS_DIR/macshell-installer.desktop"
     rm -f "$LINK_DIR/macshell-update" "$LINK_DIR/macshell-start" "$BIN_DIR/macshell-update" "$BIN_DIR/macshell-start" "$STATE_DIR/state.env"
     ok "removed the update and start tools"
     say "Your settings were kept (~/.config/macbar, macdock, macshell, macwidgets). The helper tree stays in $HYPR_MAC_DIR (remove it by hand if you like)."
@@ -1116,6 +1132,7 @@ maybe_menu() {
         printf '  3) Uninstall shell\n'
         printf '  4) Bind help\n'
         printf '  5) Check this setup (doctor)\n'
+        printf '  6) Graphical installer\n'
         printf '  q) Quit\n\n'
         printf 'Choose [1]: '
     } >/dev/tty
@@ -1149,6 +1166,7 @@ maybe_menu() {
             exit 0
             ;;
         5) run_doctor; exit 0 ;;
+        6) GUI=yes; return 0 ;;
         *) exit 0 ;;
     esac
 }
@@ -1349,7 +1367,7 @@ backup_current() { # backup_current <dest> <name>
 }
 
 # repository files that are not part of a Quickshell config (MacLock is excluded so it never ends up inside MacShell)
-EXCLUDES=(.git .github install.sh macshell-update macshell-start hypr-macshell README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME")
+EXCLUDES=(.git .github install.sh macshell-update macshell-start hypr-macshell README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME" "$GUI_NAME")
 LOCK_EXCLUDES=(.git .github)
 
 # the destination is emptied of files the source does not have (rsync --delete): refuse folders that are obviously not a
@@ -1369,7 +1387,7 @@ sync_files() { # sync_files <source-folder> <dest> <exclude>...
     if have rsync; then
         local args=()
         for e in "$@"; do args+=("--exclude=/$e"); done
-        args+=("--exclude=__pycache__" "--exclude=*.pyc")
+        args+=("--exclude=__pycache__" "--exclude=*.pyc" "--exclude=*.bak*")
         # --delay-updates: every file lands in place at the very end, so Quickshell never reloads a half-copied folder
         rsync -a --delete --delay-updates "${args[@]}" "$qml_root"/ "$dest"/
     else
@@ -1377,7 +1395,7 @@ sync_files() { # sync_files <source-folder> <dest> <exclude>...
         local stage; stage=$(mktemp -d "$dest.stage.XXXXXX")
         local targs=()
         for e in "$@"; do targs+=("--exclude=./$e"); done
-        targs+=("--exclude=__pycache__" "--exclude=*.pyc")
+        targs+=("--exclude=__pycache__" "--exclude=*.pyc" "--exclude=*.bak*")
         tar -C "$qml_root" "${targs[@]}" -cf - . | tar -C "$stage" -xf -
         find "$dest" -mindepth 1 -delete
         cp -a "$stage"/. "$dest"/
@@ -1834,12 +1852,103 @@ show_lock_hint() {
     [ -e /etc/pam.d/hyprlock ] || warn "/etc/pam.d/hyprlock not found: MacLock checks passwords with that PAM stack (install hyprlock, or add the file)"
 }
 
+
+# ───────────────────────── graphical installer (MacInstaller) ─────────────────────────
+# MacInstaller is a Quickshell window that drives this script. It needs quickshell and a running Hyprland session.
+gui_possible() {
+    have qs || return 1
+    [ -n "${WAYLAND_DISPLAY:-}" ] && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || return 1
+    [ "$UPDATE_MODE" != 1 ] && [ "$CHECK_ONLY" != 1 ] || return 1
+    return 0
+}
+
+# ask once whether to use it (interactive runs on Arch only: the window's dependency page reads the pacman plan)
+maybe_offer_gui() {
+    [ -z "$GUI" ] && [ "$GUI_ASKED" != 1 ] || return 0
+    [ "$ASSUME_YES" != 1 ] && [ "$MODE_FLAG" != 1 ] || return 0
+    [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+    gui_possible || return 0
+    detect_pm; [ "$PM" = pacman ] || return 0
+    GUI_ASKED=1
+    if confirm "Use the graphical installer (MacInstaller) instead of the terminal?" y; then GUI=yes; else GUI=no; fi
+    return 0
+}
+
+# copy MacInstaller out of the (temporary) source into a permanent place, plus the launcher and a desktop entry
+install_gui_files() {
+    [ -n "${GUI_ROOT:-}" ] || return 1
+    safe_dest "$GUI_DEST" GUI_DEST
+    sync_files "$GUI_ROOT" "$GUI_DEST" .git || return 1
+    mkdir -p "$BIN_DIR" "$LINK_DIR" "$APPS_DIR"
+    # the GUI calls the installer through this copy (it must outlive a curl | bash download)
+    local self="$SRC_ROOT/install.sh"
+    [ -f "$self" ] || self="${BASH_SOURCE[0]:-}"
+    if [ -n "$self" ] && [ -f "$self" ]; then
+        cp -f "$self" "$BIN_DIR/.macshell-install.new" && chmod +x "$BIN_DIR/.macshell-install.new" \
+            && mv -f "$BIN_DIR/.macshell-install.new" "$BIN_DIR/macshell-install" && ln -sf "$BIN_DIR/macshell-install" "$LINK_DIR/macshell-install"
+    else
+        warn "could not find install.sh to copy: the graphical installer cannot call it"; return 1
+    fi
+    # install from the clone the user ran this from (a temporary download folder is gone after the run: skip it then)
+    local GUI_FROM_LINE=""
+    if [ -z "${TMP:-}" ] || [ "${SRC_ROOT#"$TMP"/}" = "$SRC_ROOT" ]; then
+        GUI_FROM_LINE="export MACSHELL_FROM_DIR=\"$SRC_ROOT\"
+"
+    fi
+    cat > "$BIN_DIR/macshell-installer" <<LAUNCH
+#!/bin/sh
+# macshell-installer: opens the MacShell graphical installer (it runs $BIN_DIR/macshell-install)
+export MACSHELL_INSTALL_SH="$BIN_DIR/macshell-install"
+${GUI_FROM_LINE}exec qs -p "$GUI_DEST" "\$@"
+LAUNCH
+    chmod +x "$BIN_DIR/macshell-installer"; ln -sf "$BIN_DIR/macshell-installer" "$LINK_DIR/macshell-installer"
+    cat > "$APPS_DIR/macshell-installer.desktop" <<DESK
+[Desktop Entry]
+Type=Application
+Name=MacShell Installer
+Comment=Install, update or repair MacShell
+Exec=sh $LINK_DIR/macshell-installer
+Terminal=false
+Categories=System;Settings;
+DESK
+    have update-desktop-database && update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
+    ok "graphical installer -> $GUI_DEST  (open it any time with: macshell-installer)"
+    return 0
+}
+
+launch_gui() {
+    install_gui_files || return 1
+    local log pid; log="${XDG_STATE_HOME:-$HOME/.local/state}/macshell/$GUI_NAME.log"
+    mkdir -p "$(dirname "$log")" 2>/dev/null || true
+    step "Opening the graphical installer"
+    if have setsid; then setsid nohup sh "$BIN_DIR/macshell-installer" >"$log" 2>&1 &
+    else nohup sh "$BIN_DIR/macshell-installer" >"$log" 2>&1 &
+    fi
+    pid=$!
+    sleep 3
+    if ! kill -0 "$pid" 2>/dev/null; then
+        warn "the graphical installer closed right away (log: $log)"; tail -n 5 "$log" 2>/dev/null | sed 's/^/      /'
+        return 1
+    fi
+    ok "MacInstaller is open: finish the installation in its window"
+    say "  Reopen it later with:  macshell-installer     (log: $log)"
+    return 0
+}
+
 # ───────────────────────── main ─────────────────────────
 [ "$DEPS_PLAN" = 1 ] && { run_deps_plan; exit 0; }
 [ "$DOCTOR" = 1 ] && { run_doctor; exit 0; }
 [ "$CHECK_ONLY" = 1 ] && run_check
 maybe_menu
+[ "$GUI" = yes ] || maybe_offer_gui
+# the window has its own dependency page: when it can open now, leave the dependencies to it
+if [ "$GUI" = yes ] && [ "$DEPS_ONLY" != 1 ] && [ "$SKIP_DEPS" != 1 ] && gui_possible; then SKIP_DEPS=1; GUI_SKIPPED_DEPS=1; fi
 [ "$SKIP_DEPS" = 1 ] || check_deps
+[ "$DEPS_ONLY" = 1 ] || maybe_offer_gui     # quickshell may have just been installed above
+if [ "$GUI" = yes ] && ! gui_possible; then
+    warn "the graphical installer needs quickshell and a running Hyprland session: continuing in the terminal"
+    GUI=no
+fi
 if [ "$DEPS_ONLY" = 1 ]; then enable_services; write_env_template; ensure_dirs; ok "dependencies done"; exit 0; fi
 SRC_ROOT=""
 fetch_source
@@ -1851,6 +1960,14 @@ QML_ROOT=$(find_component_root "$SRC_ROOT" "$NAME" fallback || true)
 if [ "$RESOLVED_ID" = local ]; then
     ver=$(dir_version "$QML_ROOT")
     if [ -n "$ver" ]; then RESOLVED_ID="$ver"; RESOLVED_TYPE="release"; RESOLVED_VER="$ver"; fi
+fi
+GUI_ROOT=$(find_component_root "$SRC_ROOT" "$GUI_NAME" || true)
+if [ "$GUI" = yes ]; then
+    if [ -z "$GUI_ROOT" ]; then warn "$GUI_NAME was not found in the source: continuing in the terminal"; GUI=no
+    elif launch_gui; then exit 0
+    else warn "continuing in the terminal"; GUI=no; fi
+    # the dependency check was left to the window: do it now
+    if [ "$GUI_SKIPPED_DEPS" = 1 ]; then SKIP_DEPS=0; check_deps; fi
 fi
 safe_dest "$DEST" MACSHELL_DEST
 safe_dest "$LOCK_DEST" MACLOCK_DEST
@@ -1874,6 +1991,7 @@ if [ -n "$LOCK_ROOT" ]; then
 fi
 fix_modes "$DEST"
 install_extras "$SRC_ROOT"
+if [ -n "$GUI_ROOT" ]; then install_gui_files || true; fi
 build_shaders "$DEST"
 write_env_template
 ensure_dirs
@@ -1903,6 +2021,7 @@ printf '%sMacShell %s is installed%s.%s\n' "$G" "${RESOLVED_ID:0:12}" "${LOCK_RO
 say "  Start it:            sh $LINK_DIR/macshell-start      (or: qs -c $NAME)"
 [ -n "$LOCK_ROOT" ] && show_lock_hint
 say "  Update / repair:     macshell-install      (or run ./install.sh again: it looks for news on GitHub)"
+say "  Graphical installer: macshell-installer"
 say "  Find problems:       macshell-install --doctor"
 say "  Roll back:           macshell-update rollback"
 case ":$PATH:" in *":$LINK_DIR:"*) ;; *) say "  Note: add $LINK_DIR to your PATH to use 'macshell-update' from a terminal." ;; esac

@@ -14,7 +14,7 @@ Column {
         horizontalAlignment: Text.AlignHCenter
         text: hc.info.h
         color: hc.wd.fgHour
-        font.family: Fonts.forWeight(font.weight, hc.wd.fam)
+        font.family: Fonts.forWeight(Font.DemiBold, hc.wd.fam)
         font.pixelSize: 12 * hc.wd.s
         font.weight: Font.DemiBold
     }
@@ -33,7 +33,7 @@ Column {
         horizontalAlignment: Text.AlignHCenter
         text: hc.info.t + hc.wd.unitSuffix
         color: hc.wd.fg
-        font.family: Fonts.forWeight(font.weight, hc.wd.fam)
+        font.family: Fonts.forWeight(Font.DemiBold, hc.wd.fam)
         font.pixelSize: 15 * hc.wd.s
         font.weight: Font.DemiBold
     }

@@ -199,7 +199,7 @@ Scope {
                             Text {
                                 text: parent.modelData
                                 color: parent.index === root.step ? pal.text : pal.text2
-                                font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13
+                                font.family: Fonts.forWeight((parent.index === root.step ? Font.DemiBold : Font.Normal), root.fam); font.pixelSize: 13
                                 font.weight: parent.index === root.step ? Font.DemiBold : Font.Normal
                             }
                         }
@@ -217,7 +217,7 @@ Scope {
                 Text {
                     id: title
                     text: ["Welcome to the MacShell Installer", I18n.tr("Components"), root.running ? I18n.tr("Installing…") : I18n.tr("Installation"), "The installation was successful."][root.step]
-                    color: pal.text; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 18; font.weight: Font.DemiBold
+                    color: pal.text; font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 18; font.weight: Font.DemiBold
                 }
 
                 // 0 — introduction
@@ -261,7 +261,7 @@ Scope {
                                     required property var modelData
                                     width: compCol.width
                                     spacing: 4
-                                    Text { text: parent.modelData.name; color: pal.text; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
+                                    Text { text: parent.modelData.name; color: pal.text; font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                                     Text { width: parent.width; wrapMode: Text.WordWrap; text: parent.modelData.about; color: pal.text3; font.family: root.fam; font.pixelSize: 11 }
                                     Flow {
                                         width: parent.width
@@ -354,7 +354,7 @@ Scope {
                     spacing: 14
                     Rectangle {
                         width: 64; height: 64; radius: 32; color: Qt.rgba(0.19, 0.82, 0.35, 0.9)
-                        Text { anchors.centerIn: parent; text: "✓"; color: "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 34; font.weight: Font.Bold }
+                        Text { anchors.centerIn: parent; text: "✓"; color: "white"; font.family: Fonts.forWeight(Font.Bold, root.fam); font.pixelSize: 34; font.weight: Font.Bold }
                     }
                     Text {
                         width: parent.width; wrapMode: Text.WordWrap
@@ -399,7 +399,7 @@ Scope {
         color: main ? (bm.pressed ? Qt.darker(root.accent, 1.15) : root.accent) : (bm.pressed ? pal.lightOff : pal.pill)
         scale: bm.pressed ? 0.96 : 1
         Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutQuint } }
-        Text { id: bt; anchors.centerIn: parent; text: b.text; color: b.main ? "white" : pal.text; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: b.main ? Font.DemiBold : Font.Normal }
+        Text { id: bt; anchors.centerIn: parent; text: b.text; color: b.main ? "white" : pal.text; font.family: Fonts.forWeight((b.main ? Font.DemiBold : Font.Normal), root.fam); font.pixelSize: 13; font.weight: b.main ? Font.DemiBold : Font.Normal }
         MouseArea { id: bm; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: b.clicked() }
     }
     // a small hover tooltip

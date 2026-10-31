@@ -82,7 +82,7 @@ Item {
         anchors.centerIn: parent
         text: b.badge
         color: b.col
-        font.family: Fonts.forWeight(font.weight, b.wd.fam)
+        font.family: Fonts.forWeight(Font.Bold, b.wd.fam)
         font.pixelSize: b.gh * 0.42
         font.weight: Font.Bold
     }

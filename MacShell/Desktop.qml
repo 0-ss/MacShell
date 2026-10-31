@@ -353,7 +353,7 @@ Scope {
                         Quickshell.execDetached(["sh", "-c", "mv \"$1\" \"$2/$3\"", "sh", it.path, root.dir, t]);
                         rescan.restart();
                     }
-                    Text { x: 16; y: 14; text: I18n.tr("Rename"); color: "white"; font.family: Fonts.forWeight(font.weight, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
+                    Text { x: 16; y: 14; text: I18n.tr("Rename"); color: "white"; font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                     Rectangle {
                         x: 16; y: 40; width: parent.width - 32; height: 30; radius: 7
                         color: Qt.rgba(1, 1, 1, 0.1)

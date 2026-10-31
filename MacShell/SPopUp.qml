@@ -92,7 +92,7 @@ Item {
                     Text {
                         x: 8; anchors.verticalCenter: parent.verticalCenter
                         text: "\u2713"; visible: row.index === pu.current
-                        color: rowMa.containsMouse ? "white" : pu.t.text; font.family: Fonts.forWeight(font.weight, pu.t.fam); font.pixelSize: 12; font.bold: true
+                        color: rowMa.containsMouse ? "white" : pu.t.text; font.family: Fonts.forWeight(Font.Bold, pu.t.fam); font.pixelSize: 12; font.bold: true
                     }
                     Text {
                         x: 26; anchors.verticalCenter: parent.verticalCenter

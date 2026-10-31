@@ -281,7 +281,7 @@ Scope {
                 text: r.title
                 elide: Text.ElideRight
                 color: r.t.text
-                font.family: root.fontForWeight(font.weight, r.t.fam)
+                font.family: root.fontForWeight(Font.Normal, r.t.fam)
                 font.pixelSize: 13
             }
             Text {
@@ -290,7 +290,7 @@ Scope {
                 text: r.subtitle
                 wrapMode: Text.WordWrap
                 color: r.t.text2
-                font.family: root.fontForWeight(font.weight, r.t.fam)
+                font.family: root.fontForWeight(Font.Normal, r.t.fam)
                 font.pixelSize: 12
             }
         }
@@ -313,7 +313,7 @@ Scope {
         topPadding: header ? 8 : 0
         wrapMode: Text.WordWrap
         color: t.text2
-        font.family: root.fontForWeight(font.weight, t.fam)
+        font.family: root.fontForWeight((header ? Font.DemiBold : Font.Normal), t.fam)
         font.pixelSize: header ? 12 : 12
         font.weight: header ? Font.DemiBold : Font.Normal
     }
@@ -414,7 +414,7 @@ Scope {
         signal clicked()
         width: lbl.implicitWidth + 26
         height: 24
-        radius: 6
+        radius: 10
         color: ma.pressed ? t.buttonPressed : t.button
         border.width: 1
         border.color: t.buttonBorder
@@ -423,7 +423,7 @@ Scope {
             anchors.centerIn: parent
             text: b.text
             color: b.destructive ? b.t.danger : b.t.text
-            font.family: root.fontForWeight(font.weight, b.t.fam)
+            font.family: root.fontForWeight(Font.Normal, b.t.fam)
             font.pixelSize: 13
         }
         MouseArea { id: ma; anchors.fill: parent; onClicked: b.clicked() }
@@ -499,7 +499,7 @@ Scope {
             anchors.horizontalCenter: parent.horizontalCenter
             text: I18n.tr(tile.label)
             color: tile.t.text
-            font.family: root.fontForWeight(font.weight, tile.t.fam)
+            font.family: root.fontForWeight(Font.Normal, tile.t.fam)
             font.pixelSize: 12
         }
         MouseArea { anchors.fill: parent; onClicked: tile.clicked() }
@@ -611,7 +611,7 @@ Scope {
                     anchors.centerIn: parent
                     text: "i"
                     color: "white"
-                    font.family: Fonts.forWeight(font.weight, gl.fam); font.pixelSize: 10
+                    font.family: Fonts.forWeight(Font.Bold, gl.fam); font.pixelSize: 10
                     font.bold: true
                 }
             }
@@ -890,7 +890,7 @@ Scope {
                         wrapMode: Text.WordWrap
                         text: I18n.tr("A new version of MacShell is available.")
                         color: pal.text2
-                        font.family: root.fontForWeight(font.weight, pal.fam)
+                        font.family: root.fontForWeight(Font.Normal, pal.fam)
                         font.pixelSize: 13
                     }
                     Row {
@@ -968,16 +968,18 @@ Scope {
                 }
                 Rectangle { visible: !sidebar.floating; anchors.right: parent.right; width: 1; height: parent.height; color: pal.sep }
 
-                // the glass slab: refracts the wallpaper exactly where the window sits (Hyprland's blur is xray, so
-                // that is also what the rest of the window shows, blurred)
+                // Hidden Liquid Glass capture: the wallpaper exactly where the window sits, grabbed as ONE picture.
+                // Nothing is drawn fullscreen — only the back / forward pill refracts this picture (via pillSrc).
                 Loader {
-                    anchors.fill: parent
-                    z: -1
-                    active: false       // Liquid Glass sidebar removed: Settings is plain transparent + frosted blur
+                    id: sbLd
+                    parent: frame
+                    z: -60
+                    active: false      // the < > pill no longer refracts the wallpaper: // settingsGlass && the window's position on its monitor is known
+                    readonly property real pillM: 64                    // backdrop margin around the window (refraction reach)
                     sourceComponent: Item {
                         id: sbg
-                        readonly property real m: 64       // backdrop margin around the window (refraction reach)
-                        readonly property real pad: 12     // shader padding (drop shadow)
+                        readonly property real m: sbLd.pillM
+                        readonly property var pillSrc: pillSes          // exposed for the back / forward pill (ids inside don't escape)
                         Item {
                             id: prefsBackdrop
                             parent: frame
@@ -1005,49 +1007,13 @@ Scope {
                             }
                         }
                         ShaderEffectSource {
-                            id: sbSrc
+                            id: pillSes
                             sourceItem: prefsBackdrop
                             hideSource: true
                             live: true
+                            mipmap: true
                             visible: false
                             textureSize: Qt.size(Math.round(prefsBackdrop.width / 2), Math.round(prefsBackdrop.height / 2))
-                        }
-                        MultiEffect {
-                            id: sbBlurFx
-                            source: sbSrc
-                            width: sbSrc.textureSize.width; height: sbSrc.textureSize.height
-                            blurEnabled: true; blurMax: 48
-                            blur: Math.min(1, root.glassBlur * 1.4 * 0.5 / 48 + 0.25)
-                            autoPaddingEnabled: false
-                            visible: false
-                        }
-                        ShaderEffectSource { id: sbBlur; sourceItem: sbBlurFx; live: true; mipmap: true; visible: false }
-                        ShaderEffect {
-                            x: -sbg.pad; y: -sbg.pad
-                            width: sidebar.width + 2 * sbg.pad
-                            height: sidebar.height + 2 * sbg.pad
-                            fragmentShader: root.glassShaderUrl
-                            property variant src: sbBlur
-                            property vector2d itemSize: Qt.vector2d(width, height)
-                            property vector2d glassSize: Qt.vector2d(sidebar.width, sidebar.height)
-                            property vector2d srcSize: Qt.vector2d(prefsBackdrop.width, prefsBackdrop.height)
-                            property vector2d srcOffset: Qt.vector2d(sidebar.x - sbg.pad + sbg.m, sidebar.y - sbg.pad + sbg.m)
-                            property real pad: sbg.pad
-                            property real radius: sidebar.radius
-                            property real bezel: 24
-                            property real thickness: 30 * root.glassLiquid * 1.6
-                            property real dispersion: 0.06 * root.glassLiquid * 1.3
-                            property real magnify: 0.03 * root.glassLiquid
-                            property real rim: Math.max(0.5, root.glassRim)
-                            property real grain: root.glassGrain * 0.2
-                            property real blurPx: 1.5
-                            property real tintMix: root.glassOpacity * 0.5
-                            property real saturation: 1.25
-                            property real dark: root.dockDark ? 1 : 0
-                            property real debug: 0
-                            property real shadowAmt: 0.6
-                            property real rimTint: 0
-                            property real ringW: 0
                         }
                     }
                 }
@@ -1171,7 +1137,7 @@ Scope {
                         selectByMouse: true
                         color: pal.text
                         selectionColor: pal.accent
-                        font.family: root.fontForWeight(font.weight, pal.fam)
+                        font.family: root.fontForWeight(Font.Normal, pal.fam)
                         font.pixelSize: 13
                         onTextChanged: prefsWindow.query = text
                     }
@@ -1181,7 +1147,7 @@ Scope {
                         visible: searchInput.text === ""
                         text: I18n.tr("Search")
                         color: pal.text3
-                        font.family: root.fontForWeight(font.weight, pal.fam)
+                        font.family: root.fontForWeight(Font.Normal, pal.fam)
                         font.pixelSize: 13
                     }
                     Rectangle {   // clear button
@@ -1196,7 +1162,7 @@ Scope {
                             anchors.verticalCenterOffset: -0.5
                             text: "\u00D7"
                             color: pal.sidebar
-                            font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 12
+                            font.family: Fonts.forWeight(Font.Bold, pal.fam); font.pixelSize: 12
                             font.bold: true
                         }
                         MouseArea { anchors.fill: parent; onClicked: searchInput.text = "" }
@@ -1223,8 +1189,8 @@ Scope {
                     }
                     Column {
                         x: 52; anchors.verticalCenter: parent.verticalCenter
-                        Text { text: root.userName; color: prefsWindow.cur === acct.idx && prefsWindow.active ? "white" : pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
-                        Text { text: I18n.tr("Local Account"); color: prefsWindow.cur === acct.idx && prefsWindow.active ? Qt.rgba(1, 1, 1, 0.8) : pal.text2; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 11 }
+                        Text { text: root.userName; color: prefsWindow.cur === acct.idx && prefsWindow.active ? "white" : pal.text; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
+                        Text { text: I18n.tr("Local Account"); color: prefsWindow.cur === acct.idx && prefsWindow.active ? Qt.rgba(1, 1, 1, 0.8) : pal.text2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 11 }
                     }
                     MouseArea { id: acctMa; anchors.fill: parent; hoverEnabled: true; onClicked: prefsWindow.go(acct.idx) }
                 }
@@ -1299,7 +1265,7 @@ Scope {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: I18n.tr(navRow.p.name)
                                 color: (navRow.sel && prefsWindow.active) ? "white" : pal.text
-                                font.family: root.fontForWeight(font.weight, pal.fam)
+                                font.family: root.fontForWeight(Font.Normal, pal.fam)
                                 font.pixelSize: 14
                             }
                             MouseArea {
@@ -1319,12 +1285,34 @@ Scope {
                         horizontalAlignment: Text.AlignHCenter
                         text: I18n.tr("No Results")
                         color: pal.text2
-                        font.family: root.fontForWeight(font.weight, pal.fam)
+                        font.family: root.fontForWeight(Font.Normal, pal.fam)
                         font.pixelSize: 12
                     }
                 }
                 }
             }
+
+            // Backdrop for the < > pill: the Settings window itself (page colour, the sidebar edge and the page scrolling under the
+            // toolbar), grabbed as one picture. The pill refracts this, never the wallpaper.
+            Item {
+                id: pillBack
+                parent: frame
+                z: -100
+                readonly property real m: 64
+                x: header.x + navPill.x - m; y: header.y + navPill.y - m
+                width: navPill.width + 2 * m; height: navPill.height + 2 * m
+                Rectangle { anchors.fill: parent; color: pal.contentSolid }
+                Rectangle { x: 0; y: 0; width: Math.max(0, sidebar.x + sidebar.width - pillBack.x); height: parent.height; color: pal.sidebar }
+                Rectangle { x: Math.max(0, sidebar.x + sidebar.width - pillBack.x); y: 0; width: 1; height: parent.height; color: pal.sep }
+                ShaderEffectSource {
+                    x: flick.x - pillBack.x; y: flick.y - pillBack.y
+                    width: Math.max(1, parent.width - x); height: Math.max(1, parent.height - y)
+                    sourceItem: flick
+                    sourceRect: Qt.rect(0, 0, width, height)
+                    live: true
+                }
+            }
+            ShaderEffectSource { id: pillSes; sourceItem: pillBack; hideSource: true; live: true; mipmap: true; visible: false }
 
             // ───────── toolbar ─────────
             Item {
@@ -1342,7 +1330,12 @@ Scope {
                     glass: root.settingsGlass
                     shaderUrl: root.glassShaderUrl
                     dark: pal.dark
+                    // refracts the Settings window itself (pillBack below), never the wallpaper
+                    src: pillSes
+                    srcSize: Qt.size(pillBack.width, pillBack.height)
+                    origin: Qt.point(pillBack.m, pillBack.m)
                     baseColor: pal.dark ? "#3C3C40" : "#FBFBFD"
+                    blurPx: 6                              // more blur behind the < > pill (was 1.5)
                     thickness: 14; strengthMul: 0.6        // same glass as the Control Center buttons
                     liquid: root.glassLiquid
                     rim: root.glassRim * 0.25
@@ -1371,16 +1364,11 @@ Scope {
                             readonly property bool ok: modelData.dir < 0 ? prefsWindow.backStack.length > 0
                                                                            : prefsWindow.fwdStack.length > 0
                             width: 26; height: 28
-                            Rectangle {         // hover: the same faint light as the Control Center pills
-                                anchors.fill: parent; radius: 13
-                                color: (navBtn.ok && navMa.containsMouse) ? (pal.dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(1, 1, 1, 0.5)) : "transparent"
-                                Behavior on color { ColorAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                            }
                             Text {
                                 anchors.centerIn: parent
                                 anchors.verticalCenterOffset: -2
                                 text: navBtn.modelData.g
-                                font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 28
+                                font.family: Fonts.forWeight(Font.Normal, pal.fam); font.pixelSize: 28
                                 color: navBtn.ok ? pal.text : pal.text3
                                 opacity: navBtn.ok ? 1 : 0.5
                                 scale: (navBtn.ok && navMa.pressed) ? 0.86 : 1
@@ -1404,38 +1392,15 @@ Scope {
                     anchors.verticalCenter: parent.verticalCenter
                     text: I18n.tr(prefsWindow.panes[prefsWindow.cur].name)
                     color: pal.text
-                    font.family: root.fontForWeight(font.weight, pal.fam)
+                    font.family: root.fontForWeight(Font.DemiBold, pal.fam)
                     font.pixelSize: 15
                     font.weight: Font.DemiBold
                 }
             }
 
             // ───────── scrolling content ─────────
-            // feather: the page scrolls all the way up under the toolbar; what slides under it melts away. Same feather as the
-            // lyrics in the Player widget: one smooth alpha mask over the scroller (switched on as the page starts to scroll).
-            Item {
-                id: flickFeather
-                visible: false; layer.enabled: true
-                width: flick.width; height: flick.height
-                readonly property real fp: Math.min(0.32, 46 / Math.max(1, height))     // feather depth: 46 px
-                readonly property real amt: Math.max(0, Math.min(1, flick.contentY / 18))
-                function a(base) { return 1 - amt * (1 - base); }
-                Rectangle {
-                    anchors.fill: parent
-                    gradient: Gradient {
-                        GradientStop { position: 0.0;                    color: Qt.rgba(0, 0, 0, flickFeather.a(0.0)) }
-                        GradientStop { position: flickFeather.fp * 0.25; color: Qt.rgba(0, 0, 0, flickFeather.a(0.04)) }
-                        GradientStop { position: flickFeather.fp * 0.50; color: Qt.rgba(0, 0, 0, flickFeather.a(0.30)) }
-                        GradientStop { position: flickFeather.fp * 0.75; color: Qt.rgba(0, 0, 0, flickFeather.a(0.72)) }
-                        GradientStop { position: flickFeather.fp;        color: "black" }
-                        GradientStop { position: 1.0;                    color: "black" }
-                    }
-                }
-            }
             Flickable {
                 id: flick
-                layer.enabled: true
-                layer.effect: MultiEffect { maskEnabled: true; maskSource: flickFeather }
                 x: sidebar.x + sidebar.width + 1
                 y: 1
                 width: parent.width - sidebar.x - sidebar.width - 2
@@ -1463,6 +1428,18 @@ Scope {
                     })[prefsWindow.panes[prefsWindow.cur].id]
                     onLoaded: fadeIn.restart()
                 }
+            }
+            // Tahoe-style scroll-under blur: what slides up under the toolbar is blurred, and the blur melts away below it
+            // (FeatherBlur.qml). It re-draws the page; the page itself keeps scrolling and clicking as before.
+            FeatherBlur {
+                z: 1
+                x: flick.x; y: flick.y; width: flick.width; height: flick.height
+                target: flick
+                topHold: 36                  // height of the fully blurred band
+                topDepth: 22                 // short, soft fade-out
+                radiusScale: 1.4
+                blurMax: 32
+                topAmount: Math.max(0, Math.min(1, flick.contentY / 18))
             }
             Rectangle {   // thin overlay scrollbar
                 visible: flick.contentHeight > flick.height + 1
@@ -1680,7 +1657,7 @@ Scope {
                                     selectByMouse: true
                                     color: pal.text
                                     selectionColor: pal.accent
-                                    font.family: root.fontForWeight(font.weight, pal.fam)
+                                    font.family: root.fontForWeight(Font.Normal, pal.fam)
                                     font.pixelSize: 12
                                     text: root.bar ? root.bar.barCustomLogoPath : ""
                                     onTextEdited: { if (root.bar) root.bar.barCustomLogoPath = text; }
@@ -1698,7 +1675,7 @@ Scope {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "~/Pictures/logo.png"
                                     color: pal.text3
-                                    font.family: root.fontForWeight(font.weight, pal.fam)
+                                    font.family: root.fontForWeight(Font.Normal, pal.fam)
                                     font.pixelSize: 12
                                 }
                             }
@@ -1914,7 +1891,7 @@ Scope {
                                     selectByMouse: true
                                     color: pal.text
                                     selectionColor: pal.accent
-                                    font.family: root.fontForWeight(font.weight, pal.fam)
+                                    font.family: root.fontForWeight(Font.Normal, pal.fam)
                                     font.pixelSize: 12
                                     text: root.bar ? root.bar.screenshotDir : ""
                                     onTextEdited: { if (root.bar) root.bar.screenshotDir = text; }
@@ -1925,7 +1902,7 @@ Scope {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "~/Pictures/Screenshots"
                                     color: pal.text3
-                                    font.family: root.fontForWeight(font.weight, pal.fam)
+                                    font.family: root.fontForWeight(Font.Normal, pal.fam)
                                     font.pixelSize: 12
                                 }
                             }
@@ -2153,7 +2130,7 @@ Scope {
                                     maximumLength: 7
                                     color: pal.text
                                     selectionColor: pal.accent
-                                    font.family: root.fontForWeight(font.weight, pal.fam)
+                                    font.family: root.fontForWeight(Font.Normal, pal.fam)
                                     font.pixelSize: 12
                                     text: root.iconTintColor
                                     onEditingFinished: { if (/^#[0-9a-fA-F]{6}$/.test(text)) root.iconTintColor = text.toLowerCase(); else text = root.iconTintColor; }
@@ -2726,7 +2703,7 @@ Scope {
                                 width: 120; height: 10; radius: 5; color: pal.track; anchors.verticalCenter: parent.verticalCenter
                                 Rectangle { width: parent.width * batPane.pct / 100; height: parent.height; radius: 5; color: batPane.pct <= 20 && !batPane.charging ? "#FF453A" : "#30D158" }
                             }
-                            Text { text: batPane.pct + "%"; color: pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: batPane.pct + "%"; color: pal.text; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
                         }
                     }
                     SRow {
@@ -2900,8 +2877,8 @@ Scope {
                                     id: nameCol
                                     width: parent.width - badge.width - 12
                                     spacing: 2
-                                    Text { width: parent.width; text: addRow.modelData.name; elide: Text.ElideRight; color: pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
-                                    Text { width: parent.width; text: addRow.modelData.hint; wrapMode: Text.WordWrap; color: pal.text2; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 12 }
+                                    Text { width: parent.width; text: addRow.modelData.name; elide: Text.ElideRight; color: pal.text; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
+                                    Text { width: parent.width; text: addRow.modelData.hint; wrapMode: Text.WordWrap; color: pal.text2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 12 }
                                 }
                                 Row {
                                     id: badge
@@ -2912,7 +2889,7 @@ Scope {
                                     Text {
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: addRow.onDesktop + I18n.tr(" on desktop")
-                                        color: pal.text2; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 12
+                                        color: pal.text2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 12
                                     }
                                     SButton { t: pal; text: "\u2212"; onClicked: wgPane.removeOne(addRow.modelData.type) }
                                 }
@@ -3042,7 +3019,7 @@ Scope {
                                 selectByMouse: true
                                 color: pal.text
                                 selectionColor: pal.accent
-                                font.family: root.fontForWeight(font.weight, pal.fam)
+                                font.family: root.fontForWeight(Font.Normal, pal.fam)
                                 font.pixelSize: 12
                                 text: wgPane.wdg ? wgPane.wdg.cityName : ""
                                 onEditingFinished: { if (wgPane.wdg) wgPane.wdg.cityName = text; }
@@ -3097,7 +3074,7 @@ Scope {
                         x: 14; anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - 220; wrapMode: Text.WordWrap
                         text: I18n.tr("Keep these display settings? Reverting in ") + root.revertLeft + " s."
-                        color: pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold
+                        color: pal.text; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold
                     }
                     Row {
                         anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
@@ -3382,7 +3359,7 @@ Scope {
                                         Text {
                                             anchors.centerIn: parent
                                             text: "9:41"
-                                            font.family: Fonts.forWeight(font.weight, tile.modelData.fam); font.pixelSize: tile.modelData.tall ? 40 : 30
+                                            font.family: Fonts.forWeight(Math.max(100, Math.min(900, tile.modelData.w)), tile.modelData.fam); font.pixelSize: tile.modelData.tall ? 40 : 30
                                             font.weight: Math.max(100, Math.min(900, tile.modelData.w))
                                             font.variableAxes: ({ "wght": tile.modelData.w })
                                             color: tile.modelData.liquid ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.78)
@@ -3391,7 +3368,7 @@ Scope {
                                         }
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (root.bar) root.bar.applyLockClockPreset(tile.modelData.id) }
                                     }
-                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: I18n.tr(tile.modelData.name); color: tile.sel ? pal.accent : pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 12; font.weight: tile.sel ? Font.DemiBold : Font.Normal }
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: I18n.tr(tile.modelData.name); color: tile.sel ? pal.accent : pal.text; font.family: root.fontForWeight((tile.sel ? Font.DemiBold : Font.Normal), pal.fam); font.pixelSize: 12; font.weight: tile.sel ? Font.DemiBold : Font.Normal }
                                 }
                             }
                         }
@@ -3499,13 +3476,13 @@ Scope {
                             layer.enabled: true; layer.effect: MultiEffect { maskEnabled: true; maskSource: upMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
                         }
                     }
-                    Text { anchors.top: upic.bottom; anchors.topMargin: 8; anchors.horizontalCenter: parent.horizontalCenter; text: root.userName; color: pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 17; font.weight: Font.DemiBold }
+                    Text { anchors.top: upic.bottom; anchors.topMargin: 8; anchors.horizontalCenter: parent.horizontalCenter; text: root.userName; color: pal.text; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 17; font.weight: Font.DemiBold }
                 }
                 SCard {
                     t: pal
-                    SRow { t: pal; title: I18n.tr("Full name"); Text { text: root.userName; color: pal.text2; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13 } }
-                    SRow { t: pal; title: I18n.tr("Account name"); Text { text: Quickshell.env("USER"); color: pal.text2; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13 } }
-                    SRow { t: pal; title: I18n.tr("Home folder"); Text { text: Quickshell.env("HOME"); color: pal.text2; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13 } }
+                    SRow { t: pal; title: I18n.tr("Full name"); Text { text: root.userName; color: pal.text2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 13 } }
+                    SRow { t: pal; title: I18n.tr("Account name"); Text { text: Quickshell.env("USER"); color: pal.text2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 13 } }
+                    SRow { t: pal; title: I18n.tr("Home folder"); Text { text: Quickshell.env("HOME"); color: pal.text2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 13 } }
                     SRow {
                         t: pal; title: I18n.tr("Picture")
                         subtitle: I18n.tr("Used on the lock screen and here")
@@ -3663,18 +3640,18 @@ Scope {
                             Text {
                                 width: parent.width; elide: Text.ElideRight
                                 text: wpPane.curPath !== "" ? wpPane.nameOf(wpPane.curPath) : I18n.tr("No wallpaper")
-                                color: pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 15; font.weight: Font.DemiBold
+                                color: pal.text; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 15; font.weight: Font.DemiBold
                             }
                             Text {
                                 width: parent.width
                                 text: wpPane.curVideo !== "" ? I18n.tr("Animated wallpaper") : I18n.tr("Picture")
-                                color: pal.text2; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 12
+                                color: pal.text2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 12
                             }
                             Text {
                                 width: parent.width; wrapMode: Text.WordWrap
                                 visible: wpPane.curVideo !== ""
                                 text: I18n.tr("Plays on every display and pauses behind fullscreen windows. The Liquid Glass and the lock screen use it too.")
-                                color: pal.text3; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 11
+                                color: pal.text3; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 11
                             }
                             Row {
                                 spacing: 8
@@ -3753,7 +3730,7 @@ Scope {
                             anchors.verticalCenter: parent.verticalCenter
                             text: "⌕"
                             color: pal.text3
-                            font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 19
+                            font.family: Fonts.forWeight(Font.Normal, pal.fam); font.pixelSize: 19
                         }
                         Item {
                             width: parent.width - 52
@@ -3764,7 +3741,7 @@ Scope {
                                 verticalAlignment: TextInput.AlignVCenter
                                 color: pal.text
                                 selectionColor: pal.accent
-                                font.family: root.fontForWeight(font.weight, pal.fam)
+                                font.family: root.fontForWeight(Font.Normal, pal.fam)
                                 font.pixelSize: 12
                                 clip: true
                                 selectByMouse: true
@@ -3775,7 +3752,7 @@ Scope {
                                 verticalAlignment: Text.AlignVCenter
                                 text: I18n.tr("Search wallpapers")
                                 color: pal.text3
-                                font.family: root.fontForWeight(font.weight, pal.fam)
+                                font.family: root.fontForWeight(Font.Normal, pal.fam)
                                 font.pixelSize: 12
                                 visible: wpSearchInput.text === "" && !wpSearchInput.activeFocus
                                 MouseArea { anchors.fill: parent; onClicked: wpSearchInput.forceActiveFocus() }
@@ -3786,7 +3763,7 @@ Scope {
                             visible: wpSearchInput.text !== ""
                             text: "×"
                             color: pal.text2
-                            font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 18
+                            font.family: Fonts.forWeight(Font.Normal, pal.fam); font.pixelSize: 18
                             MouseArea {
                                 anchors.fill: parent
                                 anchors.margins: -6
@@ -3868,7 +3845,7 @@ Scope {
                                             id: wtBadge
                                             anchors.centerIn: parent
                                             text: I18n.tr("\u25B6  Animated")
-                                            color: "white"; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 9; font.weight: Font.DemiBold
+                                            color: "white"; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 9; font.weight: Font.DemiBold
                                         }
                                     }
                                 }
@@ -3896,7 +3873,7 @@ Scope {
                                             anchors.centerIn: parent
                                             text: wt.modelData.fav ? "★" : "☆"
                                             color: wt.modelData.fav ? "#ffd60a" : "white"
-                                            font.family: Fonts.forWeight(font.weight, pal.fam); font.pixelSize: 16
+                                            font.family: Fonts.forWeight(Font.Normal, pal.fam); font.pixelSize: 16
                                         }
                                         MouseArea {
                                             id: wtFavMa
@@ -3914,7 +3891,7 @@ Scope {
                                 elide: Text.ElideMiddle
                                 text: wt.modelData.name
                                 color: wt.cur ? pal.text : pal.text2
-                                font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 11
+                                font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 11
                             }
                     }
                 }
@@ -3957,7 +3934,7 @@ Scope {
                             horizontalAlignment: Text.AlignHCenter
                             text: "macshell"
                             color: pal.text
-                            font.family: root.fontForWeight(font.weight, pal.fam)
+                            font.family: root.fontForWeight(Font.DemiBold, pal.fam)
                             font.pixelSize: 21
                             font.weight: Font.DemiBold
                         }
@@ -3965,9 +3942,9 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.4.3 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.4.4 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
-                            font.family: root.fontForWeight(font.weight, pal.fam)
+                            font.family: root.fontForWeight(Font.Normal, pal.fam)
                             font.pixelSize: 12
                         }
                     }
@@ -3981,7 +3958,7 @@ Scope {
                         Text {
                             text: "~/.config/macdock"
                             color: pal.text2
-                            font.family: root.fontForWeight(font.weight, pal.fam)
+                            font.family: root.fontForWeight(Font.Normal, pal.fam)
                             font.pixelSize: 13
                         }
                     }
@@ -4066,13 +4043,13 @@ Scope {
                                 x: 70; anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 70 - 90
                                 spacing: 2
-                                Text { text: cr.modelData.name; color: pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
-                                Text { width: parent.width; text: I18n.tr(cr.modelData.role); wrapMode: Text.WordWrap; color: pal.text2; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 11 }
+                                Text { text: cr.modelData.name; color: pal.text; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { width: parent.width; text: I18n.tr(cr.modelData.role); wrapMode: Text.WordWrap; color: pal.text2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 11 }
                             }
                             Text {
                                 anchors.right: parent.right; anchors.rightMargin: 14; anchors.verticalCenter: parent.verticalCenter
                                 text: "@" + cr.modelData.gh
-                                color: pal.accent; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 12
+                                color: pal.accent; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 12
                                 font.underline: crMa.containsMouse
                                 MouseArea { id: crMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Quickshell.execDetached(["xdg-open", "https://github.com/" + cr.modelData.gh]) }
                             }
@@ -4084,7 +4061,7 @@ Scope {
                     horizontalAlignment: Text.AlignHCenter
                     topPadding: 4
                     text: I18n.tr("Designed by Apple in California.\nRebuilt on Linux by two people who could not afford the Mac.")
-                    color: pal.text3; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 11
+                    color: pal.text3; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 11
                 }
 
                 // (keep scrolling…)
@@ -4104,18 +4081,18 @@ Scope {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter; y: 64
                             text: I18n.tr("Protect your MacShell with AppleCare+")
-                            color: pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 17; font.weight: Font.DemiBold
+                            color: pal.text; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 17; font.weight: Font.DemiBold
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter; y: 90
                             width: parent.width - 60; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
                             text: I18n.tr("Unlimited repairs for accidental damage, 24/7 priority access to Apple experts, and battery service coverage. Same price as for a MacBook Pro.")
-                            color: pal.text2; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 12
+                            color: pal.text2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 12
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter; y: 136
                             text: I18n.tr("$279.00 for 3 years or $99.99/yr.")
-                            color: pal.text; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13; font.weight: Font.Medium
+                            color: pal.text; font.family: root.fontForWeight(Font.Medium, pal.fam); font.pixelSize: 13; font.weight: Font.Medium
                         }
                         Rectangle {
                             anchors.horizontalCenter: parent.horizontalCenter; y: 166
@@ -4123,7 +4100,7 @@ Scope {
                             color: careMa.pressed ? Qt.darker(pal.accent, 1.15) : pal.accent
                             scale: careMa.pressed ? 0.96 : 1
                             Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutQuint } }
-                            Text { anchors.centerIn: parent; text: I18n.tr("Add AppleCare+"); color: "white"; font.family: root.fontForWeight(font.weight, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
+                            Text { anchors.centerIn: parent; text: I18n.tr("Add AppleCare+"); color: "white"; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                             MouseArea { id: careMa; anchors.fill: parent; cursorShape: Qt.PointingHandCursor }
                         }
                     }
@@ -4638,6 +4615,8 @@ Scope {
     // Settings' own glass (back / forward pill, knobs of switches and sliders): available whenever the shader is built,
     // whatever the Dock style is
     readonly property bool settingsGlass: glassState === "ready" && !(bar && bar.gaming)
+    // < > pill glass: glass on + this window's position on its monitor is known (also gates the hidden wallpaper capture)
+    readonly property bool winGlassBg: settingsGlass && prefsGlassGeo.ok
     readonly property string glassShaderSrc: decodeURIComponent(Qt.resolvedUrl("liquidglass.frag").toString().replace("file://", ""))
     readonly property string glassShaderOut: configDir + "/liquidglass.frag.qsb"
     readonly property url glassShaderUrl: "file://" + glassShaderOut
@@ -5811,7 +5790,7 @@ Scope {
                                             anchors.verticalCenterOffset: lp.sub !== "" ? 9.2 * lp.k : lp.bodyH / 2 + 0.5 * lp.k
                                             color: lp.dark ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(0, 0, 0, 0.86)
                                             font.pixelSize: lp.fs
-                                            font.family: root.fontForWeight(font.weight, root.fontFamily)
+                                            font.family: root.fontForWeight(Font.Normal, root.fontFamily)
                                         }
                                         Text {
                                             id: st
@@ -5824,7 +5803,7 @@ Scope {
                                             anchors.verticalCenterOffset: 22.4 * lp.k
                                             color: lp.dark ? Qt.rgba(1, 1, 1, 0.60) : Qt.rgba(0, 0, 0, 0.58)
                                             font.pixelSize: Math.max(8, Math.round(10.2 * lp.k))
-                                            font.family: root.fontForWeight(font.weight, root.fontFamily)
+                                            font.family: root.fontForWeight(Font.Normal, root.fontFamily)
                                         }
                                     }
                                 }
@@ -5968,7 +5947,7 @@ Scope {
                                          : (mi.off ? (menu.dark ? Qt.rgba(1, 1, 1, 0.30) : Qt.rgba(0, 0, 0, 0.28))
                                                    : (menu.dark ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(0, 0, 0, 0.86)))
                                     font.pixelSize: Math.max(9, Math.round(13 * menu.k))
-                                    font.family: root.fontForWeight(font.weight, root.fontFamily)
+                                    font.family: root.fontForWeight(Font.Normal, root.fontFamily)
                                 }
                                 MouseArea {
                                     id: mia

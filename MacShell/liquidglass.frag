@@ -53,10 +53,13 @@ const float GOLDEN = 2.39996323;
 //    fine grain instead of repeating ghost lines
 //  * one shared pattern for all three colour channels (dispersion only shifts the centre)
 // Needs `mipmap: true` on the ShaderEffectSource (set in MacBar.qml / MacDock.qml).
-vec3 backdropLod(vec2 pItem, float lod)
+// The backdrop's alpha is carried through: a semi-transparent backdrop (a flat colour with alpha,
+// like the Settings back / forward pill) makes the glass itself semi-transparent; opaque backdrops
+// are unchanged.
+vec4 backdropLod(vec2 pItem, float lod)
 {
     vec2 uv = (pItem + srcOffset) / srcSize;
-    return textureLod(src, clamp(uv, vec2(0.001), vec2(0.999)), lod).rgb;
+    return textureLod(src, clamp(uv, vec2(0.001), vec2(0.999)), lod);
 }
 
 float ign(vec2 p)
@@ -64,13 +67,13 @@ float ign(vec2 p)
     return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
-vec3 blurredDisp(vec2 pItem, vec2 disp, float disperse, float rad)
+vec4 blurredDisp(vec2 pItem, vec2 disp, float disperse, float rad)
 {
     float R   = max(rad, 0.5) * 1.5;                       // Gaussian reaches further than a flat disk
     float gap = R * sqrt(3.14159265 / float(TAPS));        // spacing between neighbouring taps, px
     float lod = clamp(log2(max(gap, 1.0)) + 0.35, 0.0, 6.0);
     float rot = ign(gl_FragCoord.xy) * 6.2831853;
-    vec3  acc = vec3(0.0);
+    vec4  acc = vec4(0.0);
     float wsum = 0.0;
     for (int i = 0; i < TAPS; ++i) {
         float fi = float(i) + 0.5;
@@ -78,14 +81,16 @@ vec3 blurredDisp(vec2 pItem, vec2 disp, float disperse, float rad)
         float a  = fi * GOLDEN + rot;
         float w  = exp(-2.2 * r * r);
         vec2  o  = vec2(cos(a), sin(a)) * r * R;
-        vec3  c;
+        vec4  c;
         c.r = backdropLod(pItem + o + disp * (1.0 + disperse), lod).r;
         c.g = backdropLod(pItem + o + disp,                    lod).g;
         c.b = backdropLod(pItem + o + disp * (1.0 - disperse), lod).b;
         acc  += c * w;
         wsum += w;
     }
-    return acc / wsum;
+    // alpha from one extra tap at the centre (backdrops are smooth, so sampling it per tap would not change anything)
+    float alpha = backdropLod(pItem, lod).a;
+    return vec4(acc.rgb / wsum, alpha);
 }
 
 float hash12(vec2 p)
@@ -150,7 +155,11 @@ void main()
     vec2 ps = vec2(p.x, (p.y - pad - hs.y) * (1.0 - magnify * 1.5) + pad + hs.y);
     float rad = blurPx * mix(0.45, 1.0, smoothstep(0.0, bz, t));
 
-    vec3 col = blurredDisp(ps, disp, dispersion * 0.6, rad);
+    // alpha of the backdrop decides how see-through the glass is; rgb comes back straight
+    // (divided through by alpha), so opaque backdrops (alpha 1) behave exactly as before
+    vec4 b4    = blurredDisp(ps, disp, dispersion * 0.6, rad);
+    float aBase = clamp(b4.a, 0.0, 1.0);
+    vec3 col = b4.rgb / max(aBase, 1e-3);
 
     // ── colour grading: vibrancy, tint, milky lift ──
     float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -211,6 +220,7 @@ void main()
 
     col = clamp(col, 0.0, 1.0);
 
-    float a = cov + shadow * (1.0 - cov);
-    fragColor = vec4(col * cov, a) * qt_Opacity;   // premultiplied alpha
+    float aGlass = cov * aBase;                    // the backdrop's transparency becomes the glass's
+    float a = aGlass + shadow * (1.0 - aGlass);
+    fragColor = vec4(col * aGlass, a) * qt_Opacity;   // premultiplied alpha
 }
