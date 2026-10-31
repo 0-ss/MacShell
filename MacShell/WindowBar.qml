@@ -54,7 +54,11 @@ Scope {
     // did; in Opaque nothing did, so the controls had nowhere to go)
     Binding { target: root.hub; property: "winBarWantsGeo"; value: root.enabled; when: root.hub !== null }
     function dispatch(d) { Hyprland.dispatch(d + "({ window = \"address:" + activeAddr + "\" })"); }
-    function close() { Hyprland.dispatch('hl.dsp.window.close({ window = "address:' + activeAddr + '" })'); }
+    function close() {
+        var a = activeAddr;
+        var go = function () { Hyprland.dispatch('hl.dsp.window.close({ window = "address:' + a + '" })'); };
+        if (hub && hub.closeQuietly) hub.closeQuietly(go); else go();     // live captures pause for a moment first
+    }
     function minimize() { Hyprland.dispatch('hl.dsp.window.move({ workspace = "special:minimized", follow = false, window = "address:' + activeAddr + '" })'); }
     function zoom() { Hyprland.dispatch('hl.dsp.window.fullscreen_state({ internal = 2, client = 0, window = "address:' + activeAddr + '" })'); }
 

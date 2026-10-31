@@ -10,6 +10,7 @@
 //   windowrule = float, title:^(macbar Settings)$
 //   windowrule = center, title:^(macbar Settings)$
 //   layerrule  = blur, macspot          (Spotlight is its own layer; the bar itself needs no blur rule)
+//   layerrule  = noanim, macosd         (the volume / brightness popup is its own Overlay layer so it shows above fullscreen windows; optional)
 //   layerrule  = ignorealpha 0.05, macspot
 //   # the bar's background is its own layer ("macbarbg", under the bar): blur it with Hyprland like this
 //   layerrule  = blur, macbarbg
@@ -2816,8 +2817,10 @@ Scope {
         sh("for c in emote bemoji smile rofimoji wofi-emoji; do command -v $c >/dev/null 2>&1 && exec $c; done");
     }
     function quitActive() {
-        var tls = ToplevelManager.toplevels.values;
-        for (var i = 0; i < tls.length; i++) if (tls[i].appId === activeAppId) tls[i].close();
+        var tls = ToplevelManager.toplevels.values, mine = [];
+        for (var i = 0; i < tls.length; i++) if (tls[i].appId === activeAppId) mine.push(tls[i]);
+        var go = function () { for (var j = 0; j < mine.length; j++) { try { if (mine[j]) mine[j].close(); } catch (err) { } } };
+        if (hub && hub.closeQuietly) hub.closeQuietly(go); else go();     // live captures pause for a moment first
     }
     function launchActive() {
         var e = lookup(activeAppId);
@@ -3387,7 +3390,7 @@ Scope {
                     m.push(msep());
                     if (browser || files || editor) m.push(mi("Close Tab", "Ctrl+W", keys(["ctrl"], "w")));
                     if (term) m.push(mi("Close Tab", "Ctrl+Shift+W", keys(["ctrl", "shift"], "w")));
-                    m.push(mi("Close Window", "", disp('hl.dsp.window.close()')));
+                    m.push(mi("Close Window", "", function () { var go = disp('hl.dsp.window.close()'); if (hub && hub.closeQuietly) hub.closeQuietly(go); else go(); }));
                 }
                 m.push(msep());
                 if (aw) m.push(mi("Screenshot Window", "", function () { root.shotWindow(aw); }));
@@ -4880,7 +4883,7 @@ Scope {
                 }
                 // bounding box of all glass that is on screen right now (popovers, notification popups) + a refraction margin
                 readonly property rect glassRect: {
-                    var items = [menuPop, cc, cal, wifiPop, btPop, trayPop, notifPop, toastArea, volPop, kbPop, levelOsd], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+                    var items = [menuPop, cc, cal, wifiPop, btPop, trayPop, notifPop, toastArea, volPop, kbPop], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
                     for (var i = 0; i < items.length; i++) {
                         var it = items[i];
                         if (!it.visible) continue;
@@ -5154,14 +5157,18 @@ Scope {
                                 required property bool gone      // window closed: capture is released first, the item is swept shortly after
                                 property alias cap: sv
                                 x: wx; y: wy; width: ww; height: wh; z: wz
-                                readonly property var tl: { if (!root.hub || gone) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
+                                // Hyprland announced this window's close: its capture stops requesting frames at once (the source is kept a moment, see SafeCapture)
+                                readonly property bool closing: !!root.hub && root.hub.closingWins[String(addr).replace(/^0x/, "")] === true
+                                readonly property var tl: { if (!root.hub || gone || closing) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
                                 // behind the glass that is on screen right now (popover / panel + refraction margin)?
                                 readonly property bool onGlass: bd.region.width > 0 && x < bd.region.x + bd.region.width && x + width > bd.region.x
                                                                 && y < bd.region.y + bd.region.height && y + height > bd.region.y
-                                ScreencopyView {
+                                // SafeCapture: the source outlives `want` by a moment, so a capture is never destroyed with a frame in flight
+                                // (that was the "closed a window right after opening it -> the shell dies" crash)
+                                SafeCapture {
                                     id: sv
                                     anchors.fill: parent
-                                    captureSource: gw.tl
+                                    want: gw.tl
                                     // While a screen recording / screen share runs the window captures sit out (root.captureQuiet). `hush` follows it
                                     // with a random 0.6 s spread, so dozens of captures never start or stop in the same instant (that burst, with a
                                     // recorder pulling frames at the same time, is what the compositor choked on).
@@ -5177,24 +5184,24 @@ Scope {
                                     // hidden right now (Spotlight, switcher, ...) are only kept warm with slow single captures.
                                     // While recording only the windows behind visible glass stay live (so the glass is real-time exactly where you see it,
                                     // e.g. a video behind the Control Center), every other window sits out.
-                                    live: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || levelOsd.visible || spotWin.glassGo || swWin.visible || wpWin.visible)
-                                    onCaptureSourceChanged: {
+                                    wantLive: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || levelOsd.visible || spotWin.glassGo || swWin.visible || wpWin.visible)
+                                    onHeldChanged: {
                                         // a brand-new capture grabs its first frame immediately instead of waiting for the timer
                                         // (a short delay: asking before the capture context exists only logged "no recording context is ready")
-                                        if (captureSource !== null && !live && !sv.hush && !root.captureHeld) firstShot.restart();
+                                        if (held !== null && !wantLive && !sv.hush && !root.captureHeld) firstShot.restart();
                                     }
                                     Timer {
                                         id: firstShot
                                         interval: 90
-                                        onTriggered: { if (sv.captureSource !== null && !sv.live && typeof sv.captureFrame === "function") sv.captureFrame(); }
+                                        onTriggered: { if (!sv.wantLive) sv.snap(); }
                                     }
                                     // single captures: hidden backdrops stay warm once a second (their window goes live the moment it opens);
                                     // while recording only a backdrop that is actually on screen refreshes, slowly
                                     Timer {
                                         interval: sv.hush ? 1500 : (bd.hostShown ? 250 : 1000); repeat: true
-                                        running: !root.captureHeld && !sv.live && sv.captureSource !== null
-                                                 && (!sv.hush || (bd.hostShown && (ui.anyVisible || spotWin.openish || swWin.visible || wpWin.visible)))
-                                        onTriggered: { if (typeof sv.captureFrame === "function") sv.captureFrame(); }
+                                        running: !root.captureHeld && !sv.wantLive && sv.armed
+                                                 && (!sv.hush || (bd.hostShown && (ui.anyVisible || levelOsd.visible || spotWin.openish || swWin.visible || wpWin.visible)))
+                                        onTriggered: sv.snap()
                                     }
                                 }
                             }
@@ -5204,7 +5211,7 @@ Scope {
                         function recapture() {
                             for (var q = 0; q < wrep.count; q++) {
                                 var it = wrep.itemAt(q);
-                                if (it && it.cap && it.cap.captureSource !== null && typeof it.cap.captureFrame === "function") it.cap.captureFrame();
+                                if (it && it.cap) it.cap.snap();
                             }
                         }
                         Connections {
@@ -5292,76 +5299,6 @@ Scope {
                     onPressed: ui.pop = ""
                 }
 
-                // Hardware-key feedback (volume / brightness): a Liquid Glass capsule at the top right, a little below the
-                // menu bar like macOS Tahoe. It refracts the live backdrop through the same shader as the popovers.
-                Item {
-                    id: levelOsd
-                    z: 1000
-                    width: 256; height: 67
-                    x: ui.width - width - 22
-                    y: root.barH + 14
-                    visible: ui.toastScreen && opacity > 0
-                    opacity: root.osdVisible ? 1 : 0
-                    scale: root.osdVisible ? 1 : 0.94
-                    transformOrigin: Item.TopRight
-                    Behavior on opacity { NumberAnimation { duration: 160 } }
-                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    LGlass {
-                        anchors.fill: parent
-                        backdrop: ui.glassSrc
-                        shaderUrl: root.glassShaderUrl
-                        liquid: root.liquidActive
-                        dark: root.effDark
-                        bx: levelOsd.x; by: levelOsd.y
-                        cornerR: height / 2
-                        tint: root.glassOpacity
-                        thickness: 22
-                        strength: 0.8 * root.glassLiquid
-                        rim: root.glassRim
-                        grain: root.glassGrain
-                        blur: root.glassBlur
-                        debug: root.glassDebug
-                        onShaderError: root.glassState = "failed"
-                        rimTint: 1
-                        ringW: 1.4
-                        shadowAmt: 0        // no outer drop shadow
-                        flatInner: 1        // no darker inner edge shading
-                    }
-                    MenuBorder {
-                        z: 2
-                        anchors.fill: parent
-                        cornerR: height / 2
-                        dark: root.effDark
-                        tint: root.menuBorderColor
-                        outline: false      // no dark hairline around the capsule
-                    }
-                    Glyph {
-                        x: 20; anchors.verticalCenter: parent.verticalCenter
-                        width: 24; height: 24
-                        kind: root.osdKind === "brightness" ? "sun" : "speaker"
-                        level: root.osdKind === "brightness" ? 3 : (root.osdValue < 0.34 ? 1 : (root.osdValue < 0.67 ? 2 : 3))
-                        color: "white"
-                    }
-                    // segmented level bar: bright segments are filled, the rest are dim
-                    Row {
-                        id: osdBar
-                        x: 62; anchors.verticalCenter: parent.verticalCenter
-                        readonly property int n: 22
-                        readonly property real segW: (levelOsd.width - 62 - 24 - (n - 1) * 3) / n
-                        spacing: 3
-                        Repeater {
-                            model: osdBar.n
-                            Rectangle {
-                                required property int index
-                                width: osdBar.segW; height: 4; radius: 2
-                                color: "white"
-                                // partial last segment fades proportionally
-                                opacity: Math.max(0.28, Math.min(1, root.osdValue * osdBar.n - index) * 0.95)
-                                Behavior on opacity { NumberAnimation { duration: 90 } }
-                            }
-                        }
-                    }
-                }
                 // ═════════ the bar itself ═════════
                 Rectangle {
                     id: barBg
@@ -8991,15 +8928,119 @@ Scope {
             }
         }
 
+        // ═════════ Volume / brightness popup lives in its OWN Overlay layer (namespace "macosd") ═════════
+        // The bar is on the Top layer, which sits UNDER fullscreen windows, so an OSD drawn inside it was hidden by them. Only
+        // the Overlay layer shows above a fullscreen window, and the bar itself must not go there, hence a window of its own.
+        // Hyprland: `layerrule = noanim, macosd` keeps its fade clean.
+        PanelWindow {
+            id: osdWin
+            screen: perScreen.modelData
+            readonly property bool shown: ui.toastScreen && (root.osdVisible || levelOsd.opacity > 0)
+            visible: shown
+            onShownChanged: root.popCount += (shown ? 1 : -1)     // keeps the window-geometry poller running while it is up
+            anchors { left: true; right: true; top: true; bottom: true }
+            color: "transparent"
+            exclusionMode: ExclusionMode.Ignore
+            mask: Region { }                                       // never takes input: clicks go straight through
+
+            WlrLayershell.namespace: "macosd"
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+            Item {
+                id: osdRoot
+                anchors.fill: parent
+
+                Loader {
+                    id: osdBackdrop
+                    active: root.liquidActive
+                    sourceComponent: backdropComp
+                    onLoaded: { item.hostShown = Qt.binding(function () { return osdWin.visible; });
+                                item.region = Qt.binding(function () { return Qt.rect(levelOsd.x - 96, levelOsd.y - 96, levelOsd.width + 192, levelOsd.height + 192); }); }
+                }
+
+                Item {
+                    id: levelOsd
+                    z: 1000
+                    width: 256; height: 67
+                    x: osdRoot.width - width - 22
+                    y: root.barH + 14
+                    visible: ui.toastScreen && opacity > 0
+                    opacity: root.osdVisible ? 1 : 0
+                    scale: root.osdVisible ? 1 : 0.94
+                    transformOrigin: Item.TopRight
+                    Behavior on opacity { NumberAnimation { duration: 160 } }
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    LGlass {
+                        anchors.fill: parent
+                        backdrop: osdBackdrop.item
+                        shaderUrl: root.glassShaderUrl
+                        liquid: root.liquidActive
+                        dark: root.effDark
+                        bx: levelOsd.x; by: levelOsd.y
+                        cornerR: height / 2
+                        tint: root.glassOpacity
+                        thickness: 22
+                        strength: 0.8 * root.glassLiquid
+                        rim: root.glassRim
+                        grain: root.glassGrain
+                        blur: root.glassBlur
+                        debug: root.glassDebug
+                        onShaderError: root.glassState = "failed"
+                        rimTint: 1
+                        ringW: 1.4
+                        shadowAmt: 0        // no outer drop shadow
+                        flatInner: 1        // no darker inner edge shading
+                    }
+                    MenuBorder {
+                        z: 2
+                        anchors.fill: parent
+                        cornerR: height / 2
+                        dark: root.effDark
+                        tint: root.menuBorderColor
+                        outline: false      // no dark hairline around the capsule
+                    }
+                    Glyph {
+                        x: 20; anchors.verticalCenter: parent.verticalCenter
+                        width: 24; height: 24
+                        kind: root.osdKind === "brightness" ? "sun" : "speaker"
+                        level: root.osdKind === "brightness" ? 3 : (root.osdValue < 0.34 ? 1 : (root.osdValue < 0.67 ? 2 : 3))
+                        color: "white"
+                    }
+                    // segmented level bar: bright segments are filled, the rest are dim
+                    Row {
+                        id: osdBar
+                        x: 62; anchors.verticalCenter: parent.verticalCenter
+                        readonly property int n: 22
+                        readonly property real segW: (levelOsd.width - 62 - 24 - (n - 1) * 3) / n
+                        spacing: 3
+                        Repeater {
+                            model: osdBar.n
+                            Rectangle {
+                                required property int index
+                                width: osdBar.segW; height: 4; radius: 2
+                                color: "white"
+                                // partial last segment fades proportionally
+                                opacity: Math.max(0.28, Math.min(1, root.osdValue * osdBar.n - index) * 0.95)
+                                Behavior on opacity { NumberAnimation { duration: 90 } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // ═════════ Spotlight lives in its OWN layer (namespace "macspot") ═════════
         // Hyprland blurs a whole layer or none of it, so Spotlight has its own layer: put the blur layerrule on
         // "macspot" and leave "macbar" without blur.
         PanelWindow {
             id: spotWin
             screen: perScreen.modelData
-            // The layer stays mapped: creating / destroying it on every open restarted the glass's window captures and
-            // Hyprland's layer animation, which is what made Spotlight flicker or vanish. Closed = invisible + click-through.
-            visible: root.spotlightEnabled
+            // Mapped only while open (or fading out) and on the Overlay layer, so it shows above fullscreen windows: changing the
+            // layer of an already-mapped surface is ignored by Hyprland, so it cannot just stay mapped on Top. The glass backdrop
+            // below stays warm (hostShown is not tied to this window), so it still opens on ready-made frames. If the layer fade
+            // looks off:  layerrule = noanim, macspot
+            visible: root.spotlightEnabled && openish
             readonly property bool openish: ui.pop === "spot" || spot.vis > 0
             onOpenishChanged: { root.popCount += (openish ? 1 : -1); if (!openish) glassGo = false; }     // keeps the window-geometry poller running while Spotlight is open
             // The windows behind Spotlight only start STREAMING once its open animation is over: starting every window capture
@@ -9031,7 +9072,7 @@ Scope {
             exclusionMode: ExclusionMode.Ignore
 
             WlrLayershell.namespace: "macspot"
-            WlrLayershell.layer: WlrLayer.Top
+            WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.keyboardFocus: ui.pop === "spot" ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
             Item {

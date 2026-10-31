@@ -173,7 +173,10 @@ Scope {
 
     // ── window actions ──
     function focusWin(addr) { Hyprland.dispatch('hl.dsp.focus({ ' + sel(addr) + ' })'); }
-    function closeWin(addr) { Hyprland.dispatch('hl.dsp.window.close({ ' + sel(addr) + ' })'); }
+    function closeWin(addr) {
+        var go = function () { Hyprland.dispatch('hl.dsp.window.close({ ' + sel(addr) + ' })'); };
+        if (hub && hub.closeQuietly) hub.closeQuietly(go); else go();     // live captures pause for a moment first (no frame in flight when the window goes)
+    }
     function minimizeWin(addr) { Hyprland.dispatch('hl.dsp.window.move({ workspace = "special:minimized", follow = false, ' + sel(addr) + ' })'); }
     function zoomWin(addr, alt) {
         if (alt) Hyprland.dispatch('hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle", ' + sel(addr) + ' })');

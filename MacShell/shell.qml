@@ -76,17 +76,45 @@ ShellRoot {
         readonly property bool captureHold: churn || !windowCapture || macBar.gaming
         // Liquid Glass: only stage 1, and only while windows open / close. Live capture pauses (the glass keeps its last frame, the capture
         // source stays attached, so nothing goes blank), then resumes. Not tied to the previews switch, never cut.
-        readonly property bool glassHold: churn || macBar.gaming
+        readonly property bool glassHold: churn || preClose || macBar.gaming
         property bool captureCut: false
         // Dock previews no longer pause as a whole while windows open / close (that froze every preview for ~1.5 s):
         // only the CLOSING window's own preview stops its live capture, the moment Hyprland announces the close
         // (before the toplevel is destroyed, so no frame is ever aborted in flight). Everything else keeps running.
-        readonly property bool previewHold: !windowCapture || macBar.gaming
+        readonly property bool previewHold: !windowCapture || preClose || macBar.gaming
         property var closingWins: ({})
         onCaptureHoldChanged: { if (captureHold) cutDelay.restart(); else { cutDelay.stop(); captureCut = false; } }
         Timer { id: cutDelay; interval: 500; onTriggered: sharedHub.captureCut = true }
         Timer { id: closingForget; interval: 3000; onTriggered: sharedHub.closingWins = ({}) }
-        Timer { id: churnRelease; interval: 1200; onTriggered: sharedHub.churn = false }
+        // was 1.2 s: the glass froze for over a second after every window that opened or closed. Closing windows are now handled
+        // where the crash really was (SafeCapture keeps a capture alive until its in-flight frame is done), so the pause can be short.
+        Timer { id: churnRelease; interval: 350; onTriggered: sharedHub.churn = false }
+
+        // ── closing on purpose: go quiet first, then close ──
+        // When the person clicks Close / Quit, every live capture stops for ~150 ms BEFORE the close request is sent, so no frame is
+        // in flight when the window disappears. (A window that closes by itself is covered by SafeCapture's grace period.)
+        property bool preClose: false
+        property var preCloseQueue: []
+        Timer {
+            id: preCloseT
+            interval: 150
+            onTriggered: {
+                var q = sharedHub.preCloseQueue;
+                sharedHub.preCloseQueue = [];
+                for (var i = 0; i < q.length; i++) { try { q[i](); } catch (err) { console.log("[macshell] close:", err); } }
+                // stay quiet through the close itself, then let go
+                preCloseDone.restart();
+            }
+        }
+        Timer { id: preCloseDone; interval: 250; onTriggered: if (sharedHub.preCloseQueue.length === 0) sharedHub.preClose = false }
+        function closeQuietly(fn) {
+            preClose = true;
+            preCloseDone.stop();
+            var q = preCloseQueue.slice();
+            q.push(fn);
+            preCloseQueue = q;
+            preCloseT.restart();
+        }
         // forget admission records of windows that no longer exist (the table grew by one entry per window ever opened)
         function tlPrune() {
             var ts = Hyprland.toplevels.values, live = {}, k;

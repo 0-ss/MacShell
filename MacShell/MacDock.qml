@@ -3942,7 +3942,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.4.6 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.4.7 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(Font.Normal, pal.fam)
                             font.pixelSize: 12
@@ -4433,7 +4433,7 @@ Scope {
         var m = [];
         if (item.kind === "win") {
             m.push({ kind: "item", label: I18n.tr("Show"), run: function () { activate(item, false); } });
-            m.push({ kind: "item", label: I18n.tr("Close"), run: function () { if (item.tl) item.tl.close(); } });
+            m.push({ kind: "item", label: I18n.tr("Close"), run: function () { var t = item.tl; if (!t) return; if (root.hub) root.hub.closeQuietly(function () { if (t) t.close(); }); else t.close(); } });
             m.push({ kind: "sep" });
             m.push({ kind: "item", label: I18n.tr("Settings\u2026"), run: function() { root.openPrefs(); } });
             return m;
@@ -4466,7 +4466,8 @@ Scope {
             m.push({ kind: "sep" });
             m.push({ kind: "item", label: I18n.tr("Quit"), run: function () {
                 var ws = windowsFor(item.key);
-                for (var j = 0; j < ws.length; j++) ws[j].close();
+                var closeAll = function () { for (var j = 0; j < ws.length; j++) { try { if (ws[j]) ws[j].close(); } catch (err) { } } };
+                if (root.hub) root.hub.closeQuietly(closeAll); else closeAll();
             } });
         }
         
@@ -4910,13 +4911,52 @@ Scope {
                 id: ui
                 anchors.fill: parent
 
+                // pointer x, followed EXACTLY (no animation). This used to ease over 55 ms, restarted on every pointer event: moving
+                // the mouse quickly left the magnification a few frames behind the pointer, worse with many icons
                 property real mx: 0
-                Behavior on mx { NumberAnimation { duration: 55; easing.type: Easing.OutQuad } }
+                // raw pointer x as the events arrive; ui.mx (which every cell's scale is bound to) takes it once per FRAME. A 1000 Hz mouse
+                // used to re-evaluate every cell's bindings + the Row layout hundreds of times a second, more with more pinned apps.
+                property real rawMx: 0
+                FrameAnimation {
+                    running: hh.hovered && !ui.dragging
+                    onTriggered: if (ui.mx !== ui.rawMx && (!ui.menuOpen || hh.point.position.y > ui.activeTop)) ui.mx = ui.rawMx
+                }
                 property bool revealed: false
                 property var menuItem: null
                 property var menuModel: []
                 property string armed: ""            // label of a confirm-type entry that was clicked once (e.g. Empty Trash)
-                onMenuItemChanged: armed = ""
+                property real menuTailX: -1
+                function updateMenuTail() {
+                    if (!menuOpen) return;
+                    var w = menuW;
+                    var idealX = menuCx - w / 2;
+                    var clampedX = Math.max(8, Math.min(ui.width - w - 8, idealX));
+                    menuTailX = Math.round(menuCx - clampedX);
+                }
+                onMenuItemChanged: {
+                    armed = "";
+                    if (menuItem === null) {
+                        menuCell = null;
+                        menuIconTop = -1;
+                        menuTailX = -1;
+                    } else {
+                        updateMenuTail();
+                    }
+                }
+                // the cell the right-click menu belongs to: while the menu is open it follows that icon (its centre and its top edge), the
+                // way the hover label does, as the icons magnify and the Dock widens / narrows
+                property Item menuCell: null
+                property real menuIconTop: -1
+                function syncMenu() {
+                    var c = menuCell;
+                    if (!c || !c.iconImg) return;
+                    var p = c.mapToItem(ui, c.width / 2, 0);
+                    if (Math.abs(p.x - menuCx) > 0.05) menuCx = p.x;
+                    var t = c.iconImg.mapToItem(ui, 0, 0).y;
+                    if (Math.abs(t - menuIconTop) > 0.05) menuIconTop = t;
+                    if (menuTailX < 0) updateMenuTail();
+                }
+                FrameAnimation { running: ui.menuOpen && ui.menuCell !== null; onTriggered: ui.syncMenu() }
                 property real menuCx: 0
                 // the menu is as wide as its longest entry (measured here whenever a menu is built)
                 property real menuTextW: 0
@@ -4937,7 +4977,10 @@ Scope {
                     }
                     menuTextW = w;
                 }
-                onMenuModelChanged: measureMenu()
+                onMenuModelChanged: {
+                    measureMenu();
+                    updateMenuTail();
+                }
                 readonly property bool menuOpen: menuItem !== null
                 readonly property bool wantsHide: root.hideMode === "always"
                     || (root.hideMode === "smart" && root.busyMonitors[win.modelData.name] === true)
@@ -5135,13 +5178,17 @@ Scope {
                 readonly property real refLeft: (width - root.totalW0) / 2
                 readonly property real activeTop: height - root.margin - root.bgHeight
                                                   - root.iconSize * (root.effMag - 1) - 12
-                readonly property bool active: dragging || (hh.hovered && hh.point.position.y > activeTop && !tucked)
+                readonly property bool active: dragging || (hh.hovered && !tucked && (hh.point.position.y > activeTop || (menuOpen && hh.point.position.y > menu.y)))
                 property real strength: active ? 1 : 0
                 Behavior on strength { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
                 HoverHandler {
                     id: hh
-                    onPointChanged: if (hovered && !ui.dragging) ui.mx = point.position.x
+                    onPointChanged: {
+                        if (!hovered || ui.dragging) return;
+                        ui.rawMx = point.position.x;
+                        if (ui.strength < 0.02) ui.mx = ui.rawMx;     // coming in from outside: start under the pointer
+                    }
                     onHoveredChanged: {
                         if (hovered) { hideTimer.stop(); ui.revealed = true; }
                         else hideTimer.restart();
@@ -5264,32 +5311,32 @@ Scope {
                                 onNearNowChanged: { if (nearNow) { nearHold.stop(); near = true; } else nearHold.restart(); }
                                 Component.onCompleted: near = nearNow
                                 Timer { id: nearHold; interval: 2500; onTriggered: gw.near = gw.nearNow }
-                                Loader {
+                                // SafeCapture (not a Loader + bare ScreencopyView): a capture is never destroyed while a frame is in flight.
+                                // `want` going null stops the stream at once but keeps the source for a moment (see SafeCapture.qml); that is
+                                // what used to crash the shell when a window was closed soon after it opened.
+                                SafeCapture {
+                                    id: sc
                                     anchors.fill: parent
-                                    active: gw.near && !gw.released
-                                    sourceComponent: ScreencopyView {
-                                        id: sc
-                                        captureSource: gw.tl
-                                        // Real-time glass ON: a window that reaches the Dock STREAMS (live: every frame the compositor renders), windows
-                                        // elsewhere refresh at 5 Hz so they are fresh the moment they slide under the Dock. Opening / closing windows no
-                                        // longer freeze the glass: only the closing window's own capture stops.
-                                        // Real-time glass OFF: the old behaviour (15 fps polling, paused while windows open / close).
-                                        readonly property bool canRun: root.glassRT
-                                            ? !(root.hub && root.hub.captureQuiet) && !(root.bar && root.bar.gaming) && !gw.gone && !gw.closing
-                                            : (!root.glassHold && !ui.tucked)
-                                        live: root.glassRT && canRun && gw.overlap && !ui.tucked
-                                        Timer {
-                                            interval: root.glassRT ? (gw.overlap ? 33 : 200) : 66
-                                            repeat: true
-                                            running: sc.canRun && !sc.live && sc.captureSource !== null
-                                            onTriggered: if (typeof sc.captureFrame === "function") sc.captureFrame()
-                                        }
-                                        onCaptureSourceChanged: { if (captureSource !== null && sc.canRun) firstShot.restart(); }
-                                        Timer {
-                                            id: firstShot
-                                            interval: 60
-                                            onTriggered: { if (sc.captureSource !== null && !sc.live && sc.canRun && typeof sc.captureFrame === "function") sc.captureFrame(); }
-                                        }
+                                    want: (gw.near && !gw.released) ? gw.tl : null
+                                    // Real-time glass ON: a window that reaches the Dock STREAMS (live: every frame the compositor renders), windows
+                                    // elsewhere refresh at 30 Hz-ish single shots (5 Hz when far away) so they are fresh the moment they slide under the Dock.
+                                    // Real-time glass OFF: the old behaviour (15 fps polling, paused while windows open / close).
+                                    readonly property bool quiet: !!root.hub && root.hub.preClose          // a close was just requested: nothing in flight, please
+                                    readonly property bool canRun: !quiet && !ui.menuOpen && (root.glassRT
+                                        ? !(root.hub && root.hub.captureQuiet) && !(root.bar && root.bar.gaming) && !gw.gone && !gw.closing
+                                        : (!root.glassHold && !ui.tucked))
+                                    wantLive: root.glassRT && canRun && gw.overlap && !ui.tucked
+                                    Timer {
+                                        interval: root.glassRT ? (gw.overlap ? 33 : 200) : 66
+                                        repeat: true
+                                        running: sc.canRun && !sc.wantLive && sc.armed
+                                        onTriggered: sc.snap()
+                                    }
+                                    onHeldChanged: { if (held !== null && sc.canRun) firstShot.restart(); }
+                                    Timer {
+                                        id: firstShot
+                                        interval: 60
+                                        onTriggered: { if (sc.armed && !sc.wantLive && sc.canRun) sc.snap(); }
                                     }
                                 }
                             }
@@ -5339,8 +5386,11 @@ Scope {
 
                 Item {
                     id: maskItem
-                    x: ui.menuOpen ? 0 : dock.x
-                    width: ui.menuOpen ? ui.width : dock.width
+                    // The input region only changes in 64 px steps while the Dock breathes under magnification (it used to follow dock.width
+                    // exactly: a new Wayland input region every frame of every pointer move). Always a superset of the Dock.
+                    readonly property real maskW: hh.hovered ? Math.min(ui.width, Math.ceil((dock.width + 8) / 64) * 64) : dock.width
+                    x: ui.menuOpen ? 0 : (ui.width - maskW) / 2
+                    width: ui.menuOpen ? ui.width : maskW
                     y: ui.menuOpen ? 0 : (ui.tucked ? ui.height - 3 : (hh.hovered ? ui.activeTop : dock.y))
                     height: ui.height - y
                 }
@@ -5370,17 +5420,27 @@ Scope {
                             readonly property real bn: eb * 1.5 * ds / 64.0
                             readonly property real margin: 72      // extra backdrop captured around the Dock (refraction + blur reach)
                             readonly property real padPx: root.dockGlassNew ? 30 : 10   // shader item padding (shadow room); dockglass.frag needs >= 30, the shared shader keeps its original 10
+
+                            // The backdrop is captured over a FIXED rectangle: the Dock at its widest (fully magnified), in 128 px steps, centred on the
+                            // Dock. It used to follow dock.width, and the Dock gets wider and narrower with every pointer move while icons magnify, so
+                            // 3-5 GPU textures (this capture, both blur passes, the blur's own buffers) were re-allocated on EVERY pointer move, and
+                            // the more icons were pinned the bigger they were. That was the stutter / lag of the magnification. Now the textures keep
+                            // their size and only the shader's offset moves.
+                            readonly property real magExtra: root.iconSize * (root.effMag - 1) * (root.magRadius / (root.iconSize + root.spacing) + 1)
+                            readonly property real capInner: Math.min(Math.ceil(Math.max(dock.width, root.totalW0 + 2 * root.hPad + magExtra) / 128) * 128,
+                                                                      win.modelData.width + 320 - 2 * (padPx + margin))   // the mirrored edge padding is 160 px each side
+                            readonly property real capW: capInner + 2 * (padPx + margin)
+                            readonly property real capH: dock.height + 2 * (padPx + margin)
+                            readonly property real capX: (ui.width - capW) / 2                                   // the Dock is centred in the window
+                            readonly property real capY: ui.height - root.margin - dock.height + (win.modelData.height - ui.height) - padPx - margin   // untucked position
                             ShaderEffectSource {
                                 id: bsrc
                                 sourceItem: glassBackdrop.item
                                 hideSource: true
-                                live: !ui.tucked
+                                live: !ui.tucked && !ui.menuOpen
                                 visible: false
-                                sourceRect: Qt.rect(dock.x - parent.padPx - parent.margin,
-                                                    dock.y + (win.modelData.height - ui.height) - parent.padPx - parent.margin,
-                                                    dock.width + 2 * (parent.padPx + parent.margin),
-                                                    dock.height + 2 * (parent.padPx + parent.margin))
-                                textureSize: Qt.size(Math.max(1, Math.round(sourceRect.width * dg.ds)), Math.max(1, Math.round(sourceRect.height * dg.ds)))
+                                sourceRect: Qt.rect(dg.capX, dg.capY, dg.capW, dg.capH)
+                                textureSize: Qt.size(Math.max(1, Math.round(dg.capW * dg.ds)), Math.max(1, Math.round(dg.capH * dg.ds)))
                             }
                             MultiEffect {
                                 id: bblurFx
@@ -5397,7 +5457,7 @@ Scope {
                             ShaderEffectSource {
                                 id: bblur
                                 sourceItem: bblurFx
-                                live: !ui.tucked
+                                live: !ui.tucked && !ui.menuOpen
                                 visible: false
                             }
                             MultiEffect {
@@ -5415,7 +5475,7 @@ Scope {
                                 id: bblur2
                                 // the 2nd pass is a pure copy unless the blur radius exceeds one pass: skip it then (same pixels, one GPU pass less)
                                 sourceItem: dg.bn > 1.0 ? bblur2Fx : null
-                                live: !ui.tucked
+                                live: !ui.tucked && !ui.menuOpen
                                 visible: false
                             }
                             ShaderEffect {
@@ -5439,8 +5499,10 @@ Scope {
                                 property real padPx: parent.padPx
                                 property vector2d itemSize: Qt.vector2d(width, height)
                                 property vector2d glassSize: Qt.vector2d(dock.width, dock.height)
-                                property vector2d srcSize: Qt.vector2d(bsrc.sourceRect.width, bsrc.sourceRect.height)
-                                property vector2d srcOffset: Qt.vector2d(parent.margin, parent.margin)
+                                property vector2d srcSize: Qt.vector2d(dg.capW, dg.capH)
+                                // where this item's top-left sits inside the (fixed) capture; follows the Dock as it widens / tucks
+                                property vector2d srcOffset: Qt.vector2d(dock.x - padPx - dg.capX,
+                                                                         dock.y + (win.modelData.height - ui.height) - padPx - dg.capY)
                                 property real pad: padPx
                                 property real radius: root.cornerRadius
                                 property real bezel: Math.min(dock.height * 0.36, 26)
@@ -5494,46 +5556,60 @@ Scope {
                     // top and bottom edges start (those carry the bright line from the glass shader instead). Plain black with alpha, so it
                     // darkens whatever is behind it and follows the wallpaper. The canvas is 3 px larger than the Dock on every side so
                     // the outer half of the line can be drawn; it only repaints when the Dock's size, corner radius or mode changes.
-                    Canvas {
-                        id: sideBorder
-                        anchors.fill: parent
-                        anchors.margins: -3
-                        antialiasing: true
-                        readonly property real strength: root.dockDark ? 0.14 : 0.12
-                        onStrengthChanged: requestPaint()
-                        onWidthChanged: requestPaint()
-                        onHeightChanged: requestPaint()
-                        Connections { target: root; function onCornerRadiusChanged() { sideBorder.requestPaint(); } }
-                        onPaint: {
-                            var ctx = getContext("2d");
-                            ctx.reset();
-                            var m = 3, W = width, H = height;
-                            var w = W - 2 * m, h = H - 2 * m;          // the Dock itself
-                            if (w < 4 || h < 4) return;
-                            var r = Math.max(2, Math.min(root.cornerRadius, h / 2, w / 2));
-                            // fully dark at the very left / right, easing out (smootherstep) over one corner radius: gone by the straight top / bottom
-                            var fade = Math.min(w / 2, r * 1.05);
-                            var g = ctx.createLinearGradient(m, 0, m + w, 0);
-                            var N = 24;
-                            for (var k = 0; k <= N; k++) {
-                                var u = k / N, sm = u * u * u * (u * (u * 6 - 15) + 10), al = (strength * (1 - sm)).toFixed(4);
-                                g.addColorStop(u * fade / w, "rgba(0,0,0," + al + ")");
-                                g.addColorStop(1 - u * fade / w, "rgba(0,0,0," + al + ")");
+                    // Drawn as two small end caps (left, right = mirrored) instead of one Canvas over the whole Dock. The hairline fades out
+                    // within one corner radius of each end and the Dock's HEIGHT never changes, so a cap looks the same whatever the width. The old
+                    // full-width Canvas repainted (a CPU raster + texture upload) on every pointer move while the Dock widened under magnification,
+                    // and the wider the Dock (more pinned apps) the slower that got. The caps are painted once (again on size / radius change).
+                    Repeater {
+                        model: 2
+                        delegate: Canvas {
+                            id: cap
+                            required property int index
+                            readonly property real fadeW: Math.min(root.cornerRadius, root.bgHeight / 2) * 1.05
+                            anchors.top: parent.top;       anchors.topMargin: -3
+                            anchors.bottom: parent.bottom; anchors.bottomMargin: -3
+                            width: Math.ceil(3 + fadeW) + 3
+                            antialiasing: true
+                            // index 0 hugs the left edge; index 1 is the same picture mirrored on the right edge
+                            x: index === 0 ? -3 : parent.width + 3 - width
+                            transform: Scale { origin.x: cap.width / 2; xScale: cap.index === 0 ? 1 : -1 }
+                            readonly property real strength: root.dockDark ? 0.14 : 0.12
+                            onStrengthChanged: requestPaint()
+                            onWidthChanged: requestPaint()
+                            onHeightChanged: requestPaint()
+                            Connections { target: root; function onCornerRadiusChanged() { cap.requestPaint(); } }
+                            onPaint: {
+                                var ctx = getContext("2d");
+                                ctx.reset();
+                                var m = 3, H = height;
+                                var h = H - 2 * m;                         // the Dock's height
+                                if (h < 4) return;
+                                var r = Math.max(2, Math.min(root.cornerRadius, h / 2));
+                                var fade = r * 1.05;
+                                // paint as if the Dock were wide: only its near end shows inside this narrow canvas
+                                var w = 2 * (fade + r) + 8;
+                                var g = ctx.createLinearGradient(m, 0, m + w, 0);
+                                var N = 24;
+                                for (var k = 0; k <= N; k++) {
+                                    var u = k / N, sm = u * u * u * (u * (u * 6 - 15) + 10), al = (strength * (1 - sm)).toFixed(4);
+                                    g.addColorStop(u * fade / w, "rgba(0,0,0," + al + ")");
+                                    g.addColorStop(1 - u * fade / w, "rgba(0,0,0," + al + ")");
+                                }
+                                ctx.strokeStyle = g;
+                                ctx.lineWidth = 1.6;
+                                ctx.beginPath();
+                                ctx.moveTo(m + r, m);
+                                ctx.lineTo(m + w - r, m);
+                                ctx.arc(m + w - r, m + r, r, 1.5 * Math.PI, 2 * Math.PI, false);
+                                ctx.lineTo(m + w, m + h - r);
+                                ctx.arc(m + w - r, m + h - r, r, 0, 0.5 * Math.PI, false);
+                                ctx.lineTo(m + r, m + h);
+                                ctx.arc(m + r, m + h - r, r, 0.5 * Math.PI, Math.PI, false);
+                                ctx.lineTo(m, m + r);
+                                ctx.arc(m + r, m + r, r, Math.PI, 1.5 * Math.PI, false);
+                                ctx.closePath();
+                                ctx.stroke();
                             }
-                            ctx.strokeStyle = g;
-                            ctx.lineWidth = 1.6;
-                            ctx.beginPath();
-                            ctx.moveTo(m + r, m);
-                            ctx.lineTo(m + w - r, m);
-                            ctx.arc(m + w - r, m + r, r, 1.5 * Math.PI, 2 * Math.PI, false);
-                            ctx.lineTo(m + w, m + h - r);
-                            ctx.arc(m + w - r, m + h - r, r, 0, 0.5 * Math.PI, false);
-                            ctx.lineTo(m + r, m + h);
-                            ctx.arc(m + r, m + h - r, r, 0.5 * Math.PI, Math.PI, false);
-                            ctx.lineTo(m, m + r);
-                            ctx.arc(m + r, m + r, r, Math.PI, 1.5 * Math.PI, false);
-                            ctx.closePath();
-                            ctx.stroke();
                         }
                     }
 
@@ -5601,6 +5677,7 @@ Scope {
                                 transform: Translate { x: cell.dx }
                                 z: isDragged ? 100 : 0
 
+                                readonly property Item iconImg: img
                                 readonly property bool leavingCell: modelData.leaving === true
                                 property real appear: modelData.fresh ? 0 : 1
                                 Behavior on appear { NumberAnimation { duration: cell.leavingCell ? root.leaveMs : 320; easing.type: cell.leavingCell ? Easing.InOutCubic : Easing.OutCubic } }
@@ -5683,17 +5760,18 @@ Scope {
                                         radius: 5
                                         color: Qt.rgba(0, 0, 0, 0.32)
                                     }
-                                    ScreencopyView {
+                                    SafeCapture {
                                         id: sv
                                         anchors.centerIn: parent
-                                        captureSource: (root.hub && !root.hub.windowCapture) ? null : cell.heldTl
+                                        want: (root.hub && !root.hub.windowCapture) ? null : cell.heldTl
+                                        graceMs: 400        // longer than the cell's leave animation: the preview stays until the cell is gone, and nothing is in flight by then
                                         // live only while the pointer is on the Dock (where you look at them); otherwise one fresh
                                         // frame every 2 s — live previews of every window were ~8% CPU at idle
-                                        live: !ui.tucked && !root.previewHold && !cell.closingWin && hh.hovered
+                                        wantLive: !ui.tucked && !root.previewHold && !cell.closingWin && hh.hovered
                                         Timer {
                                             interval: 2000; repeat: true; triggeredOnStart: true
-                                            running: !sv.live && !ui.tucked && !root.previewHold && !cell.closingWin && sv.captureSource !== null
-                                            onTriggered: if (typeof sv.captureFrame === "function") sv.captureFrame()
+                                            running: !sv.wantLive && !ui.tucked && !root.previewHold && !cell.closingWin && sv.armed
+                                            onTriggered: sv.snap()
                                         }
                                         readonly property real ar: (implicitWidth > 0 && implicitHeight > 0)
                                                                    ? implicitWidth / implicitHeight : 4 / 3
@@ -5775,7 +5853,13 @@ Scope {
                                 // ── hover label ──
                                 // macOS Tahoe style: a heavily blurred Liquid Glass bubble with a pointer tail, light / dark with the system
                                 // appearance, sized from the Dock (see DockGlassPanel.qml). It is only built while it is shown.
-                                readonly property bool tipOn: root.showLabels && !cell.isSep && ma.containsMouse && !ma.pressed && !ui.menuOpen && !ui.dragging
+                                // The label is a whole glass bubble (3 canvases, a masked blur capture, a shadow). It used to be built for EVERY icon the
+                                // pointer crossed, so a fast sweep over many pinned apps built and tore down a bubble per icon (a hitch each): that was the
+                                // "laggy when the mouse moves a bit fast, worse with many apps". It now appears once the pointer rests on an icon for a moment.
+                                property bool hoverSettled: false
+                                Timer { id: tipDwell; interval: 90; running: ma.containsMouse && !cell.isSep; onTriggered: cell.hoverSettled = true }
+                                Connections { target: ma; function onContainsMouseChanged() { if (!ma.containsMouse) cell.hoverSettled = false; } }
+                                readonly property bool tipOn: root.showLabels && !cell.isSep && cell.hoverSettled && ma.containsMouse && !ma.pressed && !ui.menuOpen && !ui.dragging
                                 Loader {
                                     id: tip
                                     z: 10
@@ -5878,7 +5962,9 @@ Scope {
                                         if (mouse.button === Qt.RightButton) {
                                             ui.menuCx = cell.mapToItem(ui, cell.width / 2, 0).x;
                                             ui.menuModel = root.menuFor(cell.modelData);
+                                            ui.menuCell = cell;
                                             ui.menuItem = cell.modelData;
+                                            ui.syncMenu();
                                         } else {
                                             root.activate(cell.modelData, mouse.button === Qt.MiddleButton);
                                         }
@@ -5913,6 +5999,7 @@ Scope {
 
                     backdrop: glassBackdrop.item
                     live: root.liquidActive && glassBackdrop.item !== null
+                    frozen: ui.menuOpen      // the menu's glass stops updating while it is open
                     dark: root.darkMode
                     k: root.labelK
                     radius: 16 * k
@@ -5924,9 +6011,12 @@ Scope {
                     width: ui.menuW
                     bodyH: menuCol.height + 2 * pad
                     x: Math.max(8, Math.min(ui.width - width - 8, ui.menuCx - width / 2))
-                    y: ui.height - root.margin - root.bgHeight - root.iconSize * (root.effMag - 1) - Math.round(10 * k) - height
-                    // the tail points at the icon the menu belongs to
-                    tailX: ui.menuCx - x
+                    y: ui.menuIconTop >= 0 ? ui.menuIconTop - Math.round(10 * k) - height
+                                           : ui.height - root.margin - root.bgHeight - root.iconSize * (root.effMag - 1) - Math.round(10 * k) - height
+                    // The tail points at the icon the menu belongs to. Its position along the bubble is locked when the menu opens:
+                    // re-evaluating tailX while the menu follows its icon during magnification changed shapeKey on every frame,
+                    // repainting all of the bubble's canvases (blurred shadow included) on the CPU and causing severe magnification lag.
+                    tailX: ui.menuTailX >= 0 ? ui.menuTailX : width / 2
 
                     Column {
                         id: menuCol

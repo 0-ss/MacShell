@@ -21,6 +21,12 @@ Item {
 
     property var backdrop: null          // the Dock's glass backdrop item (wallpaper + live windows, screen coordinates), or null
     property bool live: false            // true: blur the backdrop; false: plain tinted fill
+    property bool frozen: false          // true: the blurred picture is left as it is (no re-capture, no re-blur) until false again
+    // `frozen` takes effect after a short moment, so the bubble first gets one current picture at its final place (a capture that is
+    // frozen before it ever rendered would stay empty)
+    property bool hold: false
+    Timer { id: holdT; interval: 160; onTriggered: gp.hold = true }
+    onFrozenChanged: { if (frozen) holdT.restart(); else { holdT.stop(); hold = false; } }
     property bool dark: false            // appearance: dark or light glass
     property real k: 1                   // scale (Dock size / 52)
     property real radius: 16
@@ -51,7 +57,7 @@ Item {
     readonly property string shapeKey: [width, bodyH, tailW, tailH, tailTipR, tailX, radius, dark, live, k].join("|")
 
     function syncPos() {
-        if (!gp.backdrop) return;
+        if (!gp.backdrop || gp.hold) return;
         var p = gp.backdrop.mapFromItem(gp, 0, 0);
         if (Math.abs(p.x - gp.bx) > 0.01) gp.bx = p.x;
         if (Math.abs(p.y - gp.by) > 0.01) gp.by = p.y;
@@ -62,7 +68,7 @@ Item {
         if (sy > 0.05 && Math.abs(sy - gp.capSy) > 0.001) gp.capSy = sy;
     }
     FrameAnimation {
-        running: gp.live && gp.visible && gp.backdrop !== null
+        running: gp.live && gp.visible && gp.backdrop !== null && !gp.hold
         onTriggered: gp.syncPos()
     }
     onVisibleChanged: if (visible) syncPos()
@@ -94,7 +100,7 @@ Item {
         }
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
-        Connections { target: gp; function onShapeKeyChanged() { shadowCv.requestPaint(); } }
+        Connections { target: gp; function onShapeKeyChanged() { if (!gp.frozen || !gp.hold) shadowCv.requestPaint(); } }
         Component.onCompleted: requestPaint()
     }
 
@@ -118,7 +124,7 @@ Item {
         }
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
-        Connections { target: gp; function onShapeKeyChanged() { baseCv.requestPaint(); } }
+        Connections { target: gp; function onShapeKeyChanged() { if (!gp.frozen || !gp.hold) baseCv.requestPaint(); } }
         Component.onCompleted: requestPaint()
     }
 
@@ -134,7 +140,7 @@ Item {
                 id: ses
                 sourceItem: gp.backdrop
                 sourceRect: Qt.rect(gp.bx - gp.m * gp.capSx, gp.by - gp.m * gp.capSy, (gp.width + 2 * gp.m) * gp.capSx, (gp.height + 2 * gp.m) * gp.capSy)
-                live: gp.visible
+                live: gp.visible && !gp.hold
                 visible: false
             }
             // alpha mask in the bubble's shape (same idiom as the other masks in this shell: a hidden item with a layer)
@@ -228,7 +234,7 @@ Item {
         }
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
-        Connections { target: gp; function onShapeKeyChanged() { skin.requestPaint(); } }
+        Connections { target: gp; function onShapeKeyChanged() { if (!gp.frozen || !gp.hold) skin.requestPaint(); } }
         Component.onCompleted: requestPaint()
     }
 
