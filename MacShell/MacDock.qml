@@ -4355,8 +4355,28 @@ Scope {
         return out;
     }
 
+    // Optional genie minimize (see contrib/genie): when ~/.local/bin/macshell-genie exists, Dock clicks go through it, because
+    // a window minimized with the genie sits on a hidden special workspace where Hyprland ignores activate().
+    // Without the helper nothing changes.
+    readonly property string genieHelper: Quickshell.env("HOME") + "/.local/bin/macshell-genie"
+    FileView { id: genieProbe; path: root.genieHelper; printErrors: false }
+    function genieAddr(tl) {
+        var v = Hyprland.toplevels.values;
+        for (var i = 0; i < v.length; i++) if (v[i].wayland === tl) return "0x" + String(v[i].address).replace(/^0x/, "");
+        return "";
+    }
+    function genieDock(chosen, all) {
+        if (!genieProbe.loaded) return false;
+        var a = genieAddr(chosen);
+        if (!a) return false;
+        var args = [genieHelper, "dock", a];
+        for (var i = 0; i < all.length; i++) { var b = genieAddr(all[i]); if (b) args.push(b); }
+        Quickshell.execDetached(args);
+        return true;
+    }
+
     function activate(item, forceNew) {
-        if (item.kind === "win") { if (item.tl) item.tl.activate(); return; }
+        if (item.kind === "win") { if (item.tl && !genieDock(item.tl, [item.tl])) item.tl.activate(); return; }
         if (item.special === "trash") {
             // the file manager first (Dolphin understands trash:/ natively); xdg-open only as the last resort
             Quickshell.execDetached(["sh", "-c",
@@ -4369,7 +4389,8 @@ Scope {
         if (wins.length > 0 && !forceNew) {
             var idx = -1;
             for (var i = 0; i < wins.length; i++) if (wins[i].activated) idx = i;
-            wins[(idx + 1) % wins.length].activate();
+            var chosen = wins[(idx + 1) % wins.length];
+            if (!genieDock(chosen, wins)) chosen.activate();
             return;
         }
         if (item.entry || item.key) {
@@ -4909,6 +4930,29 @@ Scope {
             Item {
                 id: ui
                 anchors.fill: parent
+
+                // Optional genie minimize (see contrib/genie): where each app icon sits on screen (global logical px), so the
+                // genie can aim at the app's own icon. ~/.cache/macshell-dock-rects.json = { "<app id, lowercase>": [x, y, w, h] }.
+                // Only written when the helper is installed.
+                FileView { id: genieRectsFile; path: Quickshell.env("HOME") + "/.cache/macshell-dock-rects.json"; printErrors: false }
+                Timer { id: genieRectsTimer; interval: 300; onTriggered: ui.genieWriteRects() }
+                Connections { target: row; function onWidthChanged() { genieRectsTimer.restart(); } function onXChanged() { genieRectsTimer.restart(); } }
+                Connections { target: root; function onItemsChanged() { genieRectsTimer.restart(); } }
+                Component.onCompleted: genieRectsTimer.restart()
+                function genieWriteRects() {
+                    if (!genieProbe.loaded) return;
+                    var map = {};
+                    var top = win.modelData.y + win.modelData.height - win.height;
+                    for (var i = 0; i < rep.count; i++) {
+                        var c = rep.itemAt(i);
+                        if (!c || c.isSep || c.modelData.kind !== "app") continue;
+                        var p = c.mapToItem(null, 0, 0);
+                        var r = [Math.round(win.modelData.x + p.x), Math.round(top + p.y), Math.round(c.width), Math.round(c.height)];
+                        if (c.modelData.key) map[String(c.modelData.key).toLowerCase()] = r;
+                        if (c.modelData.appId) map[String(c.modelData.appId).toLowerCase()] = r;
+                    }
+                    genieRectsFile.setText(JSON.stringify(map));
+                }
 
                 property real mx: 0
                 Behavior on mx { NumberAnimation { duration: 55; easing.type: Easing.OutQuad } }
