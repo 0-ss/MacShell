@@ -294,6 +294,8 @@ MacShell (installed: x.x.x)
 - **Check for updates** compares your version with GitHub and, if there is a newer one, asks whether to install it (y/n).
 - **Uninstall shell** removes MacShell and MacLock (your settings are kept).
 - **Bind help** opens the Hyprland keybind section of this README in your browser.
+- **Check this setup** checks your current setup, looks for issues and solves it.
+- **Graphical Installer** runs the Graphical Installer "GUI" absolutely recommended
 
 The other tools are still available as options: `--doctor`, `--low-power`, `--deps-only` (see `--help`).
 
