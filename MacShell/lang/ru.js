@@ -664,7 +664,7 @@ var strings = {
     "Smaller": "Меньше",
     "Larger": "Больше",
     "Windows behind the Dock stream live (every frame); workspace switches, new windows and wallpaper changes show through at once": "Окна за доком транслируются вживую (каждый кадр); переключения рабочих столов, новые окна и смена обоев видны сразу",
-    "Version 0.4.4 • Hyprland • Quickshell": "Версия 0.4.4 • Hyprland • Quickshell",
+    "Version 0.4.5 • Hyprland • Quickshell": "Версия 0.4.5 • Hyprland • Quickshell",
     "Just now": "Только что",
     "min ago": "мин назад",
     "hour ago": "час назад",

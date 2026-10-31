@@ -3942,7 +3942,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.4.4 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.4.5 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(Font.Normal, pal.fam)
                             font.pixelSize: 12
@@ -5154,10 +5154,25 @@ Scope {
                 Loader {
                     id: glassBackdrop
                     active: root.liquidActive
+                    // opaque wrapper: translucent windows (btop in a transparent terminal, Settings...) leave alpha < 1 in the backdrop,
+                    // which made the Dock's hover label / right-click menu see-through to the REAL screen (sharp, weakly blurred).
+                    // The backdrop is rendered once into the wrapper over an opaque base, so the glass always gets alpha 1.
                     sourceComponent: Item {
-                        id: bd
+                        id: flatRoot
                         x: 0
                         y: -(win.modelData.height - ui.height)
+                        width: win.modelData.width
+                        height: win.modelData.height
+                        Rectangle { anchors.fill: parent; color: "#000000" }
+                        ShaderEffectSource {
+                            anchors.fill: parent
+                            sourceItem: bd
+                            live: true
+                            hideSource: false
+                        }
+                    Item {
+                        id: bd
+                        x: 0; y: 0
                         width: win.modelData.width
                         height: win.modelData.height
 
@@ -5311,6 +5326,7 @@ Scope {
                             function onMonDataChanged() { bd.sync(); }
                         }
                         Component.onCompleted: sync()
+                    }
                     }
                 }
 

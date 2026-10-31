@@ -1037,6 +1037,13 @@ Scope {
         property real grain: 0.03
         property real blur: 5               // backdrop blur radius, px (settings slider)
         property bool debug: false
+        // Menus that are drawn scaled by the bar size (barPopupScale, around their top-left corner) pass that scale here: the glass shaders
+        // position everything in the slab's own UNSCALED coordinates, but the backdrop that is captured has to be the region that really
+        // sits behind the scaled menu (same idea as capLocal / capScreen of the Control Center). 1 = the slab is not scaled.
+        property real capScale: 1
+        // true: when the menu bar changes size the capture is dropped, re-attached and every stage re-rendered (the Control Center's method),
+        // because the capture used to stay stuck on the old rectangle
+        property bool refreshOnResize: false
         signal shaderError()
 
         Rectangle {
@@ -1058,20 +1065,47 @@ Scope {
                 // and costs a quarter of the GPU work, every frame
                 readonly property real ds: g.blur >= 8 ? 0.5 : 1.0
                 readonly property real bn: g.blur * 1.4 * ds / 64.0     // blur amount in MultiEffect units (at the reduced size)
+                // Resize refresh (same method as the Control Center): after a menu-bar size change the capture is detached for a moment
+                // (glassFlip), re-attached, and every stage of the glass is told to re-render.
+                property bool glassFlip: false
+                Timer {
+                    id: lgRefresh
+                    interval: 40
+                    property bool flip: false
+                    onTriggered: {
+                        if (!flip) { bsrc.scheduleUpdate(); bblur.scheduleUpdate(); bblur2.scheduleUpdate(); }
+                        else if (!lg.glassFlip) { lg.glassFlip = true; lgRefresh.restart(); }
+                        else {
+                            flip = false;
+                            lg.glassFlip = false;
+                            bsrc.scheduleUpdate(); bblur.scheduleUpdate(); bblur2.scheduleUpdate();
+                        }
+                    }
+                }
+                Connections {
+                    target: root
+                    enabled: g.refreshOnResize
+                    function onBarHeightChanged() { lg.glassFlip = false; lgRefresh.flip = true; lgRefresh.restart(); }
+                    function onBarPopupScaleChanged() { lg.glassFlip = false; lgRefresh.flip = true; lgRefresh.restart(); }
+                    // windows finished re-tiling after the bar changed size: the backdrop has new pixels, refresh in place
+                    function onBarRelayout() { if (!lgRefresh.flip) lgRefresh.restart(); }
+                }
                 ShaderEffectSource {
                     id: bsrc
-                    sourceItem: g.backdrop
+                    sourceItem: lg.glassFlip ? null : g.backdrop
                     hideSource: true
                     live: true
                     visible: false
-                    sourceRect: Qt.rect(g.bx - lg.p - lg.m, g.by - lg.p - lg.m,
-                                        g.width + 2 * (lg.p + lg.m), g.height + 2 * (lg.p + lg.m))
-                    textureSize: Qt.size(Math.max(1, Math.round(sourceRect.width * lg.ds)), Math.max(1, Math.round(sourceRect.height * lg.ds)))
+                    // screen region behind the (possibly scaled) slab: scaled about the slab's top-left corner (= bx, by)
+                    sourceRect: Qt.rect(g.bx - (lg.p + lg.m) * g.capScale, g.by - (lg.p + lg.m) * g.capScale,
+                                        (g.width + 2 * (lg.p + lg.m)) * g.capScale, (g.height + 2 * (lg.p + lg.m)) * g.capScale)
+                    // the texture keeps the UNSCALED size: the shader maps its pixels against srcSize (unscaled), the capture is stretched to fit
+                    textureSize: Qt.size(Math.max(1, Math.round((g.width + 2 * (lg.p + lg.m)) * lg.ds)), Math.max(1, Math.round((g.height + 2 * (lg.p + lg.m)) * lg.ds)))
                 }
                 MultiEffect {
                     id: bblurFx
                     source: bsrc
-                    width: bsrc.sourceRect.width * lg.ds; height: bsrc.sourceRect.height * lg.ds
+                    width: (g.width + 2 * (lg.p + lg.m)) * lg.ds; height: (g.height + 2 * (lg.p + lg.m)) * lg.ds
                     blurEnabled: true
                     blurMax: 64
                     blur: Math.min(1.0, lg.bn)
@@ -1089,7 +1123,7 @@ Scope {
                 MultiEffect {
                     id: bblur2Fx
                     source: bblur
-                    width: bsrc.sourceRect.width * lg.ds; height: bsrc.sourceRect.height * lg.ds
+                    width: (g.width + 2 * (lg.p + lg.m)) * lg.ds; height: (g.height + 2 * (lg.p + lg.m)) * lg.ds
                     blurEnabled: lg.bn > 1.0
                     blurMax: 64
                     blur: Math.max(0.0, Math.min(1.0, lg.bn - 1.0))
@@ -1118,7 +1152,7 @@ Scope {
                     property real padPx: lg.p
                     property vector2d itemSize: Qt.vector2d(width, height)
                     property vector2d glassSize: Qt.vector2d(g.width, g.height)
-                    property vector2d srcSize: Qt.vector2d(bsrc.sourceRect.width, bsrc.sourceRect.height)
+                    property vector2d srcSize: Qt.vector2d(g.width + 2 * (lg.p + lg.m), g.height + 2 * (lg.p + lg.m))
                     property vector2d srcOffset: Qt.vector2d(lg.m, lg.m)
                     property real pad: lg.p
                     property real radius: g.cornerR
@@ -4995,6 +5029,26 @@ Scope {
                 }
                 Component {
                     id: backdropComp
+                    // The backdrop is handed to the glass through an OPAQUE wrapper. The window captures of translucent windows (a btop
+                    // terminal with background opacity, the Settings window, ...) leave the backdrop with alpha < 1 where they sit, and the
+                    // glass shader passes the backdrop's alpha on, so the pane turned see-through there and showed the REAL screen behind
+                    // it (sharp, and with only the compositor's weak blur) instead of the blurred backdrop. Here the backdrop is rendered
+                    // once into `flat` and drawn over an opaque base, so the glass always receives alpha 1.
+                    Item {
+                        id: flatRoot
+                        opacity: 0
+                        property alias hostShown: bd.hostShown
+                        property alias region: bd.region
+                        x: 0; y: 0
+                        width: win.modelData.width
+                        height: win.modelData.height
+                        Rectangle { anchors.fill: parent; color: "#000000" }
+                        ShaderEffectSource {
+                            anchors.fill: parent
+                            sourceItem: bd
+                            live: bd.hostShown
+                            hideSource: false
+                        }
                     Item {
                         id: bd
                         // never drawn on screen: only captured by the glass (a ShaderEffectSource ignores its source's own
@@ -5174,6 +5228,7 @@ Scope {
                             function onMonDataChanged() { bd.sync(); }
                         }
                         Component.onCompleted: sync()
+                    }
                     }
                 }
 
@@ -6409,6 +6464,8 @@ Scope {
                         liquid: root.liquidActive
                         dark: root.panelDarkMode
                         bx: menuPop.x; by: menuPop.y
+                        capScale: root.barPopupScale
+                        refreshOnResize: true
                         shadowAmt: 0
                         flatInner: 1
                         rimTint: 1
@@ -6557,6 +6614,8 @@ Scope {
                         liquid: root.liquidActive
                         dark: root.panelDarkMode
                         bx: trayPop.x; by: trayPop.y
+                        capScale: root.barPopupScale
+                        refreshOnResize: true
                         shadowAmt: 0
                         flatInner: 1
                         rimTint: 1
