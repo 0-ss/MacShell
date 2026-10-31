@@ -215,12 +215,13 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    `bash install.sh --deps-only` does just this step.
    Hyprland 0.55+ with a Lua config may need a newer package than your distro ships, so check `hyprctl version`.
    Debian/Ubuntu have no `quickshell` / `hyprland` packages: build those from source.
-2. Run the installer, either from a clone:
+2. Run the installer a clone:
    ```sh
    git clone https://github.com/0-ss/MacShell
    cd MacShell
    bash install.sh
    ```
+   then choose 6 (For GUI installer, recommended)
    
    The installer will create a new .lua file in your /.config/hypr/ that have keybinds and auto start, so you don't need to to manually bind MacShell.
    
@@ -268,7 +269,7 @@ Environment: `MACSHELL_REPO`, `MACSHELL_BRANCH`, `MACSHELL_CHANNEL`, `MACSHELL_D
 
 ## Updating
 
-The Best way to make sure you have the latest update Is to delete the MacShell folder in /home (IF needed) and run this again :
+The Best way to make sure you have the latest update Is to delete the MacShell folder in /home/ (needed) and run this again :
 
    ```sh
    git clone https://github.com/0-ss/MacShell
@@ -278,12 +279,14 @@ The Best way to make sure you have the latest update Is to delete the MacShell f
 Then Choose install
 
 ```
-MacShell (installed: a1b2c3d4e5f6)
+MacShell (installed: x.x.x)
 
   1) Install shell (Best for install and updating)
   2) Check for updates (Only checks for updates)
   3) Uninstall shell
   4) Bind help
+  5) Check this setup (doctor)
+  6) Graphical Installer "Choose it for better updating/installing"
   q) Quit
 ```
 
