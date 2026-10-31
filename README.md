@@ -221,10 +221,7 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    cd MacShell
    bash install.sh
    ```
-   or in one line:
-   ```sh
-   curl -fsSL https://raw.githubusercontent.com/0-ss/MacShell/main/install.sh | bash
-   ```
+   
    The installer will create a new .lua file in your /.config/hypr/ that have keybinds and auto start, so you don't need to to manually bind MacShell.
    
    It installs **MacShell** to `~/.config/quickshell/MacShell` and **MacLock** to `~/.config/quickshell/MacLock`,
