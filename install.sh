@@ -1729,13 +1729,20 @@ end)
 -- keybinds (the name after -c is the config folder name, case-sensitive)
 local qs = "qs -c MacShell ipc call "
 
-hl.bind("SUPER + Z",          hl.dsp.exec_cmd(qs .. "settings toggle"))
-hl.bind("SUPER + V",          hl.dsp.exec_cmd(qs .. "spotlight clipboard"))
-hl.bind("SUPER + period",     hl.dsp.exec_cmd(qs .. "spotlight emoji"))
-hl.bind("SUPER + Space",      hl.dsp.exec_cmd(qs .. "spotlight toggle"))
-hl.bind("ALT + TAB",          hl.dsp.exec_cmd(qs .. "switcher next"))
-hl.bind("CTRL + ALT + W",     hl.dsp.exec_cmd(qs .. "wallpapers toggle"))
-hl.bind("PRINT",              hl.dsp.exec_cmd(qs .. "screenshot region"))
+local shellkeys = {
+    { "SUPER + Z",      qs .. "settings toggle"     },
+    { "SUPER + V",      qs .. "spotlight clipboard" },
+    { "SUPER + period", qs .. "spotlight emoji"     },
+    { "SUPER + Space",  qs .. "spotlight toggle"    },
+    { "ALT + TAB",      qs .. "switcher next"       },
+    { "CTRL + ALT + W", qs .. "wallpapers toggle"   },
+    { "PRINT",          qs .. "screenshot region"   },
+    { "SUPER + L",      "sh ~/.config/quickshell/MacLock/lock-via-ipc.sh" },
+}
+for _, k in ipairs(shellkeys) do
+    pcall(hl.unbind, k[1])
+    hl.bind(k[1], hl.dsp.exec_cmd(k[2]))
+end
 
 -- Hardware keys (laptop buttons too): volume, mute, brightness, media. MacShell handles them itself and shows its
 -- on-screen display. If the shell is not running, wpctl / brightnessctl do the work instead.
@@ -1761,9 +1768,6 @@ for _, k in ipairs(hwkeys) do
     pcall(hl.unbind, k[1])
     hl.bind(k[1], hl.dsp.exec_cmd(k[2]), { locked = true, repeating = k[3] })
 end
-
--- MacLock (lock screen)
-hl.bind("SUPER + L",          hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"))
 MACSHELL_LUA
         printf '%s\n' "$MACLUA_END"
     } > "$f"
@@ -1780,6 +1784,7 @@ trim_blank_tail() {
 lua_block() { # lua_block <with-rules 0|1>
     printf '%s\n' "$MARK_BEGIN"
     printf '%s\n' '-- Load the generated MacShell autostart and keybind module.'
+    printf '%s\n' 'package.loaded["macshell"] = nil'
     printf '%s\n' 'require("macshell")'
     if [ "${1:-0}" = 1 ]; then
         printf '%s\n' '-- Liquid Glass: blur behind the shell surfaces'
