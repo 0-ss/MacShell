@@ -17,7 +17,7 @@ open_default() {
 }
 
 if [ -d "$p" ]; then
-    open_default "$p" || note "Can't open folder" "$p"
+    bash "$(dirname "$0")/open-folder.sh" "$p" || note "Can't open folder" "$p"
     exit 0
 fi
 

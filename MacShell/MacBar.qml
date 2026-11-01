@@ -88,7 +88,7 @@ Scope {
     // true while a screen recording / screen share runs: the glass's live window captures sit out (see shell.qml: hub.captureQuiet)
     readonly property bool captureQuiet: hub ? hub.captureQuiet : recording
     // windows opening / closing: the glass's live captures pause (it keeps its last frame; the source stays attached) - see shell.qml: hub.glassHold
-    readonly property bool captureHeld: hub ? hub.glassHold : false
+    readonly property bool captureHeld: hub ? hub.barHold : false
 
     // ───────────── CONFIG (all persisted to settings.json) ─────────────
     property bool barEnabled: true           // the menu bar strip itself
@@ -108,7 +108,7 @@ Scope {
     // Readability only ever changes the TEXT: panelDarkMode (glass tint, cards, borders) always follows the Light / Dark setting,
     // while panelTextWhite (text + glyph colour) follows the measured backdrop.
     readonly property bool panelDarkMode: darkMode
-    readonly property bool panelTextWhite: (autoContrast && panelTone !== 0) ? (panelTone === -1) : darkMode
+    readonly property bool panelTextWhite: darkMode || (autoContrast && panelTone === -1)
     property color accent: "#0A84FF"
     // The UI font is Open Runde (bundled in assets/fonts, loaded by shell.qml). Settings that still say Inter move over to it.
     property string fontFamily: "Open Runde"
@@ -372,7 +372,7 @@ Scope {
     property bool clipHistory: true           // keep a clipboard history for Spotlight → Clipboard (needs wl-clipboard + cliphist)
     property bool clipAutoPaste: true         // after picking a clipboard entry / emoji, paste it into the focused app
     property var emojiRecent: []              // recently used emoji, newest first
-    property string screenshotDir: ""         // where screenshots are saved ("" = ~/Pictures/Screenshots)
+    property string screenshotDir: ""         // where screenshots are saved ("" = the Desktop folder, so they show up as icons)
     property bool screenshotSave: true        // save the PNG to screenshotDir
     property bool screenshotClipboard: true   // also copy it to the clipboard
     property bool screenshotNotify: true      // "Screenshot saved" notification
@@ -745,6 +745,20 @@ Scope {
                 ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
                 ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
             }
+            // Tahoe-style speaker (speaker.wave.fill): a soft, rounded cone + body, and bold separated sound arcs
+            function speaker(lv, slash) {
+                rpoly([1.4, 6.6, 4.5, 6.6, 8.3, 3.4, 8.3, 14.6, 4.5, 11.4, 1.4, 11.4], 1.1);
+                ctx.lineWidth = 1.7;
+                if (slash || lv <= 0) {
+                    ctx.beginPath(); ctx.moveTo(11.2, 6.9); ctx.lineTo(15.8, 11.1); ctx.moveTo(15.8, 6.9); ctx.lineTo(11.2, 11.1); ctx.stroke();
+                } else {
+                    var n = Math.min(2, Math.ceil(lv / 1.5));
+                    for (var a = 1; a <= n; a++) {
+                        ctx.beginPath(); ctx.arc(7.6, 9, 2.5 + a * 3.1, -0.72, 0.72); ctx.stroke();
+                    }
+                }
+                ctx.lineWidth = 1.5;
+            }
             var k = kind, i2;
 
             if (k === "arch") {
@@ -810,14 +824,7 @@ Scope {
                 ctx.beginPath(); ctx.moveTo(6, 2.6); ctx.quadraticCurveTo(7.2, 4, 6, 5.4); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(9.4, 2.6); ctx.quadraticCurveTo(10.6, 4, 9.4, 5.4); ctx.stroke();
             } else if (k === "speaker") {
-                poly([2.2, 7, 5.4, 7, 9.2, 3.6, 9.2, 14.4, 5.4, 11, 2.2, 11], true);
-                if (level <= 0) {
-                    line(12, 6.8, 16, 11.2); line(16, 6.8, 12, 11.2);
-                } else {
-                    for (i2 = 1; i2 <= Math.min(2, Math.ceil(level / 1.5)); i2++) {
-                        ctx.beginPath(); ctx.arc(9.2, 9, 2.4 + i2 * 3.0, -0.62, 0.62); ctx.stroke();
-                    }
-                }
+                speaker(level, false);
             } else if (k === "record") {
                 circ(9, 9, 7); ctx.stroke();
                 circ(9, 9, 3.7); ctx.fill();
@@ -877,14 +884,20 @@ Scope {
                 circ(7.6, 7.6, 4.8); ctx.stroke();
                 line(11.2, 11.2, 15.4, 15.4);
             } else if (k === "cc") {
-                rrect(2, 3, 14, 5.2, 2.6); ctx.stroke();
-                circ(12.4, 5.6, 1.5); ctx.fill();
-                rrect(2, 9.8, 14, 5.2, 2.6); ctx.stroke();
-                circ(5.6, 12.4, 1.5); ctx.fill();
+                // two switches, as in the Tahoe menu bar: top = outline with a big knob on the left,
+                // bottom = solid pill with a darker, see-through knob on the right
+                ctx.lineWidth = 1.3;
+                rrect(1.55, 1.55, 14.9, 5.5, 2.75); ctx.stroke();
+                circ(4.5, 4.3, 1.95); ctx.fill();
+                rrect(0.9, 10.3, 16.2, 6.8, 3.4); ctx.fill();
+                ctx.globalCompositeOperation = "destination-out";
+                ctx.fillStyle = "rgba(0,0,0,0.78)";
+                circ(13.5, 13.7, 2.3); ctx.fill();
+                ctx.globalCompositeOperation = "source-over";
+                ctx.fillStyle = color;
+                ctx.lineWidth = 1.5;
             } else if (k === "volume") {
-                poly([2.2, 7, 5.4, 7, 9.2, 3.6, 9.2, 14.4, 5.4, 11, 2.2, 11], true);
-                ctx.beginPath(); ctx.arc(9.2, 9, 4.4, -0.62, 0.62); ctx.stroke();
-                ctx.beginPath(); ctx.arc(9.2, 9, 7.4, -0.62, 0.62); ctx.stroke();
+                speaker(3, false);
             } else if (k === "bolt") {
                 poly([10, 1.5, 4.5, 10, 8.4, 10, 7.6, 16.5, 13.5, 7.6, 9.6, 7.6], true);
             } else if (k === "appstore") {
@@ -1191,6 +1204,7 @@ Scope {
         property url shaderUrl: ""
         property bool dark: true
         property real tint: 0.4
+        property real veil: 0               // >0: a Dock-label style dark layer over the glass (0..1 strength), for dark mode
         property real strength: 1.0
         property real blur: 5               // base backdrop blur radius, px (settings slider)
         property real blurMul: 1.0          // scales the backdrop blur radius of every slab in this context
@@ -1352,6 +1366,16 @@ Scope {
                     property real rimTint: gg.gx.rimTint
                     property real ringW: gg.gx.ringW
                 }
+            }
+        }
+        // dark mode: the same deep, even dark tint the Dock's labels / right-click menu have
+        Rectangle {
+            visible: gg.gx.veil > 0.001
+            anchors.fill: parent
+            radius: gg.cornerR
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(56 / 255, 56 / 255, 62 / 255, Math.min(1, 0.50 * gg.gx.veil)) }
+                GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 30 / 255, 34 / 255, Math.min(1, 0.58 * gg.gx.veil)) }
             }
         }
     }
@@ -2396,11 +2420,14 @@ Scope {
     property real brightness: 0.5
     property string brightMode: "bl"      // "bl" = laptop backlight (brightnessctl), "ddc" = external monitor (ddcutil), "none"
     property real brightPending: -1       // value waiting for the running write to finish (DDC writes are slow)
+    property bool brightKnown: false      // a first reading exists (DDC monitors are read ONCE: the bus is slow and a read can hitch the GPU)
     function refreshBrightness() {
+        if (brightMode === "ddc" && brightKnown) return;
         // DDC reads take ~a second and fight with writes, so skip them while a write is in flight or queued
         if (brightProc.running || brightSet.running || brightApply.running || brightPending >= 0) return;
         brightProc.running = true;
     }
+    Timer { interval: 700; running: true; onTriggered: root.refreshBrightness() }     // the one reading at start-up
     Process {
         id: brightProc
         command: ["sh", root.brightScript, "get"]
@@ -2409,6 +2436,7 @@ Scope {
                 var f = text.trim().split(" ");
                 if (f.length < 2) return;
                 root.brightMode = f[0];
+                root.brightKnown = true;
                 var p = parseInt(f[1]);
                 if (!isNaN(p) && f[0] !== "none") root.brightness = p / 100;
             }
@@ -2454,7 +2482,7 @@ Scope {
         brightApply.restart();
         showOsd("brightness", brightness);
     }
-    Timer { interval: root.brightMode === "ddc" ? 5000 : 850; repeat: true; running: true; onTriggered: root.refreshBrightness() }
+    Timer { interval: root.brightMode === "bl" ? 850 : 10000; repeat: true; running: root.brightMode !== "ddc"; onTriggered: root.refreshBrightness() }
     // ═════════════ KEYBOARD LAYOUT ═════════════
     // Hyprland's event gives an immediate update; a small reconciliation poll handles dropped events and
     // keyboards whose active keymap changes without a usable activelayout payload.
@@ -3520,7 +3548,8 @@ Scope {
         "[ -s \"$tmp\" ] || exit 1",
         "f=\"$tmp\"",
         "if [ \"$sv\" = 1 ]; then",
-        "  [ -z \"$d\" ] && d=\"$HOME/Pictures/Screenshots\"",
+        "  [ -z \"$d\" ] && d=\"$(xdg-user-dir DESKTOP 2>/dev/null)\"",
+        "  { [ -z \"$d\" ] || [ \"$d\" = \"$HOME\" ]; } && d=\"$HOME/Desktop\"",
         "  case \"$d\" in '~') d=\"$HOME\";; '~/'*) d=\"$HOME/${d#'~/'}\";; esac",
         "  n=\"$d/Screenshot-$(date +%F_%H-%M-%S).png\"",
         "  mkdir -p \"$d\" && mv -f \"$tmp\" \"$n\" && f=\"$n\"",
@@ -5011,7 +5040,10 @@ Scope {
                     id: glassBackdrop
                     active: root.liquidActive
                     sourceComponent: backdropComp
-                    onLoaded: item.region = Qt.binding(function () { return ui.glassRect; })
+                    onLoaded: {
+                        item.region = Qt.binding(function () { return ui.glassRect; });
+                        item.needed = Qt.binding(function () { return ui.anyVisible || root.barGlass || levelOsd.visible || ui.pop !== ""; });
+                    }
                 }
                 // ── Layered glass, cheaply: one snapshot of the WHOLE screen (wallpaper, widgets, every window and layer) ──
                 // taken while the pointer is on the bar (before a menu opens, so the menu isn't in it). Menus and popovers
@@ -5054,20 +5086,11 @@ Scope {
                 readonly property Item glassSrc: glassBackdrop.item ? glassBackdrop.item : ((snapFresh && screenSnap.hasContent) ? screenSnap : null)
                 HoverHandler {
                     id: barHover
-                    onHoveredChanged: {
-                        if (hovered && ui.pop === "") screenSnap.grab();
-                        // pre-warm: the pointer is on the bar, so a menu / Control Center is about to open. Every window capture goes live NOW
-                        // (and dead ones are rebuilt), so the glass opens on frames that are already current instead of starting the streams
-                        // after the click. It stays warm for a moment after the pointer leaves.
-                        if (hovered) { glassWarmOff.stop(); ui.glassWarm = true; }
-                        else glassWarmOff.restart();
-                    }
+                    onHoveredChanged: if (hovered && ui.pop === "") screenSnap.grab()
                 }
-                property bool glassWarm: false
-                Timer { id: glassWarmOff; interval: 2500; onTriggered: ui.glassWarm = false }
                 // refresh while the pointer rests on the bar with nothing open; a snapshot is "fresh" for 3 s
                 Timer { interval: 600; repeat: true; running: barHover.hovered && ui.pop === ""; onTriggered: screenSnap.grab() }
-                Timer { interval: 250; repeat: true; running: true; onTriggered: ui.snapFresh = (Date.now() - screenSnap.takenAt) < 3000 || (ui.pop !== "" && ui.snapFresh) }
+                Timer { interval: 250; repeat: true; running: root.liquidActive; onTriggered: ui.snapFresh = (Date.now() - screenSnap.takenAt) < 3000 || (ui.pop !== "" && ui.snapFresh) }
 
                 // keeps the (otherwise unseen) backdrop rendering so its window captures stay valid; draws one 1%-opaque pixel
                 ShaderEffectSource {
@@ -5090,6 +5113,9 @@ Scope {
                         opacity: 0
                         property alias hostShown: bd.hostShown
                         property alias region: bd.region
+                        // false = nothing is drawing the glass right now (no menu open, no glass bar, no volume popup): the flattened copy below then
+                        // stops re-rendering the whole screen every frame (with real-time glass every window streams, so it used to do that all day)
+                        property bool needed: true
                         x: 0; y: 0
                         width: win.modelData.width
                         height: win.modelData.height
@@ -5098,15 +5124,15 @@ Scope {
                             id: flatSrc
                             anchors.fill: parent
                             sourceItem: bd
-                            live: bd.hostShown
+                            live: bd.hostShown && flatRoot.needed
                             hideSource: false
                         }
                         // Edge padding: the glass blurs and refracts up to ~64 px beyond the screen edge, where the backdrop used to be empty (alpha 0),
                         // which pulled the blur toward see-through near the screen edges (e.g. popovers on the right). Mirror the edge pixels outward instead.
-                        ShaderEffectSource { x: flatRoot.width; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(flatRoot.width - 160, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: bd.hostShown; hideSource: false }
-                        ShaderEffectSource { x: -160; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: bd.hostShown; hideSource: false }
-                        ShaderEffectSource { x: 0; y: -160; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: bd.hostShown; hideSource: false }
-                        ShaderEffectSource { x: 0; y: flatRoot.height; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, flatRoot.height - 160, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: bd.hostShown; hideSource: false }
+                        ShaderEffectSource { x: flatRoot.width; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(flatRoot.width - 160, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: bd.hostShown && flatRoot.needed; hideSource: false }
+                        ShaderEffectSource { x: -160; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: bd.hostShown && flatRoot.needed; hideSource: false }
+                        ShaderEffectSource { x: 0; y: -160; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: bd.hostShown && flatRoot.needed; hideSource: false }
+                        ShaderEffectSource { x: 0; y: flatRoot.height; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, flatRoot.height - 160, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: bd.hostShown && flatRoot.needed; hideSource: false }
                     Item {
                         id: bd
                         // never drawn on screen: only captured by the glass (a ShaderEffectSource ignores its source's own
@@ -5177,6 +5203,32 @@ Scope {
                             }
                         }
 
+                        // the desktop icons (files, folders, apps), same layout as the real desktop, so the glass shows them too
+                        property var deskLayout: {
+                            var d = root.hub ? root.hub.desktop : null;
+                            if (!d || !d.enabled || Quickshell.screens.length === 0) return ({});
+                            var wd = root.hub.widgets;
+                            var _items = d.items.length, _places = d.places, _rev = wd ? wd.rev : 0, _scale = wd ? wd.widgetScale : 1;
+                            return d.computeLayout(win.modelData.name, bd.width, bd.height);
+                        }
+                        Repeater {
+                            model: (root.hub && root.hub.desktop && root.hub.desktop.enabled) ? root.hub.desktop.items : null
+                            delegate: DesktopIcon {
+                                id: di
+                                required property var modelData
+                                readonly property var place: bd.deskLayout[modelData.name] || null
+                                visible: place !== null
+                                z: -1
+                                x: place ? place.x : 0
+                                y: place ? place.y : 0
+                                width: root.hub.desktop.cellW; height: root.hub.desktop.cellH
+                                item: modelData
+                                fam: root.fontFamily
+                                iconSize: root.hub.desktop.iconSize
+                                source: root.hub.desktop.iconSourceFor(modelData)
+                            }
+                        }
+
                         ListModel { id: wm }
                         Repeater {
                             id: wrep
@@ -5190,14 +5242,19 @@ Scope {
                                 required property real wh
                                 required property real wz
                                 required property bool gone      // window closed: capture is released first, the item is swept shortly after
+                                required property int index
                                 property alias cap: sv
                                 x: wx; y: wy; width: ww; height: wh; z: wz
-                                // a window that left (closed, other workspace) disappears from the backdrop at once; its last frame is kept for
-                                // windows that are only being re-tiled (GlassCapture), so it must not outlive the window itself
+                                // a window that left (closed, other workspace) leaves the backdrop at once (its kept frame must not linger)
                                 visible: !gone
+                                // staggered start: when many windows appear in the same instant (a workspace switch, a batch of apps) their captures
+                                // begin 25 ms apart instead of all together (a burst of first-frame requests is what the compositor chokes on)
+                                property bool startOk: false
+                                Timer { id: startT; interval: Math.min(200, 25 * gw.index); onTriggered: gw.startOk = true }
+                                Component.onCompleted: { if (gw.index <= 0) startOk = true; else startT.start(); }
                                 // Hyprland announced this window's close: its capture stops requesting frames at once (the source is kept a moment, see SafeCapture)
                                 readonly property bool closing: !!root.hub && root.hub.closingWins[String(addr).replace(/^0x/, "")] === true
-                                readonly property var tl: { if (!root.hub || gone || closing) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
+                                readonly property var tl: { if (!root.hub || gone || closing || !startOk) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
                                 // behind the glass that is on screen right now (popover / panel + refraction margin)?
                                 readonly property bool onGlass: bd.region.width > 0 && x < bd.region.x + bd.region.width && x + width > bd.region.x
                                                                 && y < bd.region.y + bd.region.height && y + height > bd.region.y
@@ -5207,6 +5264,7 @@ Scope {
                                     id: sv
                                     anchors.fill: parent
                                     placeholder: root.darkMode ? "#1e1e20" : "#f2f2f7"
+                                    glassOn: ui.anyVisible || root.barGlass || levelOsd.visible || spotWin.openish || swWin.visible || wpWin.visible
                                     want: gw.tl
                                     // While a screen recording / screen share runs the window captures sit out (root.captureQuiet). `hush` follows it
                                     // with a random 0.6 s spread, so dozens of captures never start or stop in the same instant (that burst, with a
@@ -5223,17 +5281,16 @@ Scope {
                                     // hidden right now (Spotlight, switcher, ...) are only kept warm with slow single captures.
                                     // While recording only the windows behind visible glass stay live (so the glass is real-time exactly where you see it,
                                     // e.g. a video behind the Control Center), every other window sits out.
-                                    wantLive: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.glassWarm || ui.anyVisible || levelOsd.visible || spotWin.glassGo || swWin.visible || wpWin.visible)
+                                    wantLive: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || levelOsd.visible || spotWin.glassGo || swWin.visible || wpWin.visible)
                                     // a panel / menu just opened: every stream behind it starts afresh (a stream that died while the windows were
                                     // re-tiled would otherwise leave the wallpaper behind the glass), and while it stays open the windows behind it
                                     // are re-armed now and then, so the glass keeps following them (opening an app next to them, a resize, ...)
                                     Connections {
                                         target: ui
                                         function onAnyVisibleChanged() { if (ui.anyVisible) sv.heal(); }
-                                        function onGlassWarmChanged() { if (ui.glassWarm) { sv.heal(); sv.kick(); } }
                                     }
                                     Timer {
-                                        interval: 400; repeat: true      // only acts on a capture WITHOUT a picture (kick() returns at once otherwise)
+                                        interval: 1500; repeat: true
                                         running: sv.wantLive && ui.anyVisible && gw.onGlass
                                         onTriggered: sv.nudge()
                                     }
@@ -5249,8 +5306,12 @@ Scope {
                                     }
                                     // single captures: hidden backdrops stay warm once a second (their window goes live the moment it opens);
                                     // while recording only a backdrop that is actually on screen refreshes, slowly
+                                    // Where glass is on screen (a popover, the OSD, Spotlight, the liquid bar strip) the picture refreshes at 4 Hz as
+                                    // before; windows that no glass is looking at stay warm at 0.7 Hz (their stream starts the moment glass opens).
+                                    readonly property bool busy: ui.anyVisible || levelOsd.visible || spotWin.openish || swWin.visible || wpWin.visible
+                                                                 || (root.barGlass && gw.y < root.barH + 40)
                                     Timer {
-                                        interval: sv.hush ? 1500 : (bd.hostShown ? 250 : 1000); repeat: true
+                                        interval: sv.hush ? 1500 : (bd.hostShown ? (sv.busy ? 250 : 1500) : 1000); repeat: true
                                         running: !root.captureHeld && !sv.wantLive && sv.armed
                                                  && (!sv.hush || (bd.hostShown && (ui.anyVisible || levelOsd.visible || spotWin.openish || swWin.visible || wpWin.visible)))
                                         onTriggered: sv.snap()
@@ -5264,7 +5325,7 @@ Scope {
                         // every other one takes a fresh frame, so the glass follows the windows while they slide into place.
                         property int settleN: 0
                         // off unless MACSHELL_BURST=1 is set in the environment: the extra rebuilds / frames right after a layout change are experimental
-                        function burst() { if (Quickshell.env("MACSHELL_BURST") !== "1") return; settleN = 0; glassSettle.restart(); }
+                        function burst() { if (Quickshell.env("MACSHELL_BURST") === "0" || !ui.anyVisible) return; settleN = 0; glassSettle.restart(); }
                         function rearm() {
                             for (var q = 0; q < wrep.count; q++) {
                                 var it = wrep.itemAt(q);
@@ -5273,12 +5334,10 @@ Scope {
                         }
                         Timer {
                             id: glassSettle
-                            interval: 300; repeat: true
-                            onTriggered: { bd.rearm(); if (++bd.settleN >= 3) stop(); }
+                            interval: 200; repeat: true
+                            onTriggered: { bd.rearm(); if (++bd.settleN >= 4) stop(); }
                         }
-                        // MACSHELL_CAPLOG=1: while a menu is open, twice a second, one line per window behind the glass: is it handed a capture at all
-                        // (tl), does the capture have a picture, is it being rebuilt, and is the glass showing the kept frame. Shows WHY a window is
-                        // missing from the glass.
+                        // MACSHELL_CAPLOG=1: while a menu is open, twice a second, one line per window behind the glass (see GlassCapture)
                         Timer {
                             interval: 500; repeat: true
                             running: Quickshell.env("MACSHELL_CAPLOG") === "1" && ui.anyVisible
@@ -5287,10 +5346,10 @@ Scope {
                                 for (var q = 0; q < wrep.count; q++) {
                                     var it = wrep.itemAt(q), c = it ? it.cap : null;
                                     if (!it || !c) continue;
-                                    out.push(String(it.addr).slice(-5) + " " + Math.round(it.width) + "x" + Math.round(it.height) + "@" + Math.round(it.x) + "," + Math.round(it.y)
+                                    out.push(String(it.addr).slice(-5) + " " + Math.round(it.width) + "x" + Math.round(it.height)
                                              + " tl=" + (it.tl ? "y" : "NULL") + " held=" + (c.held ? "y" : "n") + " pic=" + (c.hasContent ? "y" : "n")
                                              + " live=" + (c.wantLive ? "y" : "n") + " settling=" + (c.settling ? "y" : "n") + " rebuild=" + (c.reviving ? "y" : "n")
-                                             + " dead=" + (c.dead ? "y" : "n") + " tries=" + c.tries + " keepShown=" + (c.keeping ? "y" : "n") + " gone=" + (it.gone ? "y" : "n"));
+                                             + " dead=" + (c.dead ? "y" : "n") + " tries=" + c.tries + " gone=" + (it.gone ? "y" : "n"));
                                 }
                                 console.log("[glass] " + out.length + " windows | " + out.join(" | "));
                             }
@@ -5376,6 +5435,26 @@ Scope {
                     blur: root.glassBlur
                     debug: root.glassDebug
                     onShaderError: root.glassState = "failed"
+                }
+
+                // Feather: when the bar is completely clear (no glass, no fill) a soft, small fade just behind it keeps the text readable.
+                Rectangle {
+                    id: barFeather
+                    readonly property bool wanted: root.barEnabled && !(root.barGlass && root.liquidActive) && root.barBgOpacity <= 0.001
+                    visible: opacity > 0.01
+                    opacity: wanted ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 200 } }
+                    x: 0; y: 0
+                    width: ui.width
+                    height: root.barH + 14
+                    readonly property color c: root.barTextDark ? Qt.rgba(1, 1, 1, 1) : Qt.rgba(0, 0, 0, 1)
+                    gradient: Gradient {
+                        GradientStop { position: 0.00; color: Qt.rgba(barFeather.c.r, barFeather.c.g, barFeather.c.b, 0.30) }
+                        GradientStop { position: 0.35; color: Qt.rgba(barFeather.c.r, barFeather.c.g, barFeather.c.b, 0.20) }
+                        GradientStop { position: 0.65; color: Qt.rgba(barFeather.c.r, barFeather.c.g, barFeather.c.b, 0.08) }
+                        GradientStop { position: 0.85; color: Qt.rgba(barFeather.c.r, barFeather.c.g, barFeather.c.b, 0.02) }
+                        GradientStop { position: 1.00; color: Qt.rgba(barFeather.c.r, barFeather.c.g, barFeather.c.b, 0.0) }
+                    }
                 }
 
                 // click-away layer (under the popovers and the bar)
@@ -6517,14 +6596,24 @@ Scope {
                         rimTint: 1
                         ringW: 1.4
                         cornerR: 14
-                        tint: root.glassOpacity
+                        tint: root.panelDarkMode ? Math.max(root.glassOpacity, 0.55) : root.glassOpacity
                         thickness: 22
                         strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
-                        blur: 42
+                        blur: 41
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                    }
+                    // dark mode: Dock-label style dark tint over the glass
+                    Rectangle {
+                        visible: root.panelDarkMode
+                        anchors.fill: parent
+                        radius: 14
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: Qt.rgba(56 / 255, 56 / 255, 62 / 255, 0.34) }
+                            GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 30 / 255, 34 / 255, 0.38) }
+                        }
                     }
                     MenuBorder {
                         id: menuBorder
@@ -9292,15 +9381,16 @@ Scope {
                     liquid: root.liquidActive
                     shaderUrl: root.glassShaderUrl
                     dark: root.panelDarkMode
+                    veil: root.panelDarkMode ? 0.6 : 0
                     tint: root.glassOpacity
-                    strength: root.glassLiquid               // full refraction, like the Dock / Control Center
-                    rim: root.glassRim                       // same wallpaper-coloured rim + border line as the top-bar menus
+                    strength: root.glassLiquid * 0.6         // gentler refraction: a flatter, less 3D pane
+                    rim: root.glassRim * 0.35                // softer rim
                     rimTint: 1
-                    ringW: 0.9
+                    ringW: 0.35
                     whiteEdge: false
                     grain: root.glassGrain
                     blur: 15                                // Spotlight has its own blur: it ignores the global blur slider
-                    blurMul: 10.0                   // strong smooth blur (two stacked Gaussian passes); lower to see more refraction, raise to frost more
+                    blurMul: 7.0                   // strong smooth blur (two stacked Gaussian passes); lower to see more refraction, raise to frost more
                     debug: root.glassDebug
                     onFailed: root.glassState = "failed"
                 }
@@ -9374,7 +9464,7 @@ Scope {
                             height: 48
                             GGlass { anchors.fill: parent; gx: spg; cornerR: 24; thickness: 22; strengthMul: 1.0; shadowAmt: 0; flatInner: 1      // flatInner: no darker inner edge
                                      opacity: spot.joined ? 0 : 1; Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 160; easing.type: Easing.OutCubic } } }
-                            MenuBorder { amount: 1; anchors.fill: parent; cornerR: 24; dark: root.panelDarkMode; tint: root.menuBorderColor
+                            MenuBorder { amount: 0.3; anchors.fill: parent; cornerR: 24; dark: root.panelDarkMode; tint: root.menuBorderColor
                                          opacity: spot.joined ? 0 : 1; Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 160; easing.type: Easing.OutCubic } } }
                             Glyph {
                                 x: 18; anchors.verticalCenter: parent.verticalCenter
@@ -9523,7 +9613,7 @@ Scope {
                         // expands / contracts downward only: the pill above never moves
                         Behavior on height { NumberAnimation { duration: root.reduceMotion ? 0 : 220; easing.type: Easing.OutCubic } }
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 1.0; shadowAmt: 0.14 }
-                        MenuBorder { amount: 1; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                        MenuBorder { amount: 0.3; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
                         Item {
                             x: 8; y: resPanel.listTop
                             width: parent.width - 16
@@ -9656,7 +9746,7 @@ Scope {
                         height: 64 + (items.length > 0 ? shown * rowH + 14 : 118)
                         Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.22 }
-                        MenuBorder { amount: 1; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                        MenuBorder { amount: 0.3; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
 
                         Item {
                             id: clipHeader
@@ -9869,7 +9959,7 @@ Scope {
                             width: 250
                             height: 3 * 40 + 12
                             GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 26; strengthMul: 1.0; shadowAmt: 0.26 }
-                            MenuBorder { amount: 1; anchors.fill: parent; cornerR: 20; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                            MenuBorder { amount: 0.3; anchors.fill: parent; cornerR: 20; dark: root.panelDarkMode; tint: root.menuBorderColor }
                             Column {
                                 x: 6; y: 6
                                 width: parent.width - 12
@@ -9939,7 +10029,7 @@ Scope {
                         readonly property var cur: items[Math.min(ui.spSel, items.length - 1)]
                         height: 64 + 42 + gridRows * cell + 46
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.22 }
-                        MenuBorder { amount: 1; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                        MenuBorder { amount: 0.3; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
 
                         Item {
                             x: 20
@@ -10105,7 +10195,7 @@ Scope {
                         width: spot.width
                         height: Math.min(64 + appsCol.height + 14, 520)
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.22 }
-                        MenuBorder { amount: 1; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                        MenuBorder { amount: 0.3; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
 
                         Item {
                             id: appsHeader

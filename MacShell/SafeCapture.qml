@@ -28,6 +28,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
+import "CaptureGate.js" as Gate
 
 ScreencopyView {
     id: sc
@@ -46,6 +47,11 @@ ScreencopyView {
     // recording context is ready" every time it is called without a context, which is what spammed the log.
     property bool pulse: false
 
+    // `hold`: the owner says the window's size is changing right now (a tiled window being re-laid out). Every rebuild destroys and creates a
+    // capture context, and during a tiling animation that used to happen again and again (each size change reset the retries and the watchdog
+    // fired mid-animation). While `hold` is set nothing is rebuilt; the owner calls heal() / kick() once the size has settled.
+    property bool hold: false
+
     // MACSHELL_CAPLOG=1 (environment): one line per capture event, to see what the compositor does while windows are re-tiled
     readonly property bool dbg: Quickshell.env("MACSHELL_CAPLOG") === "1"
     function log(m) { if (dbg) console.log("[capture " + (held ? "held" : "free") + " " + Math.round(width) + "x" + Math.round(height) + "] " + m); }
@@ -62,13 +68,15 @@ ScreencopyView {
 
     // ── rebuild ──
     property int tries: 0
+    readonly property int maxTries: 3     // every rebuild is another capture context created and destroyed: few, and spread out
     property bool hadContent: false
     property real lastRebuild: 0
     property real heldAt: 0              // when the current source was attached
     property bool ended: false           // Hyprland ended the capture (it HAD a picture and lost it): no frame is in flight any more
     function recover(fast) {
-        if (want === null || held === null || reviving || dead) return;
-        if (++tries > 8) { log("gave up after 8 rebuilds"); dead = true; wakeT.restart(); return; }
+        if (want === null || held === null || reviving || dead || hold) return;
+        if (++tries > maxTries) { log("gave up after " + maxTries + " rebuilds"); dead = true; wakeT.restart(); return; }
+        Gate.noteFail();
         log("rebuild " + tries + (ended ? " (compositor ended it)" : " (no picture)"));
         reviving = true;                       // live off: a frame still in flight gets a moment to finish
         lastRebuild = Date.now();
@@ -92,7 +100,7 @@ ScreencopyView {
         recover(true);
     }
     // a capture that gave up is not abandoned for good: one more attempt now and then (the window may be capturable by then)
-    Timer { id: wakeT; interval: 15000; onTriggered: { if (sc.dead && sc.want !== null) { sc.dead = false; sc.tries = 8; if (sc.held !== null && sc.hasContent === false) sc.recover(); } } }
+    Timer { id: wakeT; interval: 20000; onTriggered: { if (sc.dead && sc.want !== null) { sc.dead = false; sc.tries = sc.maxTries - 1; if (sc.held !== null && sc.hasContent === false) sc.recover(); } } }
     // the window changed size: whatever went wrong before gets another chance
     function heal() {
         if (held === null) return;
@@ -100,8 +108,8 @@ ScreencopyView {
         if (hasContent === false && !reviving) missTicks = 2;     // no picture: the watchdog rebuilds on its next tick (250 ms)
     }
     function nudge() { kick(); }     // only acts on a capture without a picture
-    Timer { id: reviveA; onTriggered: { if (sc.want !== null) sc.held = null; reviveB.interval = Math.min(1000, 150 * Math.pow(2, Math.max(0, sc.tries - 1))); reviveB.restart(); } }
-    Timer { id: reviveB; onTriggered: { sc.reviving = false; if (sc.want !== null) sc.held = sc.want; } }
+    Timer { id: reviveA; onTriggered: { if (sc.want !== null) sc.held = null; reviveB.interval = Math.min(2000, 150 * Math.pow(2, Math.max(0, sc.tries - 1))); reviveB.restart(); } }
+    Timer { id: reviveB; onTriggered: { sc.reviving = false; if (sc.want !== null) sc.attach(); } }
 
     onHasContentChanged: {
         log(hasContent === true ? "picture" : "picture lost");
@@ -115,6 +123,7 @@ ScreencopyView {
         // it HAD a picture and lost it: Hyprland ended the capture. Rebuild right away (no frame is in flight any more)
         hadContent = false;
         ended = true;
+        Gate.noteFail();
         if (held !== null && want !== null) recover(true);
     }
     onHeldChanged: { hadContent = false; ended = false; missTicks = 0; heldAt = Date.now(); }
@@ -123,7 +132,7 @@ ScreencopyView {
     property int missTicks: 0
     Timer {
         interval: 250; repeat: true
-        running: sc.want !== null && sc.held !== null && !sc.dead && !sc.reviving && sc.hasContent === false
+        running: sc.want !== null && sc.held !== null && !sc.dead && !sc.reviving && !sc.hold && sc.hasContent === false
         onTriggered: { if (++sc.missTicks >= 2) { sc.missTicks = 0; sc.recover(); } }
         onRunningChanged: if (!running) sc.missTicks = 0
     }
@@ -131,12 +140,23 @@ ScreencopyView {
     onWidthChanged: heal()
     onHeightChanged: heal()
 
+    // A capture context is created through attach(): globally at most one every few ms (CaptureGate.slotDelay), so a workspace switch,
+    // a batch of new windows or the shell's own start never creates dozens of contexts in the same instant.
+    function attach() {
+        if (want === null) return;
+        var d = Gate.slotDelay();
+        if (d <= 0) { held = want; return; }
+        attachT.interval = d;
+        attachT.restart();
+    }
+    Timer { id: attachT; onTriggered: { if (sc.want !== null) sc.held = sc.want; } }
+
     onWantChanged: {
         tries = 0; missTicks = 0; dead = false;
-        if (want !== null) { releaseT.stop(); held = want; }
-        else if (held !== null) releaseT.restart();
+        if (want !== null) { releaseT.stop(); if (held !== want) attach(); else attachT.stop(); }
+        else { attachT.stop(); if (held !== null) releaseT.restart(); }
     }
-    Component.onCompleted: { if (want !== null) held = want; }
+    Component.onCompleted: { if (want !== null) attach(); }
 
     Timer {
         id: releaseT

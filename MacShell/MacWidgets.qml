@@ -43,7 +43,8 @@ Scope {
     readonly property real glassLiquid: dock ? dock.glassLiquid : 1.0
     readonly property real glassRim: dock ? dock.glassRim : 0.45
     readonly property real glassGrain: dock ? dock.glassGrain : 0.03
-    readonly property bool darkGlass: dock ? dock.darkMode : true
+    // widgets keep their own look: the shell's Light / Dark setting does not change them (each widget's own style still can)
+    readonly property bool darkGlass: true
     // Control Center border colour (follows the wallpaper's dominant colour)
     readonly property color borderTint: (hub && hub.bar) ? hub.bar.menuBorderColor : "#8A9AB5"
 

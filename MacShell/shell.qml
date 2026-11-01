@@ -20,6 +20,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
+import "CaptureGate.js" as CaptureGate
 
 ShellRoot {
     // The UI font ("Open Runde") ships with MacShell: registered here, first, so every Text below can use it
@@ -39,6 +40,7 @@ ShellRoot {
         property var bar: macBar
         property var dock: macDock
         property var widgets: macWidgets
+        property var desktop: desktopIcons
         property var clock: clockApp
         property var about: aboutApp
         function openSettings(pane) { macDock.openPrefs(pane); }
@@ -79,12 +81,27 @@ ShellRoot {
         // The glass no longer pauses while windows open / close (that made it lazy when a bunch of tiled terminals were opened / closed:
         // every open or close froze the whole backdrop for 350 ms, and a series of them kept it frozen). Only a close the shell itself is about
         // to send (preClose) and gaming pause it. MACSHELL_CHURNPAUSE=1 (environment) brings the old pause back.
-        readonly property bool glassHold: (churn && Quickshell.env("MACSHELL_CHURNPAUSE") === "1") || preClose || macBar.gaming
+        readonly property bool glassHold: (churn && Quickshell.env("MACSHELL_CHURNPAUSE") !== "0") || storm || preClose || macBar.gaming
         property bool captureCut: false
+        // ── capture storm ──
+        // Windows opening / closing / re-tiling make Hyprland fail the frames that are in flight, and every failed capture is a context that is
+        // destroyed and rebuilt: the burst of those is what takes the Wayland connection down ("invalid object NN"). When several captures
+        // fail within two seconds (CaptureGate.js counts them) every stream and single shot sits out until it has been quiet for 1.2 s.
+        property bool storm: false
+        Timer {
+            interval: 250; repeat: true; running: true
+            onTriggered: {
+                if (CaptureGate.recentFails(2000) >= 5) { stormEnd.restart(); if (!sharedHub.storm) sharedHub.storm = true; }
+            }
+        }
+        Timer { id: stormEnd; interval: 1200; onTriggered: sharedHub.storm = false }
         // Dock previews no longer pause as a whole while windows open / close (that froze every preview for ~1.5 s):
         // only the CLOSING window's own preview stops its live capture, the moment Hyprland announces the close
         // (before the toplevel is destroyed, so no frame is ever aborted in flight). Everything else keeps running.
-        readonly property bool previewHold: !windowCapture || preClose || macBar.gaming
+        // The menu bar's glass (Control Center, menus, popovers) is the part the person is LOOKING at while windows tile, so it only sits
+        // out for a close the shell itself sends and for gaming: no churn pause, no storm pause. Its streams exist only while a popover is open.
+        readonly property bool barHold: preClose || macBar.gaming || (churn && Quickshell.env("MACSHELL_CHURNPAUSE") === "1")
+        readonly property bool previewHold: !windowCapture || storm || preClose || macBar.gaming
         property var closingWins: ({})
         onCaptureHoldChanged: { if (captureHold) cutDelay.restart(); else { cutDelay.stop(); captureCut = false; } }
         Timer { id: cutDelay; interval: 500; onTriggered: sharedHub.captureCut = true }
@@ -178,9 +195,8 @@ ShellRoot {
         }
 
         // ── window capture gate (shared by the Menu Bar and the Dock glass) ──
-        // A window is only handed to a ScreencopyView 90 ms after it appeared (was 200 ms: a window that opened next to an open menu
-        // showed the bare wallpaper for that long), and windows that appear together (opening a batch of apps, a game launcher...) are
-        // admitted ONE EVERY 60 ms (was 110) instead of
+        // A window is only handed to a ScreencopyView 0.2 s after it appeared (shorter than the open animation, so nobody sees it),
+        // and windows that appear together (opening a batch of apps, a game launcher...) are admitted ONE EVERY 110 ms instead of
         // all at once. Hyprland answers every live capture with a frame request; starting a dozen of them in the same instant
         // while a screen recorder is also pulling frames is what made the compositor drop frames and the Wayland connection
         // die ("invalid object NN"). Short-lived dialogs that close while their first frame is in flight are covered by the 0.2 s.
@@ -199,7 +215,7 @@ ShellRoot {
             var ts = Hyprland.toplevels.values, st = tlState, now = Date.now();
             for (var i = 0; i < ts.length; i++) {
                 var a = ts[i].address;
-                if (st.ready[a] === undefined) { st.ready[a] = Math.max(now + 90, st.last + 60); st.last = st.ready[a]; }
+                if (st.ready[a] === undefined) { st.ready[a] = Math.max(now + 100, st.last + 70); st.last = st.ready[a]; }
             }
         }
         function tlFor(addr) {
@@ -209,7 +225,7 @@ ShellRoot {
                 if (ts[i].address !== a) continue;
                 var st = tlState, now = Date.now();
                 if (st.ready[a] === undefined) {
-                    st.ready[a] = Math.max(now + 90, st.last + 60);
+                    st.ready[a] = Math.max(now + 100, st.last + 70);
                     st.last = st.ready[a];
                 }
                 if (st.ready[a] > now) {
@@ -234,6 +250,7 @@ ShellRoot {
         // when this Quickshell build can't provide the data.
         property bool ipcOk: false
         property bool ipcBroken: false
+        property int monTick: 0
         function ipcPoll() {
             var ts, ms, i, o, m, cl = [], mo = [];
             try {
@@ -242,21 +259,28 @@ ShellRoot {
                 for (i = 0; i < ts.length; i++) { o = ts[i].lastIpcObject; if (o && o.address !== undefined) cl.push(o); }
                 for (i = 0; i < ms.length; i++) { m = ms[i].lastIpcObject; if (m && m.name !== undefined) mo.push(m); }
                 Hyprland.refreshToplevels();      // the answer lands in lastIpcObject and is read on the next tick
-                Hyprland.refreshMonitors();
+                // monitors only change on workspace / monitor events (those refresh them right away, see onRawEvent): every 6th tick is plenty
+                if ((++monTick % 6) === 0) Hyprland.refreshMonitors();
             } catch (err) { ipcBroken = true; ipcOk = false; return; }
             if (mo.length === 0 || (ts.length > 0 && cl.length === 0)) { ipcOk = false; return; }
             ipcOk = true;
             tlSeed();
             // fingerprint the GEOMETRY only: a window retitling itself (a terminal, a browser tab, a player) is no
-            // reason to wake the 60 Hz path — that kept it hot (and the main thread busy) the whole time
-            var gk = [], j, c;
-            for (j = 0; j < cl.length; j++) {
-                c = cl[j];
-                gk.push([c.address, c.at, c.size, c.workspace ? c.workspace.id : 0, c.monitor, c.floating, c.fullscreen, c.mapped, c.hidden]);
+            // reason to wake the 60 Hz path — that kept it hot (and the main thread busy) the whole time.
+            // A plain string (no JSON.stringify of nested arrays): this runs up to 60 times a second.
+            var key = "", j, c, at, sz;
+            for (j = 0; j < mo.length; j++) {
+                m = mo[j];
+                key += m.name + "," + m.x + "," + m.y + "," + m.width + "," + m.height + "," + m.scale + ","
+                     + (m.activeWorkspace ? m.activeWorkspace.id : 0) + "," + (m.specialWorkspace ? m.specialWorkspace.id : 0) + ";";
             }
-            var mk = [];
-            for (j = 0; j < mo.length; j++) mk.push([mo[j].name, mo[j].x, mo[j].y, mo[j].width, mo[j].height, mo[j].scale, mo[j].activeWorkspace ? mo[j].activeWorkspace.id : 0, mo[j].specialWorkspace ? mo[j].specialWorkspace.id : 0]);
-            var key = JSON.stringify([mk, gk]);
+            key += "|";
+            for (j = 0; j < cl.length; j++) {
+                c = cl[j]; at = c.at; sz = c.size;
+                key += c.address + "," + (at ? at[0] + "," + at[1] : "") + "," + (sz ? sz[0] + "," + sz[1] : "") + ","
+                     + (c.workspace ? c.workspace.id : 0) + "," + c.monitor + "," + (c.floating ? 1 : 0) + "," + c.fullscreen + ","
+                     + (c.mapped ? 1 : 0) + (c.hidden ? 1 : 0) + ";";
+            }
             if (key === geoLast) return;
             geoLast = key;
             geoHot = true; geoCool.restart();
@@ -341,6 +365,8 @@ ShellRoot {
 
     MacBar { id: macBar; hub: sharedHub }
     MacDock { id: macDock; hub: sharedHub; bar: macBar }
+    // Keep the desktop layer below widgets; desktop placement also reserves each widget's live footprint.
+    Desktop { id: desktopIcons; hub: sharedHub }
     MacWidgets { id: macWidgets; hub: sharedHub }
     // The Settings toggle governs the app; a manual components.json override wins when present.
     ClockApp { id: clockApp; hub: sharedHub; appEnabled: clockApp.manualOverride ? clockApp.manualVal : macBar.clockAppEnabled }
@@ -350,6 +376,7 @@ ShellRoot {
         sharedHub.bar = macBar;
         sharedHub.dock = macDock;
         sharedHub.widgets = macWidgets;
+        sharedHub.desktop = desktopIcons;
     }
 
     // reopen settings even when both the Dock and the Menu Bar are disabled:

@@ -38,6 +38,8 @@ Scope {
     property var hub: null
     property bool dockEnabled: true      // false = no Dock at all (settings window stays available)
     property bool settingsEnabled: true  // false = keep the System Settings window closed
+    property bool desktopIcons: true     // show files, folders and .desktop shortcuts from the XDG Desktop directory
+    property int desktopIconSize: 48     // Desktop icon size in logical pixels
     property var bar: hub ? hub.bar : null
     Connections {
         target: root.bar
@@ -232,7 +234,7 @@ Scope {
         default property alias content: col.data
         width: parent ? parent.width : 0
         height: col.implicitHeight
-        radius: 10
+        radius: 22
         color: t.card
         border.width: 1
         border.color: t.cardBorder
@@ -1874,7 +1876,7 @@ Scope {
                     SRow {
                         t: pal
                         title: I18n.tr("Save location")
-                        subtitle: I18n.tr("Leave empty for ~/Pictures/Screenshots")
+                        subtitle: I18n.tr("Leave empty to save on the Desktop")
                         Row {
                             spacing: 8
                             Rectangle {
@@ -2769,6 +2771,28 @@ Scope {
             Column {
                 spacing: 18
                 Loader { width: parent.width; sourceComponent: paneDock }
+                SLabel { t: pal; header: true; text: I18n.tr("Desktop") }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Desktop Icons")
+                        subtitle: I18n.tr("Show files, folders, images and .desktop app shortcuts. Icons automatically avoid desktop widgets.")
+                        SSwitch { t: pal; checked: root.desktopIcons; onToggled: v => root.desktopIcons = v }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Icon Size")
+                        subtitle: I18n.tr("Desktop icon size (") + root.desktopIconSize + " px)"
+                        SSlider {
+                            t: pal; from: 32; to: 128; stepSize: 2
+                            value: root.desktopIconSize
+                            leftLabel: I18n.tr("Small"); rightLabel: I18n.tr("Large")
+                            resetValue: 48
+                            onMoved: v => root.desktopIconSize = Math.round(v / 2) * 2
+                        }
+                    }
+                }
                 SLabel { t: pal; header: true; text: I18n.tr("App Switcher (Alt + Tab)") }
                 SCard {
                     t: pal
@@ -3942,7 +3966,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.4.8 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.4.9 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(Font.Normal, pal.fam)
                             font.pixelSize: 12
@@ -4060,7 +4084,7 @@ Scope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     topPadding: 4
-                    text: I18n.tr("Designed by Apple in California.\nRebuilt on Linux by two people who could not afford the Mac.")
+                    text: I18n.tr("Designed by Rick.\nRebuilt on Linux by two people who could not afford the Mac.")
                     color: pal.text3; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 11
                 }
 
@@ -4184,6 +4208,7 @@ Scope {
         }
         if (hub && hub.widgets) { hub.widgets.tempUnit = "C"; hub.widgets.locMode = "auto"; hub.widgets.cityName = ""; hub.widgets.widgetScale = 1.0; }
         Quickshell.execDetached(["sh", "-c", "rm -f \"$HOME/.config/maclock/settings.json\""]);
+        desktopIcons = true; desktopIconSize = 48;
         iconSize = 52; magnification = 1.7; magnificationEnabled = true;
         spacing = 6; margin = 6; cornerRadius = 18;
         darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Open Runde";
@@ -4193,7 +4218,7 @@ Scope {
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
-    readonly property string settingsSig: [dockEnabled, settingsEnabled, iconSize, magnification, magnificationEnabled, spacing, margin,
+    readonly property string settingsSig: [dockEnabled, settingsEnabled, desktopIcons, desktopIconSize, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, appearanceMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
         showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength].join("|")
     property bool settingsReady: false
@@ -4204,7 +4229,7 @@ Scope {
 
     function saveSettings() {
         var o = {
-            dockEnabled: dockEnabled, settingsEnabled: settingsEnabled, iconSize: iconSize, magnification: magnification, magnificationEnabled: magnificationEnabled,
+            dockEnabled: dockEnabled, settingsEnabled: settingsEnabled, desktopIcons: desktopIcons, desktopIconSize: desktopIconSize, iconSize: iconSize, magnification: magnification, magnificationEnabled: magnificationEnabled,
             spacing: spacing, margin: margin, cornerRadius: cornerRadius,
             darkMode: darkMode, appearanceMode: appearanceMode, glassOpacity: glassOpacity, dockStyle: dockStyle, wallpaperPath: wallpaperPath, glassDebug: glassDebug,
             glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid, glassBlur: glassBlur,
@@ -4219,7 +4244,7 @@ Scope {
 
     function applySettings(o) {
         if (!o || typeof o !== "object") return;
-        var keys = ["dockEnabled", "settingsEnabled", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
+        var keys = ["dockEnabled", "settingsEnabled", "desktopIcons", "desktopIconSize", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "appearanceMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
                     "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
         for (var i = 0; i < keys.length; i++) {
@@ -4896,12 +4921,12 @@ Scope {
                         anchors.fill: parent; radius: 10
                         color: Qt.rgba(0.09, 0.08, 0.09, 0.88)
                     }
-                    ScreencopyView {
+                    SafeCapture {
                         id: gsv
                         visible: tearGhost.isWin
                         anchors.fill: parent
-                        captureSource: tearGhost.isWin && tearWin.visible ? ui.tearItem.tl : null
-                        live: tearGhost.isWin && tearWin.visible && tearGhost.visible
+                        want: (tearGhost.isWin && tearWin.visible && ui.tearItem && ui.tearItem.tl) ? ui.tearItem.tl : null
+                        wantLive: tearGhost.isWin && tearWin.visible && tearGhost.visible
                         layer.enabled: true
                         layer.effect: MultiEffect { maskEnabled: true; maskSource: gsvMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
                     }
@@ -5335,17 +5360,18 @@ Scope {
                                     id: sc
                                     anchors.fill: parent
                                     placeholder: (root.bar ? root.bar.darkMode : true) ? "#1e1e20" : "#f2f2f7"
+                                    glassOn: !ui.tucked
                                     want: (gw.near && !gw.released) ? gw.tl : null
                                     // Real-time glass ON: a window that reaches the Dock STREAMS (live: every frame the compositor renders), windows
                                     // elsewhere refresh at 30 Hz-ish single shots (5 Hz when far away) so they are fresh the moment they slide under the Dock.
                                     // Real-time glass OFF: the old behaviour (15 fps polling, paused while windows open / close).
-                                    readonly property bool quiet: !!root.hub && root.hub.preClose          // a close was just requested: nothing in flight, please
+                                    readonly property bool quiet: !!root.hub && root.hub.preClose          // a close was just requested / captures are failing in a burst: nothing in flight, please
                                     readonly property bool canRun: !quiet && !ui.menuOpen && (root.glassRT
                                         ? !(root.hub && root.hub.captureQuiet) && !(root.bar && root.bar.gaming) && !gw.gone && !gw.closing
                                         : (!root.glassHold && !ui.tucked))
                                     wantLive: root.glassRT && canRun && gw.overlap && !ui.tucked
                                     Timer {
-                                        interval: root.glassRT ? (gw.overlap ? 33 : 200) : 66
+                                        interval: root.glassRT ? (gw.overlap ? 33 : 500) : 66
                                         repeat: true
                                         running: sc.canRun && !sc.wantLive && sc.armed
                                         onTriggered: sc.snap()

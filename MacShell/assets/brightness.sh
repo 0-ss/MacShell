@@ -8,7 +8,8 @@
 
 cache="${XDG_RUNTIME_DIR:-/tmp}/macshell-ddc-displays"
 
-has_bl() { command -v brightnessctl >/dev/null 2>&1 && brightnessctl -m -c backlight 2>/dev/null | head -n1 | grep -q .; }
+bl_line() { command -v brightnessctl >/dev/null 2>&1 && brightnessctl -m -c backlight 2>/dev/null | head -n1; }
+has_bl() { [ -n "$(bl_line)" ]; }
 has_ddc() { command -v ddcutil >/dev/null 2>&1; }
 
 ddc_displays() {
@@ -19,8 +20,9 @@ ddc_displays() {
 
 case "$1" in
 get)
-    if has_bl; then
-        p=$(brightnessctl -m -c backlight 2>/dev/null | head -n1 | cut -d, -f4 | tr -d '%')
+    l=$(bl_line)
+    if [ -n "$l" ]; then
+        p=$(printf '%s' "$l" | cut -d, -f4 | tr -d '%')
         echo "bl ${p:-50}"
     elif has_ddc; then
         n=$(ddc_displays | head -n1)

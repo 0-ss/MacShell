@@ -16,6 +16,12 @@ import Quickshell
 Item {
     id: glassCap
 
+    // The tiling-safe behaviour below (pause while a window is re-tiled, crossfade, no-wallpaper surface, kept last frame) is ON by default
+    // and costs next to nothing: the kept-frame copy runs twice a second and only while glass is on screen (`glassOn`).
+    // MACSHELL_GLASSFX=0 (environment) switches all of it off (the plain capture); MACSHELL_KEEP=0 only the last-frame layer.
+    property bool glassOn: true        // the owner sets it false while no glass is drawn (nothing to keep warm then)
+    readonly property bool fx: Quickshell.env("MACSHELL_GLASSFX") !== "0"
+
     property alias want: cap.want
     property bool wantLive: false
     property alias graceMs: cap.graceMs
@@ -23,7 +29,7 @@ Item {
     // is in flight when the size changes, and Quickshell then destroys the whole capture; the glass lost the window until it was rebuilt.
     // So while the size is moving no new frame is requested (the last good frame stays on screen, see `keep`), and the moment it has been
     // still for settleMs the stream simply carries on from a capture that is still alive. Position-only changes (dragging) never pause.
-    property int settleMs: 110
+    property int settleMs: 45
     readonly property bool settling: settleT.running
     readonly property bool armed: cap.armed && !settling
     readonly property bool hasContent: cap.hasContent === true
@@ -44,7 +50,10 @@ Item {
         var first = lastW <= 0 || lastH <= 0;          // the first real size is not a change
         var changed = Math.abs(width - lastW) >= 1 || Math.abs(height - lastH) >= 1;
         if (width > 0 && height > 0) { lastW = width; lastH = height; }
-        if (!first && changed && cap.want !== null) settleT.restart();
+        if (fx && !first && changed && cap.want !== null) {
+            if (!settleT.running && keep.on && cap.hasContent === true && !fading) keep.scheduleUpdate();     // the last good frame, before it is stretched
+            settleT.restart();
+        }
     }
     onWidthChanged: sizeMoved()
     onHeightChanged: sizeMoved()
@@ -64,15 +73,15 @@ Item {
     // last frame (`keep`) covers every gap, so the placeholder never shows again for that window.
     property color placeholder: "#1e1e20"
     property bool keepValid: false
-    function updKeep() { if (cap.hasContent === true && !fading) keepValid = true; }
+    function updKeep() { if (cap.hasContent === true && !fading) { keepValid = true; if (keep.on) keep.scheduleUpdate(); } }
     onFadingChanged: updKeep()
     Rectangle {
         anchors.fill: parent
         z: -2
         color: glassCap.placeholder
-        visible: !glassCap.keepValid && !(cap.hasContent === true && !glassCap.fading)
+        visible: glassCap.fx && !glassCap.keepValid && !(cap.hasContent === true && !glassCap.fading)
     }
-    property int fadeMs: 150
+    property int fadeMs: 100
     property real fadeIn: 1
     readonly property bool fading: fadeIn < 0.999
     function beginFade() { fadeAnim.stop(); fadeIn = 0.02; fadeAnim.start(); }
@@ -82,17 +91,26 @@ Item {
     Connections {
         target: cap
         function onHasContentChanged() {
+            if (!glassCap.fx) return;
             glassCap.updKeep();
             if (cap.hasContent === true) { lostT.stop(); if (glassCap.fadeIn < 0.999 && !fadeAnim.running) fadeAnim.start(); }
             else lostT.restart();
         }
     }
-    Component.onCompleted: fadeIn = 0.02
+    Component.onCompleted: if (fx) fadeIn = 0.02
+
+    Timer {
+        id: keepT
+        interval: 1000; repeat: true; triggeredOnStart: true
+        running: keep.on && glassCap.glassOn && cap.hasContent === true && !glassCap.fading && cap.want !== null && glassCap.visible
+        onTriggered: keep.scheduleUpdate()
+    }
 
     SafeCapture {
         id: cap
         anchors.fill: parent
         wantLive: glassCap.wantLive && !glassCap.settling
+        hold: glassCap.settling
         opacity: glassCap.fadeIn
     }
 
@@ -107,13 +125,16 @@ Item {
     // capture draws. MACSHELL_KEEP=0 (environment) switches it off again if it ever misbehaves.
     ShaderEffectSource {
         id: keep
-        readonly property bool on: Quickshell.env("MACSHELL_KEEP") !== "0"
+        readonly property bool on: glassCap.fx ? Quickshell.env("MACSHELL_KEEP") !== "0" : Quickshell.env("MACSHELL_KEEP") === "1"
         anchors.fill: parent
         z: -1
         sourceItem: on ? cap : null
         hideSource: false
         visible: on
-        live: cap.hasContent === true && !glassCap.fading        // frozen on the old frame while the new one fades in
+        // NOT live: copying every window's capture into a second texture on every frame doubled the GPU work of the glass (the lag when a
+        // menu / Control Center opens over several windows). The copy is refreshed twice a second, and right before the window is resized
+        // or a fade ends (when it matters), so after a loss the kept frame is at most half a second old.
+        live: false
         opacity: (cap.hasContent === true && !glassCap.fading) ? 0.001 : 1
         recursive: false
     }
