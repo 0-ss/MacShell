@@ -1787,6 +1787,11 @@ Scope {
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appleMenu") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appleMenu", v); } }
                     }
                     SRow {
+                        t: pal; title: I18n.tr("Audio & Comms Hub")
+                        subtitle: I18n.tr("Wireless earbuds, noise control, equalizer, 360\u00b0 audio, and Discord voice controls")
+                        SSwitch { t: pal; checked: root.bar ? root.bar.showAudioHub : true; onToggled: v => { if (root.bar) root.bar.showAudioHub = v; } }
+                    }
+                    SRow {
                         t: pal; title: I18n.tr("Application menus")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appMenus") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appMenus", v); } }
                     }
@@ -2457,10 +2462,40 @@ Scope {
             id: paneApps
             Column {
                 id: appsCol
-                spacing: 10
+                spacing: 12
+                property string appSearch: ""
+                property int appRevision: 0
+
                 readonly property int pinCount: root.items.filter(function (i) {
                     return i.kind === "app" && i.pinned && !i.special;
                 }).length
+
+                Connections {
+                    target: DesktopEntries.applications
+                    function onValuesChanged() { appsCol.appRevision++; }
+                }
+
+                readonly property var installedApps: {
+                    var rev = appRevision;
+                    var p = root.pinned;
+                    var vals = DesktopEntries.applications.values || [];
+                    var out = [];
+                    var q = appSearch.trim().toLowerCase();
+                    for (var i = 0; i < vals.length; i++) {
+                        var e = vals[i];
+                        if (!e || e.noDisplay) continue;
+                        if (q !== "") {
+                            var n = (e.name || "").toLowerCase();
+                            var d = (e.id || "").toLowerCase();
+                            var c = (e.comment || "").toLowerCase();
+                            var g = (e.genericName || "").toLowerCase();
+                            if (n.indexOf(q) < 0 && d.indexOf(q) < 0 && c.indexOf(q) < 0 && g.indexOf(q) < 0) continue;
+                        }
+                        out.push(e);
+                    }
+                    out.sort(function (a, b) { return (a.name || "").localeCompare(b.name || ""); });
+                    return out;
+                }
 
                 SLabel { t: pal; header: true; text: I18n.tr("Kept in Dock") }
                 SCard {
@@ -2469,7 +2504,7 @@ Scope {
                         t: pal
                         visible: appsCol.pinCount === 0
                         title: I18n.tr("No apps are kept in the Dock")
-                        subtitle: I18n.tr("Right-click a running app and choose Keep in Dock.")
+                        subtitle: I18n.tr("Select from available applications below or right-click a running app.")
                     }
                     Repeater {
                         model: root.items
@@ -2489,6 +2524,110 @@ Scope {
                     }
                 }
                 SLabel { t: pal; text: I18n.tr("Drag icons in the Dock to reorder them. Pins are saved to ~/.config/macdock/pinned.json.") }
+
+                // ── Available Applications to Add ──
+                Row {
+                    width: parent.width
+                    SLabel {
+                        t: pal
+                        header: true
+                        text: I18n.tr("Available Applications") + " (" + appsCol.installedApps.length + ")"
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - searchBox.width - 10
+                    }
+                    Rectangle {
+                        id: searchBox
+                        width: 170; height: 26; radius: 6
+                        color: pal.field
+                        border.width: 1; border.color: pal.cardBorder
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        Item {
+                            x: 7; y: 7; width: 12; height: 12
+                            Rectangle {
+                                width: 8; height: 8; radius: 4
+                                color: "transparent"
+                                border.width: 1.5; border.color: pal.text3
+                            }
+                            Rectangle {
+                                x: 6; y: 7; width: 4; height: 1.5; radius: 0.75
+                                color: pal.text3; rotation: 45; transformOrigin: Item.Left
+                            }
+                        }
+                        TextInput {
+                            id: appSearchInput
+                            x: 24; width: parent.width - 44
+                            anchors.verticalCenter: parent.verticalCenter
+                            clip: true
+                            selectByMouse: true
+                            color: pal.text
+                            selectionColor: pal.accent
+                            font.family: root.fontForWeight(Font.Normal, pal.fam)
+                            font.pixelSize: 12
+                            onTextChanged: appsCol.appSearch = text
+                        }
+                        Text {
+                            x: 24; anchors.verticalCenter: parent.verticalCenter
+                            visible: appSearchInput.text === ""
+                            text: I18n.tr("Filter...")
+                            color: pal.text3
+                            font.family: root.fontForWeight(Font.Normal, pal.fam)
+                            font.pixelSize: 12
+                        }
+                        Rectangle {
+                            visible: appSearchInput.text !== ""
+                            anchors.right: parent.right; anchors.rightMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 14; height: 14; radius: 7
+                            color: pal.text3
+                            Text {
+                                anchors.centerIn: parent
+                                text: "\u00d7"
+                                color: pal.card
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: { appSearchInput.text = ""; appsCol.appSearch = ""; }
+                            }
+                        }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        visible: appsCol.installedApps.length === 0
+                        title: I18n.tr("No matching applications found")
+                        subtitle: I18n.tr("Try a different search filter.")
+                    }
+                    Repeater {
+                        model: appsCol.installedApps
+                        delegate: SRow {
+                            id: instAppRow
+                            required property var modelData
+                            t: pal
+                            readonly property bool inDock: root.isAppPinned(instAppRow.modelData)
+                            title: modelData.name || ""
+                            subtitle: modelData.comment || modelData.genericName || ""
+                            iconSource: root.iconSrc(modelData.icon)
+                            SButton {
+                                t: pal
+                                text: instAppRow.inDock ? I18n.tr("Remove") : I18n.tr("Add to Dock")
+                                destructive: instAppRow.inDock
+                                onClicked: {
+                                    if (instAppRow.inDock) {
+                                        root.unpinDesktopEntry(instAppRow.modelData);
+                                    } else {
+                                        root.pinDesktopEntry(instAppRow.modelData);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 SCard {
                     t: pal
@@ -4432,6 +4571,46 @@ Scope {
         rebuild();
     }
 
+    function isAppPinned(appIdOrEntry) {
+        if (!appIdOrEntry) return false;
+        var rawId = (typeof appIdOrEntry === "object" ? (appIdOrEntry.id || "") : String(appIdOrEntry));
+        var k = String(rawId).replace(/\.desktop$/, "").toLowerCase();
+        for (var i = 0; i < pinned.length; i++) {
+            var pk = String(pinned[i]).replace(/\.desktop$/, "").toLowerCase();
+            if (pk === k) return true;
+        }
+        return false;
+    }
+
+    function pinDesktopEntry(entry) {
+        if (!entry) return;
+        var rawId = entry.id || "";
+        var k = String(rawId).replace(/\.desktop$/, "").toLowerCase();
+        for (var i = 0; i < pinned.length; i++) {
+            if (String(pinned[i]).replace(/\.desktop$/, "").toLowerCase() === k) return;
+        }
+        var out = pinned.slice();
+        out.push(rawId);
+        pinned = out;
+        store.setText(JSON.stringify(out, null, 2));
+        rebuild();
+    }
+
+    function unpinDesktopEntry(entryOrId) {
+        if (!entryOrId) return;
+        var rawId = (typeof entryOrId === "object" ? (entryOrId.id || "") : String(entryOrId));
+        var k = String(rawId).replace(/\.desktop$/, "").toLowerCase();
+        var out = [];
+        for (var i = 0; i < pinned.length; i++) {
+            if (String(pinned[i]).replace(/\.desktop$/, "").toLowerCase() !== k) {
+                out.push(pinned[i]);
+            }
+        }
+        pinned = out;
+        store.setText(JSON.stringify(out, null, 2));
+        rebuild();
+    }
+
     function reorderPinned(from, to) {
         var vis = [];
         for (var i = 0; i < items.length; i++) {
@@ -4522,7 +4701,10 @@ Scope {
 
         var list = [], seen = {};
         for (var p = 0; p < pinned.length; p++) {
-            var e = DesktopEntries.byId(String(pinned[p]).replace(/\.desktop$/, ""));
+            var raw = String(pinned[p]);
+            var e = DesktopEntries.byId(raw.replace(/\.desktop$/, ""));
+            if (!e) e = DesktopEntries.byId(raw);
+            if (!e) e = lookup(raw);
             if (!e) continue;
             var ek = e.id.toLowerCase();
             if (seen[ek]) continue;

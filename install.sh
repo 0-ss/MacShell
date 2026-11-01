@@ -207,6 +207,8 @@ done
 if [ -z "$FROM_DIR" ] && [ -n "${MACSHELL_FROM_DIR:-}" ] && [ -d "$MACSHELL_FROM_DIR" ]; then FROM_DIR="$MACSHELL_FROM_DIR"; fi
 
 state_get() { [ -f "$STATE_DIR/state.env" ] && sed -n "s/^$1=//p" "$STATE_DIR/state.env" | head -n1 || true; }
+[ -n "${MACSHELL_REPO:-}" ] || { _sr="$(state_get repo)"; [ -n "$_sr" ] && REPO="$_sr"; }
+[ -n "${MACSHELL_BRANCH:-}" ] || { _sb="$(state_get branch)"; [ -n "$_sb" ] && BRANCH="$_sb"; }
 [ -n "$CHANNEL" ] || CHANNEL="$(state_get channel_pref)"
 [ -n "$CHANNEL" ] || CHANNEL="release"
 case "$CHANNEL" in release|main) ;; *) die "--channel must be 'release' or 'main'" ;; esac

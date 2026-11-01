@@ -7,6 +7,14 @@ BRANCH="${MACSHELL_BRANCH:-main}"
 HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
 ROOT=$(dirname "$HERE")
 STATE="${XDG_DATA_HOME:-$HOME/.local/share}/macshell/state.env"
+if [ -z "${MACSHELL_REPO:-}" ] && [ -f "$STATE" ]; then
+    sr=$(sed -n 's/^repo=//p' "$STATE" | head -n1 | tr -d ' \t\r')
+    [ -n "$sr" ] && REPO="$sr"
+fi
+if [ -z "${MACSHELL_BRANCH:-}" ] && [ -f "$STATE" ]; then
+    sb=$(sed -n 's/^branch=//p' "$STATE" | head -n1 | tr -d ' \t\r')
+    [ -n "$sb" ] && BRANCH="$sb"
+fi
 
 is_ver() { printf '%s' "$1" | grep -Eq '^v?[0-9]+(\.[0-9]+)*$'; }
 # the highest valid version among the arguments (the VERSION file is easy to forget: AboutApp.qml also carries "MacShell x.y.z")

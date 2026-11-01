@@ -20,12 +20,13 @@ state_get() { [ -f "$STATE_FILE" ] && sed -n "s/^$1=//p" "$STATE_FILE" | head -n
 
 REPO="${MACSHELL_REPO:-$(state_get repo)}"; REPO="${REPO:-0-ss/MacShell}"
 BRANCH="${MACSHELL_BRANCH:-$(state_get branch)}"; BRANCH="${BRANCH:-main}"
+CHANNEL_PREF="${MACSHELL_CHANNEL:-$(state_get channel_pref)}"
 DEST="$(state_get dest)"; DEST="${DEST:-$CONFIG_HOME/quickshell/MacShell}"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Version of the code that is actually running: the VERSION file shipped next to this script (e.g. "0.3.7").
 # The state file (written by install.sh) is only the fallback, so a stale/missing state can no longer cause a false "update".
 LOCAL_VERSION=""
-[ -f "$SELF_DIR/VERSION" ] && LOCAL_VERSION="$(head -n1 "$SELF_DIR/VERSION" | tr -d '[:space:]')"
+[ "$CHANNEL_PREF" != "main" ] && [ -f "$SELF_DIR/VERSION" ] && LOCAL_VERSION="$(head -n1 "$SELF_DIR/VERSION" | tr -d '[:space:]')"
 INSTALLED="$LOCAL_VERSION"
 [ -z "$INSTALLED" ] && INSTALLED="$(state_get installed)"
 INSTALLED="${INSTALLED:-unknown}"
@@ -50,6 +51,10 @@ branch_version() {
 LATEST="" LATEST_TYPE=""
 fetch_latest() {
     local rel sha
+    if [ "$CHANNEL_PREF" = "main" ]; then
+        sha=$(branch_sha)
+        if [ -n "$sha" ]; then LATEST="$sha"; LATEST_TYPE="branch"; return 0; fi
+    fi
     rel=$(latest_release)
     if [ -n "$rel" ]; then LATEST="$rel"; LATEST_TYPE="release"; return 0; fi
     rel=$(branch_version)
