@@ -3,7 +3,7 @@
 //   qs -c MacShell ipc call about open | close | toggle        (the Apple menu's "About This Linux" opens it too)
 //
 // Everything shown comes from the running system (assets/about-info.sh): the computer's model from the firmware (DMI),
-// the processor, graphics cards, memory, the size of the disk holding "/", the kernel and the distribution.
+// the processor, graphics cards, memory, the size of the disk holding "/", the kernel, the distribution and the uptime.
 //
 // Logo: your distribution's own logo (os-release LOGO=, found through the icon theme). To show a Linux logo of your own,
 // put it at  assets/linux-logo.svg  (or .png)  and it is used instead.
@@ -57,12 +57,42 @@ Scope {
         }
         info = o;
     }
-    function refresh() { if (!infoProc.running) infoProc.running = true; }
+    function refresh() {
+        if (!infoProc.running) infoProc.running = true;
+        refreshUptime();
+    }
     Process {
         id: infoProc
         command: ["sh", root.scriptPath]
         stdout: StdioCollector { onStreamFinished: root.parse(text) }
     }
+
+    property string uptime: ""
+
+    // seconds → "2d 4h 12m" (days and hours only appear once they are non-zero)
+    function formatUptime(seconds) {
+        var minutes = Math.floor(seconds / 60);
+        var days = Math.floor(minutes / 1440);
+        var hours = Math.floor(minutes % 1440 / 60);
+        var parts = [];
+        if (days > 0) parts.push(days + "d");
+        if (days > 0 || hours > 0) parts.push(hours + "h");
+        parts.push(minutes % 60 + "m");
+        return parts.join(" ");
+    }
+    function refreshUptime() { if (!uptimeProc.running) uptimeProc.running = true; }
+    Process {
+        id: uptimeProc
+        command: ["cat", "/proc/uptime"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var s = parseFloat(text);
+                if (!isNaN(s)) root.uptime = root.formatUptime(s);
+            }
+        }
+    }
+    // keep the value current while the window stays open
+    Timer { interval: 60000; repeat: true; running: win.visible; onTriggered: root.refreshUptime() }
 
     // the spec rows: [label, value, small grey line under it]
     readonly property var rows: {
@@ -74,6 +104,7 @@ Scope {
         r.push({ k: I18n.tr("Storage"), v: o.disk || "", s: o.disksub || "" });
         r.push({ k: I18n.tr("Kernel"), v: o.kernel || "", s: "" });
         r.push({ k: o.osname || "Linux", v: o.osver || "", s: "" });
+        if (uptime) r.push({ k: I18n.tr("Uptime"), v: uptime, s: "" });
         return r;
     }
 
@@ -319,7 +350,7 @@ Scope {
                         MouseArea {
                             id: moreMa; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                var cmd = (root.bar ? root.bar.terminal : "kitty") + " -e sh -c 'fastfetch || neofetch; echo; read -p \"Press Enter\" _'";
+                                var cmd = (root.bar ? root.bar.terminal : "kitty") + " -e sh -c 'fastfetch || neofetch; echo; printf \"Press Enter\"; read _'";
                                 Quickshell.execDetached(["sh", "-c", cmd]);
                             }
                         }
