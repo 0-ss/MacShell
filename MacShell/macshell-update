@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# macshell-update: checks GitHub for a newer MacShell and installs it.
+#
+#   macshell-update check [--json]     is there a newer version?   (exit 0 = up to date, 10 = update available)
+#   macshell-update update [--yes] [--force] [--ref REF]
+#   macshell-update rollback           go back to the previous install
+#   macshell-update status             what is installed
+#
+# The shell calls this itself (UpdateChecker.qml). Environment: MACSHELL_REPO, MACSHELL_BRANCH, GITHUB_TOKEN
+
+set -uo pipefail
+
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+STATE_DIR="$DATA_HOME/macshell"
+STATE_FILE="$STATE_DIR/state.env"
+BACKUP_DIR="$STATE_DIR/backups"
+
+state_get() { [ -f "$STATE_FILE" ] && sed -n "s/^$1=//p" "$STATE_FILE" | head -n1; }
+
+REPO="${MACSHELL_REPO:-$(state_get repo)}"; REPO="${REPO:-0-ss/MacShell}"
+BRANCH="${MACSHELL_BRANCH:-$(state_get branch)}"; BRANCH="${BRANCH:-main}"
+DEST="$(state_get dest)"; DEST="${DEST:-$CONFIG_HOME/quickshell/MacShell}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Version of the code that is actually running: the VERSION file shipped next to this script (e.g. "0.3.7").
+# The state file (written by install.sh) is only the fallback, so a stale/missing state can no longer cause a false "update".
+LOCAL_VERSION=""
+[ -f "$SELF_DIR/VERSION" ] && LOCAL_VERSION="$(head -n1 "$SELF_DIR/VERSION" | tr -d '[:space:]')"
+INSTALLED="$LOCAL_VERSION"
+[ -z "$INSTALLED" ] && INSTALLED="$(state_get installed)"
+INSTALLED="${INSTALLED:-unknown}"
+
+JSON=0 YES=0 FORCE=0 REF=""
+
+gh_api() { curl -fsSL --max-time 15 ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} -H "Accept: $1" "$2"; }
+latest_release() {
+    gh_api application/vnd.github+json "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+        | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1
+}
+branch_sha() { gh_api application/vnd.github.sha "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null | head -c 40; }
+
+norm() { printf '%s' "$1" | sed 's/^[vV]\([0-9]\)/\1/' | tr -d '[:space:]'; }
+is_ver() { [[ "$(norm "$1")" =~ ^[0-9]+(\.[0-9]+)*([-+.][0-9A-Za-z.-]+)?$ ]]; }
+# returns 0 if $1 is the same as or newer than $2 (numeric dotted compare)
+ver_ge() { [ "$(printf '%s\n%s\n' "$(norm "$2")" "$(norm "$1")" | sort -V | tail -n1)" = "$(norm "$1")" ]; }
+branch_version() {
+    gh_api text/plain "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
+}
+
+LATEST="" LATEST_TYPE=""
+fetch_latest() {
+    local rel sha
+    rel=$(latest_release)
+    if [ -n "$rel" ]; then LATEST="$rel"; LATEST_TYPE="release"; return 0; fi
+    rel=$(branch_version)
+    if [ -n "$rel" ] && is_ver "$rel"; then LATEST="$rel"; LATEST_TYPE="release"; return 0; fi
+    sha=$(branch_sha)
+    if [ -n "$sha" ]; then LATEST="$sha"; LATEST_TYPE="branch"; return 0; fi
+    return 1
+}
+
+short() { case "$1" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) printf '%.7s' "$1" ;; *) printf '%s' "$1" ;; esac; }
+clean() { printf '%s' "$1" | tr -d '"\\\n\r' | cut -c1-200; }
+
+emit() { # emit <status> <message>
+    local status="$1" msg="$2" url=""
+    if [ -n "$LATEST" ]; then
+        if [ "$LATEST_TYPE" = release ]; then url="https://github.com/$REPO/releases/tag/$LATEST"
+        else url="https://github.com/$REPO/commit/$LATEST"; fi
+    fi
+    if [ "$JSON" = 1 ]; then
+        printf '{"status":"%s","installed":"%s","latest":"%s","type":"%s","url":"%s","message":"%s"}\n' \
+            "$status" "$(clean "$(short "$INSTALLED")")" "$(clean "$(short "$LATEST")")" "$(clean "$LATEST_TYPE")" "$(clean "$url")" "$(clean "$msg")"
+    else
+        printf '%s\n' "$msg"
+    fi
+}
+
+cmd_check() {
+    if ! command -v curl >/dev/null 2>&1; then emit error "curl is not installed"; [ "$JSON" = 1 ] && return 0; return 1; fi
+    if ! fetch_latest; then
+        emit error "Could not reach GitHub (or the repository $REPO was not found)"
+        [ "$JSON" = 1 ] && return 0; return 1
+    fi
+    if [ "$INSTALLED" = "$LATEST" ] || { is_ver "$INSTALLED" && is_ver "$LATEST" && ver_ge "$INSTALLED" "$LATEST"; }; then
+        emit uptodate "MacShell is up to date ($(short "$INSTALLED"))"; return 0
+    fi
+    if [ "$INSTALLED" = unknown ] || [ "$INSTALLED" = local ]; then
+        emit available "Installed version unknown; latest is $(short "$LATEST"). Run: macshell-update update"
+    else
+        emit available "Update available: $(short "$INSTALLED") -> $(short "$LATEST")"
+    fi
+    [ "$JSON" = 1 ] && return 0
+    return 10
+}
+
+cmd_update() {
+    command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1 || { echo "curl and tar are required" >&2; return 1; }
+    local id type tmp
+    if [ -n "$REF" ]; then
+        id="$REF"; type="release"; [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]] && type="commit"
+    else
+        fetch_latest || { echo "Could not reach GitHub (repository $REPO)." >&2; return 1; }
+        id="$LATEST"; type="$LATEST_TYPE"
+    fi
+    if { [ "$id" = "$INSTALLED" ] || { is_ver "$INSTALLED" && is_ver "$id" && ver_ge "$INSTALLED" "$id"; }; } && [ "$FORCE" = 0 ] && [ -z "$REF" ]; then
+        echo "Already up to date ($(short "$id"))."; return 0
+    fi
+    if [ "$YES" = 0 ]; then
+        printf 'Update MacShell %s -> %s? [Y/n] ' "$(short "$INSTALLED")" "$(short "$id")"
+        read -r a || a=""
+        case "${a:-y}" in [Yy]*) ;; *) echo "Cancelled."; return 1 ;; esac
+    fi
+    tmp=$(mktemp -d) || return 1
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmp'" RETURN
+    mkdir -p "$tmp/src"
+    echo "Downloading $REPO ($(short "$id"))..."
+    curl -fsSL --max-time 180 "https://github.com/$REPO/archive/$id.tar.gz" | tar -xz --strip-components=1 -C "$tmp/src" \
+        || { echo "Download failed." >&2; return 1; }
+    if [ ! -f "$tmp/src/install.sh" ]; then echo "install.sh is missing in that version." >&2; return 1; fi
+    MACSHELL_REPO="$REPO" MACSHELL_BRANCH="$BRANCH" MACSHELL_DEST="$DEST" \
+        bash "$tmp/src/install.sh" --update --yes --from-dir "$tmp/src" --resolved-id "$id" --resolved-type "$type"
+}
+
+cmd_rollback() {
+    local last
+    last=$(ls -1dt "$BACKUP_DIR"/*/ 2>/dev/null | head -n1)
+    [ -n "$last" ] && [ -d "${last}MacShell" ] || { echo "No backup to restore." >&2; return 1; }
+    if [ "$YES" = 0 ]; then
+        printf 'Restore the install saved in %s? [y/N] ' "$last"
+        read -r a || a=""
+        case "$a" in [Yy]*) ;; *) echo "Cancelled."; return 1 ;; esac
+    fi
+    rm -rf "$DEST" && mkdir -p "$DEST" && cp -a "${last}MacShell/." "$DEST/" || return 1
+    sed -i 's/^installed=.*/installed=unknown/' "$STATE_FILE" 2>/dev/null
+    touch "$DEST/shell.qml"
+    echo "Restored. MacShell reloads by itself."
+}
+
+cmd_status() {
+    echo "installed : $(short "$INSTALLED")"
+    echo "repo      : $REPO ($BRANCH)"
+    echo "location  : $DEST"
+    local when; when=$(state_get installed_at); [ -n "$when" ] && echo "installed : $when"
+    return 0
+}
+
+usage() { sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
+
+cmd="${1:-help}"; [ $# -gt 0 ] && shift
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --json) JSON=1 ;;
+        -y|--yes) YES=1 ;;
+        --force) FORCE=1 ;;
+        --ref) REF="${2:-}"; shift ;;
+        -h|--help) cmd=help ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+case "$cmd" in
+    check) cmd_check ;;
+    update) cmd_update ;;
+    rollback) cmd_rollback ;;
+    status) cmd_status ;;
+    help|-h|--help) usage ;;
+    *) echo "unknown command: $cmd" >&2; usage >&2; exit 2 ;;
+esac
