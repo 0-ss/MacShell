@@ -1787,6 +1787,11 @@ Scope {
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appleMenu") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appleMenu", v); } }
                     }
                     SRow {
+                        t: pal; title: I18n.tr("Audio & Comms Hub")
+                        subtitle: I18n.tr("Wireless earbuds, noise control, equalizer, 360\u00b0 audio, and Discord voice controls")
+                        SSwitch { t: pal; checked: root.bar ? root.bar.showAudioHub : true; onToggled: v => { if (root.bar) root.bar.showAudioHub = v; } }
+                    }
+                    SRow {
                         t: pal; title: I18n.tr("Application menus")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appMenus") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appMenus", v); } }
                     }
