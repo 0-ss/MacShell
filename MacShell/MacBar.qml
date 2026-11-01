@@ -363,6 +363,7 @@ Scope {
     property bool showBatteryPercent: true
     property bool showTray: true
     property bool showSearch: true
+    property bool showAudioHub: true
     property bool weekStartsMonday: false
     property string terminal: "kitty"
     property string launcher: ""              // "" = built-in Spotlight; set a command (rofi, fuzzel, ...) to use an external launcher instead
@@ -399,7 +400,7 @@ Scope {
 
     readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "accent", "fontFamily", "barHeight", "uiScaleAuto", "uiScaleManual", "glassOpacity",
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "liveWallGlass", "glassDebug", "wallpaperPath", "use24h", "language", "showDate",
-        "showSeconds", "showBatteryPercent", "showTray", "showSearch",
+        "showSeconds", "showBatteryPercent", "showTray", "showSearch", "showAudioHub",
         "spotlightEnabled", "reduceMotion", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
         "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
@@ -1217,6 +1218,7 @@ Scope {
         property color borderTint: "#8A9AB5"   // wallpaper's dominant colour, for the MenuBorder drawn over each slab
         property real borderAmount: 1          // strength of that MenuBorder
         property bool whiteEdge: true       // the light inner ring of the non-liquid pane (off for Spotlight: dark outline only)
+        property bool menuDepth: false      // rich File-menu dark mode depth gradient + precision double edge
         property real grain: 0.03
         property bool debug: false
         signal failed()
@@ -1412,8 +1414,249 @@ Scope {
             color: (tile.clickable && tma.containsMouse) ? (tile.t.dark ? Qt.rgba(1, 1, 1, 0.025) : Qt.rgba(1, 1, 1, 0.07)) : Qt.rgba(1, 1, 1, 0)
             Behavior on color { ColorAnimation { duration: 320; easing.type: Easing.OutCubic } }
         }
-        CornerBorder { z: 2; anchors.fill: parent; cornerR: tile.radius; dark: tile.gx.dark; tint: tile.gx.borderTint; amount: tile.gx.borderAmount; lineW: 0.8 }
+        // dark mode depth gradient for tiles with menuDepth matching File menu
+        Rectangle {
+            anchors.fill: parent
+            radius: tile.radius
+            visible: tile.gx.menuDepth && tile.t.dark && !tile.whole
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(56 / 255, 56 / 255, 62 / 255, 0.34) }
+                GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 30 / 255, 34 / 255, 0.38) }
+            }
+        }
+        // MenuBorder for tiles with menuDepth matching File menu
+        MenuBorder {
+            z: 2
+            anchors.fill: parent
+            cornerR: tile.radius
+            dark: tile.t.dark
+            tint: root.menuBorderColor
+            amount: 1
+            visible: tile.gx.menuDepth
+        }
+        CornerBorder {
+            z: 2
+            anchors.fill: parent
+            cornerR: tile.radius
+            dark: tile.gx.dark
+            tint: tile.gx.borderTint
+            amount: tile.gx.borderAmount
+            lineW: 0.8
+            visible: !tile.gx.menuDepth
+        }
         MouseArea { id: tma; anchors.fill: parent; enabled: tile.clickable; hoverEnabled: true; onClicked: tile.clicked() }
+    }
+
+    // Staggered Bento slot for the Left Hub: ColorOS 17 / Tahoe row-by-row spring entrance + ContourGlow cursor rim halo
+    component HubBento: Item {
+        id: hb
+        property int seq: 0
+        property int row: 0
+        property int col: 0
+        property real cornerR: 28
+        property bool glow: true
+        property real ap: 1
+        onSeqChanged: if (seq > 0) { ap = 0; hbIn.restart(); }
+        SequentialAnimation {
+            id: hbIn
+            PauseAnimation { duration: Math.min(140, hb.row * 24 + hb.col * 12) }
+            NumberAnimation { target: hb; property: "ap"; from: 0; to: 1; duration: 420; easing.type: Easing.OutBack; easing.overshoot: 1.5 }
+        }
+        transform: Translate { y: (1 - hb.ap) * 16 }
+        opacity: Math.max(0, Math.min(1, hb.ap * 1.8))
+        HoverHandler { id: hbHov }
+        ContourGlow {
+            z: 5
+            visible: hb.glow && amount > 0.005
+            cornerR: hb.cornerR
+            hovered: hbHov.hovered
+            at: hbHov.point.position
+        }
+    }
+
+    // Sculpted 3D studio-lit Galaxy Buds 4 vector artwork on a 32×32 canvas:
+    //  * "budL" / "budR": Dual-faceted Samsung Blade-stem earbud + radial-lit acoustic bulb + glowing LED blade strip
+    //  * "case": Frosted glass dome clamshell charging case with 3D nested buds + satin ceramic body + jewel status LED
+    component BudsPodArt: Canvas {
+        id: bpa
+        property string kind: "case"         // "budL" | "case" | "budR"
+        property color color: "#F5F5F7"
+        property color accentColor: "#38BDF8"
+        width: 28; height: 28
+        antialiasing: true
+        onKindChanged: requestPaint()
+        onColorChanged: requestPaint()
+        onAccentColorChanged: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        onPaint: {
+            var ctx = getContext("2d");
+            ctx.reset();
+            var s = Math.min(width, height) / 32;
+            ctx.scale(s, s);
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            // Subtle ambient studio depth shadow behind hardware inside the glass sphere
+            var bgSh = ctx.createRadialGradient(16, 17, 2, 16, 17.5, 13);
+            bgSh.addColorStop(0.0, Qt.rgba(0, 0, 0, 0.28));
+            bgSh.addColorStop(1.0, Qt.rgba(0, 0, 0, 0.0));
+            ctx.fillStyle = bgSh;
+            ctx.fillRect(0, 0, 32, 32);
+
+            if (kind === "case") {
+                // 1. Frosted translucent top clamshell dome lid with 3D studio sheen
+                var lidGrad = ctx.createLinearGradient(6.5, 6.0, 25.5, 15.5);
+                lidGrad.addColorStop(0.0, Qt.rgba(color.r, color.g, color.b, 0.34));
+                lidGrad.addColorStop(0.5, Qt.rgba(color.r, color.g, color.b, 0.14));
+                lidGrad.addColorStop(1.0, Qt.rgba(color.r, color.g, color.b, 0.22));
+                ctx.beginPath();
+                ctx.moveTo(6.3, 15.2);
+                ctx.lineTo(6.3, 11.6);
+                ctx.bezierCurveTo(6.3, 7.3, 10.1, 5.9, 16.0, 5.9);
+                ctx.bezierCurveTo(21.9, 5.9, 25.7, 7.3, 25.7, 11.6);
+                ctx.lineTo(25.7, 15.2);
+                ctx.closePath();
+                ctx.fillStyle = lidGrad;
+                ctx.fill();
+                ctx.lineWidth = 1.25;
+                ctx.strokeStyle = Qt.rgba(color.r, color.g, color.b, 0.68);
+                ctx.stroke();
+
+                // Top dome specular glass reflection arc
+                ctx.beginPath();
+                ctx.moveTo(9.2, 8.6);
+                ctx.bezierCurveTo(11.6, 7.0, 20.4, 7.0, 22.8, 8.6);
+                ctx.lineWidth = 0.95;
+                ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.55);
+                ctx.stroke();
+
+                // 2. Two 3D-shaded nested earbud heads visible beneath the clear dome lid
+                var cradlePositions = [11.8, 20.2];
+                for (var bi = 0; bi < 2; bi++) {
+                    var bx = cradlePositions[bi];
+                    var bGrad = ctx.createRadialGradient(bx - 0.8, 10.8, 0.4, bx, 11.5, 3.2);
+                    bGrad.addColorStop(0.0, Qt.rgba(1, 1, 1, 0.85));
+                    bGrad.addColorStop(1.0, Qt.rgba(color.r, color.g, color.b, 0.38));
+                    ctx.save();
+                    ctx.translate(bx, 11.5);
+                    ctx.scale(1.25, 0.95);
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 2.2, 0, Math.PI * 2);
+                    ctx.restore();
+                    ctx.fillStyle = bGrad;
+                    ctx.fill();
+                }
+
+                // 3. Lower sculpted satin-ceramic squircle charging body
+                var bodyGrad = ctx.createLinearGradient(16, 15.2, 16, 26.5);
+                bodyGrad.addColorStop(0.0, Qt.rgba(1, 1, 1, 0.98));
+                bodyGrad.addColorStop(0.55, Qt.rgba(color.r, color.g, color.b, 0.90));
+                bodyGrad.addColorStop(1.0, Qt.rgba(color.r * 0.78, color.g * 0.80, color.b * 0.85, 0.88));
+                ctx.beginPath();
+                ctx.moveTo(5.9, 15.2);
+                ctx.lineTo(26.1, 15.2);
+                ctx.lineTo(26.1, 20.8);
+                ctx.bezierCurveTo(26.1, 24.8, 23.0, 26.4, 16.0, 26.4);
+                ctx.bezierCurveTo(9.0, 26.4, 5.9, 24.8, 5.9, 20.8);
+                ctx.closePath();
+                ctx.fillStyle = bodyGrad;
+                ctx.fill();
+
+                // Precision clamshell seam + subtle lip highlight
+                ctx.beginPath();
+                ctx.moveTo(6.4, 15.2);
+                ctx.lineTo(25.6, 15.2);
+                ctx.lineWidth = 1.05;
+                ctx.strokeStyle = Qt.rgba(0, 0, 0, 0.34);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(7.0, 16.2);
+                ctx.lineTo(25.0, 16.2);
+                ctx.lineWidth = 0.7;
+                ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.55);
+                ctx.stroke();
+
+                // 4. Front jewel-cut glowing status LED + soft caustic halo
+                var ledHalo = ctx.createRadialGradient(16.0, 20.7, 0.4, 16.0, 20.7, 4.2);
+                ledHalo.addColorStop(0.0, Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.55));
+                ledHalo.addColorStop(1.0, Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.0));
+                ctx.fillStyle = ledHalo;
+                ctx.beginPath();
+                ctx.arc(16.0, 20.7, 4.2, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(16.0, 20.7, 1.55, 0, Math.PI * 2);
+                ctx.fillStyle = accentColor;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(15.5, 20.2, 0.55, 0, Math.PI * 2);
+                ctx.fillStyle = Qt.rgba(1, 1, 1, 0.85);
+                ctx.fill();
+            } else {
+                // "budL" or mirrored "budR"
+                if (kind === "budR") {
+                    ctx.translate(32, 0);
+                    ctx.scale(-1, 1);
+                }
+
+                // 1. Translucent silicone ear-tip cushion (angled inward toward ear canal)
+                var tipGrad = ctx.createRadialGradient(20.6, 9.2, 0.4, 20.4, 9.8, 3.6);
+                tipGrad.addColorStop(0.0, Qt.rgba(color.r, color.g, color.b, 0.62));
+                tipGrad.addColorStop(1.0, Qt.rgba(color.r, color.g, color.b, 0.26));
+                ctx.save();
+                ctx.translate(20.4, 9.8);
+                ctx.rotate(0.28);
+                ctx.scale(1.15, 0.92);
+                ctx.beginPath();
+                ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+                ctx.restore();
+                ctx.fillStyle = tipGrad;
+                ctx.fill();
+
+                // 2. Studio-lit 3D ergonomic acoustic bulb
+                var bulbGrad = ctx.createRadialGradient(14.2, 8.2, 0.8, 15.6, 10.6, 6.8);
+                bulbGrad.addColorStop(0.0, Qt.rgba(1, 1, 1, 0.99));
+                bulbGrad.addColorStop(0.6, Qt.rgba(color.r, color.g, color.b, 0.92));
+                bulbGrad.addColorStop(1.0, Qt.rgba(color.r * 0.72, color.g * 0.75, color.b * 0.82, 0.90));
+                ctx.beginPath();
+                ctx.moveTo(11.0, 8.8);
+                ctx.bezierCurveTo(11.0, 5.5, 15.7, 5.1, 18.9, 7.4);
+                ctx.bezierCurveTo(21.3, 9.2, 20.8, 13.0, 17.6, 14.4);
+                ctx.bezierCurveTo(15.2, 15.4, 12.1, 14.2, 11.3, 12.0);
+                ctx.closePath();
+                ctx.fillStyle = bulbGrad;
+                ctx.fill();
+
+                // 3. Dual-faceted Samsung "Blade" stem (sunlit left bevel + sculpted satin right bevel)
+                ctx.beginPath();
+                ctx.moveTo(11.1, 10.5);
+                ctx.lineTo(13.1, 11.4);
+                ctx.lineTo(11.0, 25.8);
+                ctx.bezierCurveTo(10.3, 26.3, 9.6, 25.9, 9.6, 24.9);
+                ctx.closePath();
+                ctx.fillStyle = Qt.rgba(1, 1, 1, 0.98);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(13.1, 11.4);
+                ctx.lineTo(14.9, 12.2);
+                ctx.lineTo(12.3, 25.4);
+                ctx.bezierCurveTo(12.0, 26.3, 11.4, 26.2, 11.0, 25.8);
+                ctx.closePath();
+                ctx.fillStyle = Qt.rgba(color.r * 0.76, color.g * 0.79, color.b * 0.86, 0.92);
+                ctx.fill();
+
+                // 4. Luminous mode-reactive Blade Light strip along the faceted ridge
+                ctx.beginPath();
+                ctx.moveTo(12.9, 12.2);
+                ctx.lineTo(11.1, 24.6);
+                ctx.lineWidth = 1.15;
+                ctx.strokeStyle = Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.82);
+                ctx.stroke();
+            }
+        }
     }
 
     // small glass pill button ("Edit Controls", "Done", "Reset")
@@ -1959,6 +2202,7 @@ Scope {
     }
     readonly property var menuTitles: [
         { id: "apple", label: "" },
+        { id: "hub", label: "" },
         { id: "app", label: appName, bold: true },
         { id: "file", label: I18n.tr("File") },
         { id: "edit", label: I18n.tr("Edit") },
@@ -2127,6 +2371,213 @@ Scope {
             if (!best) best = ps[i];
         }
         return best;
+    }
+
+    // ═════════════ LEFT HUB (DISCORD VOICE, EARBUDS & 360 AUDIO) ═════════════
+    signal hubPopRequest(string action)
+    readonly property string discordCtlScript: decodeURIComponent(String(Qt.resolvedUrl("assets/mac-discord-ctl")).replace(/^file:\/\//, ""))
+    readonly property string earbudsCtlScript: decodeURIComponent(String(Qt.resolvedUrl("assets/mac-earbuds-ctl")).replace(/^file:\/\//, ""))
+
+    // Native in-process PipeWire stream tracking for Discord / Vesktop (0 ms mute / deafen)
+    property double lastDiscordActMs: 0
+    readonly property var discordOutNodes: {
+        var tick = audioTick, ns = Pipewire.nodes.values, out = [];
+        var re = /vesktop|discord|equibop|legcord|webcord|armcord|webrtc/i;
+        for (var i = 0; i < ns.length; i++) {
+            var n = ns[i];
+            if (!n || !n.audio || !n.isStream) continue;
+            var p = n.properties || {};
+            var mc = String(p["media.class"] || "");
+            var mn = String(p["media.name"] || "").toLowerCase();
+            // Output streams: playback of call audio to speakers / headphones
+            var isOut = mc === "Stream/Output/Audio" || mn === "playback" || (!mc && !n.isSink);
+            if (!isOut || mc === "Stream/Input/Audio" || mn === "recordstream") continue;
+            var idStr = String(p["application.name"] || "") + " " + String(p["application.process.binary"] || "") + " " + String(p["node.name"] || n.name || "");
+            if (re.test(idStr) || (String(p["application.process.binary"] || "").toLowerCase() === "electron" && /chromium/i.test(String(p["application.name"] || "")))) {
+                out.push(n);
+            }
+        }
+        return out;
+    }
+    readonly property var discordInNodes: {
+        var tick = audioTick, ns = Pipewire.nodes.values, out = [];
+        var re = /vesktop|discord|equibop|legcord|webcord|armcord|webrtc/i;
+        for (var i = 0; i < ns.length; i++) {
+            var n = ns[i];
+            if (!n || !n.audio || !n.isStream) continue;
+            var p = n.properties || {};
+            var mc = String(p["media.class"] || "");
+            var mn = String(p["media.name"] || "").toLowerCase();
+            // Input streams: microphone capture into Discord
+            var isIn = mc === "Stream/Input/Audio" || mn === "recordstream";
+            if (!isIn || mc === "Stream/Output/Audio" || mn === "playback") continue;
+            var idStr = String(p["application.name"] || "") + " " + String(p["application.process.binary"] || "") + " " + String(p["node.name"] || n.name || "");
+            if (re.test(idStr) || (String(p["application.process.binary"] || "").toLowerCase() === "electron" && /chromium/i.test(String(p["application.name"] || "")))) {
+                out.push(n);
+            }
+        }
+        return out;
+    }
+
+    // Discord Voice state
+    property var discordState: ({
+        running: false, inCall: false, channel: "Offline",
+        muted: false, deafened: false
+    })
+    function refreshDiscord() { if (!hubDiscordProc.running) hubDiscordProc.running = true; }
+    Process {
+        id: hubDiscordProc
+        command: ["python3", root.discordCtlScript, "status"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (Date.now() - root.lastDiscordActMs < 1500) return;
+                try {
+                    var o = JSON.parse(text.trim());
+                    if (o && typeof o === "object" && !o.error) root.discordState = o;
+                } catch (e) {}
+            }
+        }
+    }
+    function discordAction(subcmd, arg) {
+        root.lastDiscordActMs = Date.now();
+        var next = Object.assign({}, root.discordState);
+        if (subcmd === "toggle-mute") {
+            var targetMute = !next.muted;
+            next.muted = targetMute;
+            root.discordState = next;
+            // Only mute/unmute the microphone source and recording input streams
+            if (root.micSource && root.micSource.audio) root.micSource.audio.muted = targetMute;
+            var ins = root.discordInNodes;
+            for (var i = 0; i < ins.length; i++) if (ins[i] && ins[i].audio) ins[i].audio.muted = targetMute;
+            // Ensure call audio output streams are NEVER muted or deafened on microphone mute toggle
+            var outs = root.discordOutNodes;
+            for (var k = 0; k < outs.length; k++) {
+                if (outs[k] && outs[k].audio && !next.deafened) outs[k].audio.muted = false;
+            }
+            Quickshell.execDetached(["python3", root.discordCtlScript, "toggle-mute", targetMute ? "1" : "0"]);
+            hubSyncT.restart();
+            return;
+        }
+        if (subcmd === "toggle-deaf") {
+            var targetDeaf = !next.deafened;
+            next.deafened = targetDeaf;
+            if (targetDeaf) next.muted = true;
+            root.discordState = next;
+            var outs = root.discordOutNodes;
+            for (var j = 0; j < outs.length; j++) if (outs[j] && outs[j].audio) outs[j].audio.muted = targetDeaf;
+            if (targetDeaf && root.micSource && root.micSource.audio) root.micSource.audio.muted = true;
+            Quickshell.execDetached(["python3", root.discordCtlScript, "toggle-deaf", targetDeaf ? "1" : "0"]);
+            hubSyncT.restart();
+            return;
+        }
+        var cmd = ["python3", root.discordCtlScript, subcmd];
+        if (arg !== undefined) cmd.push(String(arg));
+        Quickshell.execDetached(cmd);
+        hubSyncT.restart();
+    }
+
+    // Earbuds & 360 Spatial Audio state (0 ms optimistic updates + async RFCOMM/PipeWire dispatch)
+    property double lastEarbudsActMs: 0
+    property var earbudsState: ({
+        connected: false, name: "Wireless Buds", mac: "", brand: "Bluetooth Audio", driver: "samsung-buds",
+        codec: "Standby", battery: { left: null, right: null, case: null },
+        noiseControl: "anc", supportedModes: ["off", "ambient", "adaptive", "anc"],
+        eqPreset: "Dynamic", supportedEq: ["Normal", "Bass Boost", "Soft", "Dynamic", "Clear", "Treble Boost"],
+        spatial360: false, touchLock: false, lowLatency: false, devices: []
+    })
+    property bool earbudsEqExpanded: false
+    function refreshEarbuds() { if (!hubEarbudsProc.running) hubEarbudsProc.running = true; }
+    Process {
+        id: hubEarbudsProc
+        command: ["python3", root.earbudsCtlScript, "status"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (Date.now() - root.lastEarbudsActMs < 1500) return;
+                try {
+                    var o = JSON.parse(text.trim());
+                    if (o && typeof o === "object" && !o.error) root.earbudsState = o;
+                } catch (e) {}
+            }
+        }
+    }
+    function earbudsAction(subcmd, arg) {
+        root.lastEarbudsActMs = Date.now();
+        var next = Object.assign({}, root.earbudsState);
+        if (subcmd === "set-mode") {
+            next.noiseControl = String(arg);
+            root.earbudsState = next;
+            Quickshell.execDetached(["python3", root.earbudsCtlScript, "set-mode", String(arg)]);
+            hubSyncT.restart();
+            return;
+        }
+        if (subcmd === "set-eq") {
+            next.eqPreset = String(arg);
+            root.earbudsState = next;
+            Quickshell.execDetached(["python3", root.earbudsCtlScript, "set-eq", String(arg)]);
+            hubSyncT.restart();
+            return;
+        }
+        if (subcmd === "toggle-touch") {
+            var nextLock = !next.touchLock;
+            next.touchLock = nextLock;
+            root.earbudsState = next;
+            Quickshell.execDetached(["python3", root.earbudsCtlScript, "toggle-touch", nextLock ? "1" : "0"]);
+            hubSyncT.restart();
+            return;
+        }
+        if (subcmd === "toggle-latency") {
+            var nextLat = !next.lowLatency;
+            next.lowLatency = nextLat;
+            root.earbudsState = next;
+            Quickshell.execDetached(["python3", root.earbudsCtlScript, "toggle-latency", nextLat ? "1" : "0"]);
+            hubSyncT.restart();
+            return;
+        }
+        if (subcmd === "toggle-360") {
+            var next360 = !next.spatial360;
+            next.spatial360 = next360;
+            root.earbudsState = next;
+            Quickshell.execDetached(["python3", root.earbudsCtlScript, "toggle-360", next360 ? "1" : "0"]);
+            hubSyncT.restart();
+            return;
+        }
+        var cmd = ["python3", root.earbudsCtlScript, subcmd];
+        if (arg !== undefined) cmd.push(String(arg));
+        hubEarbudsActProc.command = cmd;
+        hubEarbudsActProc.running = true;
+    }
+    Process {
+        id: hubEarbudsActProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var o = JSON.parse(text.trim());
+                    if (o && typeof o === "object" && o.name !== undefined) root.earbudsState = o;
+                } catch (e) {}
+            }
+        }
+    }
+    Timer {
+        id: hubSyncT
+        interval: 1600
+        onTriggered: {
+            root.refreshDiscord();
+            root.refreshEarbuds();
+        }
+    }
+    function refreshHubAll() {
+        refreshDiscord();
+        refreshEarbuds();
+    }
+    Timer {
+        interval: root.popCount > 0 ? 2500 : 7000
+        repeat: true
+        running: root.barEnabled && root.showAudioHub && !root.gaming
+        triggeredOnStart: true
+        onTriggered: {
+            root.refreshDiscord();
+            root.refreshEarbuds();
+        }
     }
 
     // wifi
@@ -3918,7 +4369,7 @@ Scope {
         barEnabled = true;
         darkMode = true; appearanceMode = "dark"; accent = "#0a84ff"; fontFamily = "Open Runde"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false; liveWallGlass = false;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
-        showTray = true; showSearch = true;
+        showTray = true; showSearch = true; showAudioHub = true;
         spotlightEnabled = true; ccEnabled = true; notificationsEnabled = true; clockAppEnabled = true; ccStyle = "tiles";
         barLogoMode = "arch"; barCustomLogoPath = "";
         barWidgets = ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "bluetooth", "privacy", "controlCenter", "clock"];
@@ -4938,17 +5389,17 @@ Scope {
                 }
                 // bounding box of all glass that is on screen right now (popovers, notification popups) + a refraction margin
                 readonly property rect glassRect: {
-                    var items = [menuPop, cc, cal, wifiPop, btPop, trayPop, notifPop, toastArea, volPop, kbPop], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+                    var items = [menuPop, cc, cal, wifiPop, btPop, trayPop, notifPop, toastArea, volPop, kbPop, hubPop], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
                     for (var i = 0; i < items.length; i++) {
                         var it = items[i];
-                        if (!it.visible) continue;
+                        if (!it.visible && !(it === hubPop && ui.pop === "hub") && !(it === cc && ui.pop === "cc")) continue;
                         any = true;
                         x0 = Math.min(x0, it.x); y0 = Math.min(y0, it.y); x1 = Math.max(x1, it.x + it.width); y1 = Math.max(y1, it.y + it.height);
                     }
                     return any ? Qt.rect(x0 - 64, y0 - 64, x1 - x0 + 128, y1 - y0 + 128) : Qt.rect(0, 0, 0, 0);
                 }
                 readonly property bool isMenu: ["apple", "app", "file", "edit", "view", "window", "help"].indexOf(pop) >= 0
-                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || btPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible
+                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || btPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible || hubPop.visible
                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
                 onPopChanged: {
                     if (pop !== "" && pop !== "spot") toneT.restart();
@@ -4962,6 +5413,7 @@ Scope {
                     if (root.notifOpen) root.notifUnread = 0;
                     if (pop === "wifi") { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); }
                     if (pop === "bt") { root.btError = ""; root.scanBt(); root.refreshBt(); }
+                    if (pop === "hub") { root.refreshHubAll(); }
                     if (pop === "spot") {
                         spMode = "home"; spQuery = ""; spSel = 0; spExpanded = ({}); clipMenu = false;
                         spInput.text = ""; appsInput.text = ""; clipInput.text = ""; emojiInput.text = "";
@@ -4998,6 +5450,12 @@ Scope {
                         if (!ui.toastScreen) return;
                         if (open) ui.openPop("notif", bellBtn.visible ? bellBtn.mapToItem(ui, 0, 0).x : ui.width - 60); else if (ui.pop === "notif") ui.pop = "";
                     }
+                    function onHubPopRequest(action) {
+                        if (!ui.toastScreen) return;
+                        if (action === "open") { if (ui.pop !== "hub") ui.openPop("hub", 38); }
+                        else if (action === "close") { if (ui.pop === "hub") ui.pop = ""; }
+                        else { ui.togglePop("hub", 38); }
+                    }
                 }
                 function openPop(name, x) {
                     if (pop === name) { pop = ""; return; }
@@ -5010,7 +5468,7 @@ Scope {
                     pop = name;
                 }
                 function hoverPop(name, x) {
-                    if (!isMenu || name === pop) return;
+                    if (!isMenu || name === pop || name === "hub") return;
                     menuX = x; menuDropX = x;
                     menuModel = root.menuModelFor(name);
                     pop = name;
@@ -5487,14 +5945,14 @@ Scope {
                         scale: root.barWidgetScale
                         Repeater {
                             model: root.menuTitles.filter(function (item) {
-                                return item.id === "apple" ? root.barWidgetEnabled("appleMenu") : root.barWidgetEnabled("appMenus");
+                                return item.id === "apple" ? root.barWidgetEnabled("appleMenu") : (item.id === "hub" ? root.showAudioHub : root.barWidgetEnabled("appMenus"));
                             })
                             delegate: Item {
                                 id: mt
                                 required property var modelData
                                 readonly property bool open: ui.pop === modelData.id
                                 readonly property bool activeApp: modelData.id === "app"
-                                width: modelData.id === "apple" ? 30 : tl.implicitWidth + 20
+                                width: modelData.id === "apple" ? 30 : (modelData.id === "hub" ? 28 : tl.implicitWidth + 20)
                                 height: 28
                                 Rectangle {
                                     anchors.centerIn: parent
@@ -5502,6 +5960,20 @@ Scope {
                                     height: parent.height - 6
                                     radius: 6
                                     color: mt.open ? bpal.hover : "transparent"
+                                }
+                                Glyph {
+                                    visible: mt.modelData.id === "hub"
+                                    anchors.centerIn: parent
+                                    anchors.verticalCenterOffset: -0.4
+                                    width: 19; height: 19
+                                    kind: "headphones"
+                                    color: bpal.fg
+                                }
+                                Rectangle {
+                                    visible: mt.modelData.id === "hub" && (root.discordState.inCall || root.earbudsState.connected)
+                                    x: parent.width - 7; y: 5
+                                    width: 5; height: 5; radius: 2.5
+                                    color: root.discordState.inCall ? "#30D158" : "#0A84FF"
                                 }
                                 Glyph {
                                     visible: mt.modelData.id === "apple" && root.barLogoMode === "arch"
@@ -5541,7 +6013,7 @@ Scope {
                                 }
                                 Text {
                                     id: tl
-                                    visible: mt.modelData.id !== "apple"
+                                    visible: mt.modelData.id !== "apple" && mt.modelData.id !== "hub"
                                     anchors.centerIn: parent
                                     text: I18n.tr(mt.modelData.label)
                                     color: bpal.fg
@@ -5863,6 +6335,1791 @@ Scope {
                                 anchors.verticalCenterOffset: 0.5
                             }
                             MouseArea { anchors.fill: parent; onClicked: ui.openPop("cal", 0) }
+                        }
+                    }
+                }
+
+                // ═════════════ LEFT-SIDE LIQUID GLASS HUB (TAHOE BENTO DASHBOARD) ═════════════
+                // Built on the exact same architecture as MacShell's Control Center (`cc`):
+                // No opaque wrapper box — every tile, capsule, pill, and slider knob is its own independent piece of Liquid Glass (`CCTile` / `CCBtn` / `CCPill` / `CCSlider`)
+                // refracting the live windows + wallpaper directly beneath it, with staggered spring entrance, `MorphText`, and `ContourGlow`.
+                Item {
+                    id: hubPop
+                    z: 10
+                    width: 336
+                    height: hubCol.height
+                    x: 10
+                    y: root.barH + 6
+
+                    readonly property bool opening: ui.pop === "hub"
+                    property int openSeq: 0
+                    property real openT: opening ? 1 : 0
+                    Behavior on openT {
+                        NumberAnimation {
+                            duration: hubPop.opening ? 500 : 150
+                            easing.type: hubPop.opening ? Easing.OutBack : Easing.OutCubic
+                            easing.overshoot: 1.5
+                        }
+                    }
+                    opacity: Math.max(0, Math.min(1, openT * 2.2))
+                    visible: opacity > 0
+                    scale: root.barPopupScale * (0.94 + 0.06 * Math.min(1.0, openT))
+                    transformOrigin: Item.TopLeft
+
+                    // Focus-pull morph blur: starts out of focus and sharpens to crisp text as it settles
+                    readonly property real blurAmt: Math.pow(Math.max(0, 1 - Math.min(1, openT)), 1.4)
+                    readonly property bool morphing: openT > 0.002 && Math.abs(openT - 1) > 0.002
+                    layer.enabled: morphing
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        blurEnabled: true
+                        blurMax: 40
+                        blur: hubPop.blurAmt * 0.85
+                        autoPaddingEnabled: true
+                    }
+                    onOpeningChanged: {
+                        if (opening) {
+                            openSeq++;
+                            hubPop.refreshGlass();
+                            if (barHover && screenSnap) screenSnap.grab();
+                            if (root.sampleWallpaperColor) root.sampleWallpaperColor();
+                        }
+                    }
+
+                    // Live 2-pass Gaussian backdrop capture scaled around TopLeft (identical optical glass pipeline to `cc`)
+                    property bool glassFlip: false
+                    readonly property real capLeft: Math.max(0, hubPop.x - 64)
+                    readonly property real capTop: Math.max(0, hubPop.y - 64)
+                    readonly property real capW: Math.min(ui.width - capLeft, hubPop.width + 128)
+                    readonly property real capH: Math.min(ui.height - capTop, Math.max(200, hubPop.height) + 128)
+                    readonly property rect capLocal: Qt.rect(capLeft, capTop, capW, capH)
+                    readonly property real capS: root.barPopupScale
+                    readonly property rect capScreen: Qt.rect(hubPop.x + (capLocal.x - hubPop.x) * capS,
+                                                              Math.max(0, hubPop.y + (capLocal.y - hubPop.y) * capS),
+                                                              capLocal.width * capS, capLocal.height * capS)
+                    Timer {
+                        id: hubGlassRefresh
+                        interval: 40
+                        property bool flip: false
+                        onTriggered: {
+                            if (!flip) { hubSrc.scheduleUpdate(); hubBlur.scheduleUpdate(); hubBlur2.scheduleUpdate(); }
+                            else if (!hubPop.glassFlip) { hubPop.glassFlip = true; hubGlassRefresh.restart(); }
+                            else {
+                                flip = false;
+                                hubPop.glassFlip = false;
+                                hubSrc.scheduleUpdate(); hubBlur.scheduleUpdate(); hubBlur2.scheduleUpdate();
+                            }
+                        }
+                    }
+                    function refreshGlass() { hubPop.glassFlip = false; hubGlassRefresh.flip = true; hubGlassRefresh.restart(); }
+                    function softRefresh() { if (!hubGlassRefresh.flip) hubGlassRefresh.restart(); }
+                    Connections { target: root; function onBarHeightChanged() { hubPop.refreshGlass(); } function onBarPopupScaleChanged() { hubPop.refreshGlass(); } }
+                    onWidthChanged: softRefresh()
+                    onHeightChanged: softRefresh()
+                    onXChanged: softRefresh()
+                    onYChanged: softRefresh()
+
+                    ShaderEffectSource {
+                        id: hubSrc
+                        sourceItem: hubPop.glassFlip ? null : ui.glassSrc
+                        hideSource: true
+                        live: true
+                        visible: false
+                        sourceRect: hubPop.capScreen
+                    }
+                    MultiEffect {
+                        id: hubBlurFx
+                        source: hubSrc
+                        width: hubSrc.sourceRect.width; height: hubSrc.sourceRect.height
+                        blurEnabled: true
+                        blurMax: 64
+                        blur: Math.min(1.0, (hubg.blur * hubg.blurMul) * 1.4 / 64.0)
+                        autoPaddingEnabled: false
+                        visible: false
+                    }
+                    ShaderEffectSource {
+                        id: hubBlur
+                        sourceItem: hubBlurFx
+                        live: true
+                        visible: false
+                    }
+                    MultiEffect {
+                        id: hubBlur2Fx
+                        source: hubBlur
+                        width: hubSrc.sourceRect.width; height: hubSrc.sourceRect.height
+                        blurEnabled: (hubg.blur * hubg.blurMul) * 1.4 / 64.0 > 1.0
+                        blurMax: 64
+                        blur: Math.max(0.0, Math.min(1.0, (hubg.blur * hubg.blurMul) * 1.4 / 64.0 - 1.0))
+                        autoPaddingEnabled: false
+                        visible: false
+                    }
+                    ShaderEffectSource {
+                        id: hubBlur2
+                        sourceItem: (hubg.blur * hubg.blurMul) * 1.4 / 64.0 > 1.0 ? hubBlur2Fx : null
+                        live: true
+                        visible: false
+                    }
+                    GlassCtx {
+                        id: hubg
+                        src: (blur * blurMul) * 1.4 / 64.0 > 1.0 ? hubBlur2 : hubBlur
+                        srcRect: hubPop.capLocal
+                        frame: ui
+                        liquid: root.liquidActive
+                        shaderUrl: root.glassShaderUrl
+                        dark: root.panelDarkMode
+                        tint: root.panelDarkMode ? Math.max(root.glassOpacity, 0.55) : root.glassOpacity
+                        strength: 0.55 * root.glassLiquid
+                        rim: root.glassRim
+                        rimTint: 1
+                        ringW: 1.4
+                        menuDepth: true
+                        borderTint: root.menuBorderColor
+                        borderAmount: 1
+                        whiteEdge: false
+                        grain: root.glassGrain
+                        blur: root.glassBlur
+                        debug: root.glassDebug
+                        onFailed: root.glassState = "failed"
+                    }
+
+                    // Swallow clicks inside the Bento grid gaps so clicking between two tiles doesn't dismiss the dashboard
+                    MouseArea { anchors.fill: parent }
+
+                    Column {
+                        id: hubCol
+                        width: parent.width
+                        spacing: 8
+                        readonly property real halfW: (width - 8) / 2
+
+                        // ════════════════════════════════════════════════════════════════
+                        // BENTO ROW 0: DISCORD VOICE CAPSULE PAIR (MIC MUTE + DEAFEN/FOCUS)
+                        // ════════════════════════════════════════════════════════════════
+                        Row {
+                            width: parent.width
+                            spacing: 8
+
+                            // Left Capsule: Discord Mic Mute (exact Control Center 2-cell tile geometry)
+                            HubBento {
+                                seq: hubPop.openSeq; row: 0; col: 0; cornerR: 33
+                                width: hubCol.halfW; height: 66
+
+                                CCTile {
+                                    id: dcMicTile
+                                    anchors.fill: parent
+                                    t: ccPal; gx: hubg; radius: 33
+                                    clickable: true
+                                    on: root.discordState.muted
+                                    onTint: "#FF453A"
+                                    onClicked: root.discordAction("toggle-mute")
+
+                                    CCBtn {
+                                        plain: true
+                                        t: ccPal; gx: hubg
+                                        x: 12; anchors.verticalCenter: parent.verticalCenter
+                                        kind: "mic"
+                                        flag: root.discordState.muted
+                                        on: root.discordState.muted
+                                        onTint: "#FF453A"
+                                    }
+                                    Column {
+                                        x: 60; anchors.verticalCenter: parent.verticalCenter
+                                        width: parent.width - 72
+                                        spacing: 1
+                                        Row {
+                                            spacing: 5
+                                            Text {
+                                                text: "Discord Mic"
+                                                color: dcMicTile.fg
+                                                font.family: root.fontForWeight(Font.DemiBold, ccPal.fam)
+                                                font.pixelSize: 13; font.weight: Font.DemiBold
+                                            }
+                                            Rectangle {
+                                                visible: root.discordState.inCall
+                                                width: 6; height: 6; radius: 3
+                                                color: root.discordState.muted ? "#FF453A" : "#30D158"
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+                                        }
+                                        MorphText {
+                                            animateWidth: false; duration: 320
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: root.discordState.muted ? "Muted" : (root.discordState.inCall ? "Voice Live" : (root.discordState.running ? "Standby" : "Offline"))
+                                            color: dcMicTile.fg2
+                                            font.family: root.fontForWeight(Font.Normal, ccPal.fam); font.pixelSize: 12
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Right Capsule: Deafen + Right-Edge Focus/Launch Arrow (exact `cWifi` / `cBt` pattern)
+                            HubBento {
+                                seq: hubPop.openSeq; row: 0; col: 1; cornerR: 33
+                                width: hubCol.halfW; height: 66
+
+                                CCTile {
+                                    id: dcDeafTile
+                                    anchors.fill: parent
+                                    t: ccPal; gx: hubg; radius: 33
+                                    clickable: true
+                                    on: root.discordState.deafened
+                                    onTint: "#FF453A"
+                                    onClicked: root.discordAction("toggle-deaf")
+
+                                    CCBtn {
+                                        plain: true
+                                        t: ccPal; gx: hubg
+                                        x: 12; anchors.verticalCenter: parent.verticalCenter
+                                        kind: "speaker"
+                                        level: root.discordState.deafened ? 0 : 3
+                                        on: root.discordState.deafened
+                                        onTint: "#FF453A"
+                                    }
+                                    Column {
+                                        x: 60; anchors.verticalCenter: parent.verticalCenter
+                                        width: parent.width - 88
+                                        spacing: 1
+                                        Text {
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: "Call Audio"
+                                            color: dcDeafTile.fg
+                                            font.family: root.fontForWeight(Font.DemiBold, ccPal.fam)
+                                            font.pixelSize: 13; font.weight: Font.DemiBold
+                                        }
+                                        MorphText {
+                                            animateWidth: false; duration: 320
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: root.discordState.deafened ? "Deafened" : (root.discordState.running ? "Active" : "Launch")
+                                            color: dcDeafTile.fg2
+                                            font.family: root.fontForWeight(Font.Normal, ccPal.fam); font.pixelSize: 12
+                                        }
+                                    }
+                                    // Right-edge chevron opens/focuses Vesktop (just like Wi-Fi/BT arrow zone in Control Center)
+                                    Glyph {
+                                        anchors.right: parent.right; anchors.rightMargin: 13
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 11; height: 11
+                                        kind: "chevR"
+                                        color: dcFocusMa.containsMouse ? ccPal.fg : ccPal.fg2
+                                    }
+                                    MouseArea {
+                                        id: dcFocusMa
+                                        x: parent.width - 36; width: 36; height: parent.height
+                                        hoverEnabled: true
+                                        onClicked: root.discordAction("focus")
+                                    }
+                                }
+                            }
+                        }
+
+                        // ════════════════════════════════════════════════════════════════
+                        // BENTO ROW 1: GALAXY BUDS 4 WATERY ORBITAL & LIQUID GLASS HERO STAGE
+                        // ════════════════════════════════════════════════════════════════
+                        HubBento {
+                            id: budsHeroSlot
+                            seq: hubPop.openSeq; row: 1; col: 0; cornerR: 30
+                            width: parent.width; height: 248
+
+                            readonly property string ncMode: root.earbudsState.noiseControl || "anc"
+                            property color modeColor: ncMode === "anc" ? "#38BDF8" : (ncMode === "ambient" ? "#34D399" : (ncMode === "adaptive" ? "#A78BFA" : "#94A3B8"))
+                            property color modeColor2: ncMode === "anc" ? "#6366F1" : (ncMode === "ambient" ? "#2DD4BF" : (ncMode === "adaptive" ? "#F472B6" : "#64748B"))
+                            Behavior on modeColor { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
+                            Behavior on modeColor2 { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
+                            readonly property string shortDeviceName: (root.earbudsState.name || "Wireless Buds")
+                                                                      .replace(/^(Samsung|Apple|Sony|Bose)\s+/i, "")
+                                                                      .replace(/^Galaxy\s+/i, "")
+                            readonly property string shortModeLabel: ncMode === "anc" ? "ANC"
+                                                                   : (ncMode === "ambient" ? "Ambient"
+                                                                   : (ncMode === "adaptive" ? "Adaptive" : "Standby"))
+                            onNcModeChanged: modeOrbPopAnim.restart()
+
+                            // visionOS 3D cursor-reactive spatial parallax across Z-depth strata
+                            HoverHandler { id: stageParallaxHov }
+                            property real tiltX: stageParallaxHov.hovered && width > 0
+                                                 ? Math.max(-1, Math.min(1, (stageParallaxHov.point.position.x - width / 2) / (width * 0.5))) : 0
+                            property real tiltY: stageParallaxHov.hovered && height > 0
+                                                 ? Math.max(-1, Math.min(1, (stageParallaxHov.point.position.y - height / 2) / (height * 0.5))) : 0
+                            Behavior on tiltX { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+                            Behavior on tiltY { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+
+                            CCTile {
+                                anchors.fill: parent
+                                t: ccPal; gx: hubg; radius: 30
+
+                                // ── Top Header: 40×40 Liquid Glass Aurora & Dynamic-Island Waveform Orb + MorphText + CCPill ──
+                                Item {
+                                    z: 4
+                                    x: 12; y: 12
+                                    width: parent.width - 24; height: 40
+
+                                    // Interactive Spherical Liquid Glass Acoustic Waveform Medallion (aligned at x:12 like every CCBtn)
+                                    Item {
+                                        id: modeOrbBtn
+                                        width: 40; height: 40
+                                        anchors.verticalCenter: parent.verticalCenter
+
+                                        property real pop: 0
+                                        SequentialAnimation {
+                                            id: modeOrbPopAnim
+                                            NumberAnimation { target: modeOrbBtn; property: "pop"; to: 1; duration: 115; easing.type: Easing.OutCubic }
+                                            NumberAnimation { target: modeOrbBtn; property: "pop"; to: 0; duration: 420; easing.type: Easing.OutBack; easing.overshoot: 2.6 }
+                                        }
+
+                                        property real hoverScale: modeOrbMa.pressed ? 0.89 : (modeOrbMa.containsMouse ? 1.08 : 1.0)
+                                        Behavior on hoverScale { NumberAnimation { duration: 240; easing.type: Easing.OutBack; easing.overshoot: 2.5 } }
+                                        scale: (1 - 0.16 * pop) * hoverScale
+
+                                        // 1. Spherical Optical Liquid Glass Lens
+                                        GGlass {
+                                            anchors.fill: parent
+                                            gx: hubg
+                                            cornerR: 20
+                                            thickness: 18
+                                            strengthMul: 1.30
+                                            tintMul: 0.78
+                                            flatInner: 0
+                                            shadowAmt: 0.45
+                                        }
+
+                                        // 2. Swirling Dual-Tone Siri/Tahoe Liquid Aurora & Live Dynamic-Island Acoustic Waveform
+                                        Canvas {
+                                            id: modeOrbCanvas
+                                            anchors.fill: parent
+                                            antialiasing: true
+                                            property real orbPhase: budsStage.wavePhase
+                                            property color c1: budsHeroSlot.modeColor
+                                            property color c2: budsHeroSlot.modeColor2
+                                            property string mName: budsHeroSlot.ncMode
+                                            onOrbPhaseChanged: requestPaint()
+                                            onC1Changed: requestPaint()
+                                            onC2Changed: requestPaint()
+                                            onMNameChanged: requestPaint()
+                                            onPaint: {
+                                                var ctx = getContext("2d");
+                                                ctx.reset();
+                                                var cx = width / 2, cy = height / 2, rad = 18.6;
+                                                var ph = orbPhase;
+
+                                                ctx.save();
+                                                ctx.beginPath();
+                                                ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+                                                ctx.clip();
+
+                                                // Subtle deep optical core for high-contrast waveform clarity
+                                                ctx.fillStyle = Qt.rgba(c1.r * 0.25, c1.g * 0.25, c1.b * 0.30, ccPal.dark ? 0.22 : 0.14);
+                                                ctx.fillRect(0, 0, width, height);
+
+                                                // Primary orbiting liquid aurora lobe
+                                                var l1x = cx + Math.cos(ph * 1.35) * 6.0;
+                                                var l1y = cy + Math.sin(ph * 1.35) * 6.0;
+                                                var g1 = ctx.createRadialGradient(l1x, l1y, 1.0, l1x, l1y, 16.5);
+                                                g1.addColorStop(0.0, Qt.rgba(c1.r, c1.g, c1.b, 0.55));
+                                                g1.addColorStop(0.65, Qt.rgba(c1.r, c1.g, c1.b, 0.16));
+                                                g1.addColorStop(1.0, Qt.rgba(c1.r, c1.g, c1.b, 0.0));
+                                                ctx.fillStyle = g1;
+                                                ctx.fillRect(0, 0, width, height);
+
+                                                // Counter-orbiting complementary liquid aurora lobe
+                                                var l2x = cx + Math.cos(-ph * 1.1 + 2.2) * 6.2;
+                                                var l2y = cy + Math.sin(-ph * 1.1 + 2.2) * 6.2;
+                                                var g2 = ctx.createRadialGradient(l2x, l2y, 1.0, l2x, l2y, 15.5);
+                                                g2.addColorStop(0.0, Qt.rgba(c2.r, c2.g, c2.b, 0.48));
+                                                g2.addColorStop(0.65, Qt.rgba(c2.r, c2.g, c2.b, 0.12));
+                                                g2.addColorStop(1.0, Qt.rgba(c2.r, c2.g, c2.b, 0.0));
+                                                ctx.fillStyle = g2;
+                                                ctx.fillRect(0, 0, width, height);
+
+                                                // Tri-color cyan iridescence lobe in Adaptive Audio mode
+                                                if (mName === "adaptive") {
+                                                    var l3x = cx + Math.cos(ph * 0.95 + 4.1) * 5.8;
+                                                    var l3y = cy + Math.sin(ph * 0.95 + 4.1) * 5.8;
+                                                    var g3 = ctx.createRadialGradient(l3x, l3y, 0.5, l3x, l3y, 13.5);
+                                                    g3.addColorStop(0.0, Qt.rgba(0.22, 0.74, 0.97, 0.38));
+                                                    g3.addColorStop(1.0, Qt.rgba(0.22, 0.74, 0.97, 0.0));
+                                                    ctx.fillStyle = g3;
+                                                    ctx.fillRect(0, 0, width, height);
+                                                }
+
+                                                // Top-left spherical droplet caustic sheen
+                                                var sheen = ctx.createRadialGradient(cx - 5.5, cy - 7.5, 0.5, cx - 4.0, cy - 5.5, 13.0);
+                                                sheen.addColorStop(0.0, Qt.rgba(1, 1, 1, 0.34));
+                                                sheen.addColorStop(1.0, Qt.rgba(1, 1, 1, 0.0));
+                                                ctx.fillStyle = sheen;
+                                                ctx.fillRect(0, 0, width, height);
+
+                                                // Mode-specific Dynamic-Island Fluid Acoustic Waveform Glyph
+                                                ctx.lineCap = "round";
+                                                if (mName === "anc") {
+                                                    // Inward acoustic shield arcs + focused phase-canceled core bars
+                                                    var shR = 11.4 - 0.7 * (0.5 + 0.5 * Math.sin(ph * 2.1));
+                                                    ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.62);
+                                                    ctx.lineWidth = 1.5;
+                                                    ctx.beginPath();
+                                                    ctx.arc(cx, cy, shR, Math.PI - 0.52, Math.PI + 0.52);
+                                                    ctx.stroke();
+                                                    ctx.beginPath();
+                                                    ctx.arc(cx, cy, shR, -0.52, 0.52);
+                                                    ctx.stroke();
+
+                                                    ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.96);
+                                                    ctx.lineWidth = 2.1;
+                                                    for (var a = -1; a <= 1; a++) {
+                                                        var ah = a === 0 ? (9.4 + 2.2 * Math.sin(ph * 2.1))
+                                                                         : (4.0 + 1.0 * Math.cos(ph * 2.1));
+                                                        var ax = cx + a * 4.1;
+                                                        ctx.beginPath();
+                                                        ctx.moveTo(ax, cy - ah / 2);
+                                                        ctx.lineTo(ax, cy + ah / 2);
+                                                        ctx.stroke();
+                                                    }
+                                                } else {
+                                                    var isOff = (mName === "off");
+                                                    ctx.strokeStyle = Qt.rgba(1, 1, 1, isOff ? 0.76 : 0.96);
+                                                    ctx.lineWidth = 2.05;
+                                                    for (var i = -2; i <= 2; i++) {
+                                                        var bx = cx + i * 3.55;
+                                                        var env = 1.0 - Math.abs(i) * 0.13;
+                                                        var bh = 3.0;
+                                                        if (mName === "adaptive") {
+                                                            // Silky traveling sinusoidal Dynamic-Island waveform
+                                                            bh = (4.2 + 9.4 * (0.5 + 0.5 * Math.sin(ph * 2.65 - i * 0.85))) * env;
+                                                        } else if (mName === "ambient") {
+                                                            // Open outward-radiating acoustic transparency wave
+                                                            bh = 4.0 + 8.4 * (0.5 + 0.5 * Math.cos(ph * 2.35 - Math.abs(i) * 0.95));
+                                                        } else {
+                                                            // Calm minimal resting horizon capsules
+                                                            bh = 2.6 + (2 - Math.abs(i)) * 1.05 + 0.45 * Math.sin(ph * 1.2 + i);
+                                                        }
+                                                        ctx.beginPath();
+                                                        ctx.moveTo(bx, cy - bh / 2);
+                                                        ctx.lineTo(bx, cy + bh / 2);
+                                                        ctx.stroke();
+                                                    }
+                                                }
+
+                                                ctx.restore();
+                                            }
+                                        }
+
+                                        // 3. Specular Glass Rim
+                                        CornerBorder {
+                                            z: 2
+                                            anchors.fill: parent
+                                            cornerR: 20
+                                            dark: hubg.dark
+                                            tint: modeOrbMa.containsMouse ? budsHeroSlot.modeColor : root.menuBorderColor
+                                            amount: 1
+                                            lineW: 1.0
+                                        }
+
+                                        // 4. Connected Bluetooth Status Micro-Jewel (visible when paired earbuds link is active)
+                                        Rectangle {
+                                            z: 3
+                                            visible: root.earbudsState.connected
+                                            x: 29; y: 29
+                                            width: 9; height: 9; radius: 4.5
+                                            color: "#30D158"
+                                            border.width: 1.5
+                                            border.color: ccPal.dark ? "#181B22" : "#F5F7FA"
+                                        }
+
+                                        MouseArea {
+                                            id: modeOrbMa
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                var order = ["off", "ambient", "adaptive", "anc"];
+                                                var nextIdx = (order.indexOf(budsHeroSlot.ncMode) + 1) % order.length;
+                                                budsStage.triggerSplash();
+                                                root.earbudsAction("set-mode", order[nextIdx]);
+                                            }
+                                        }
+                                    }
+
+                                    Column {
+                                        x: 48; anchors.verticalCenter: parent.verticalCenter
+                                        width: parent.width - 126
+                                        spacing: 1
+                                        MorphText {
+                                            animateWidth: false; duration: 320
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: budsHeroSlot.shortDeviceName
+                                            color: ccPal.fg
+                                            font.family: root.fontForWeight(Font.DemiBold, ccPal.fam)
+                                            font.pixelSize: 13; font.weight: Font.DemiBold
+                                            font.letterSpacing: -0.15
+                                        }
+                                        MorphText {
+                                            animateWidth: false; duration: 320
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: root.earbudsState.connected
+                                                  ? ((root.earbudsState.codec || "Live") + " · " + budsHeroSlot.shortModeLabel)
+                                                  : budsHeroSlot.shortModeLabel
+                                            color: root.earbudsState.connected ? "#30D158" : ccPal.fg2
+                                            opacity: root.earbudsState.connected ? 0.95 : 0.72
+                                            font.family: root.fontForWeight(Font.Normal, ccPal.fam); font.pixelSize: 11
+                                        }
+                                    }
+
+                                    CCPill {
+                                        t: ccPal; gx: hubg
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        strong: false
+                                        text: root.earbudsState.connected ? "Disconnect" : (root.earbudsState.mac ? "Connect" : "Pair")
+                                        onClicked: {
+                                            budsStage.triggerSplash();
+                                            if (root.earbudsState.mac) root.earbudsAction("connect", root.earbudsState.mac);
+                                            else ui.openPop("bt", 0);
+                                        }
+                                    }
+                                }
+
+                                // ── Centerpiece Stage: 3-Strata visionOS Depth Chamber, Silk Acoustic Flow & 3D Occluded Orbit ──
+                                Item {
+                                    id: budsStage
+                                    x: 4; y: 54
+                                    width: parent.width - 8; height: 142
+
+                                    property real orbitT: 1
+                                    property real splashT: 1
+                                    property real wavePhase: 0
+
+                                    function triggerSplash() { splashAnim.restart(); }
+                                    function triggerOrbit() { orbitAnim.restart(); splashAnim.restart(); }
+
+                                    Connections {
+                                        target: hubPop
+                                        function onOpenSeqChanged() {
+                                            if (hubPop.openSeq > 0) budsStage.triggerOrbit();
+                                        }
+                                    }
+
+                                    NumberAnimation {
+                                        id: orbitAnim
+                                        target: budsStage; property: "orbitT"
+                                        from: 0; to: 1; duration: 780
+                                        easing.type: Easing.OutBack; easing.overshoot: 1.24
+                                    }
+                                    NumberAnimation {
+                                        id: splashAnim
+                                        target: budsStage; property: "splashT"
+                                        from: 0; to: 1; duration: 880
+                                        easing.type: Easing.OutCubic
+                                    }
+                                    NumberAnimation on wavePhase {
+                                        running: hubPop.visible
+                                        from: 0; to: Math.PI * 200
+                                        duration: 240000
+                                        loops: Animation.Infinite
+                                    }
+
+                                    onWavePhaseChanged: { waterCanvas.requestPaint(); frontOrbitCanvas.requestPaint(); }
+                                    onSplashTChanged: { waterCanvas.requestPaint(); frontOrbitCanvas.requestPaint(); }
+
+                                    // Z-Strata 0 & 1 (Back Pass): Recessed Acoustic Depth Well, Silk Energy Tethers & Far-Side 3D Orbit
+                                    Canvas {
+                                        id: waterCanvas
+                                        z: 1
+                                        anchors.fill: parent
+                                        antialiasing: true
+                                        property color mCol: budsHeroSlot.modeColor
+                                        property color mCol2: budsHeroSlot.modeColor2
+                                        property bool sp360: root.earbudsState.spatial360
+                                        property real pTiltX: budsHeroSlot.tiltX
+                                        property real pTiltY: budsHeroSlot.tiltY
+                                        onMColChanged: requestPaint()
+                                        onMCol2Changed: requestPaint()
+                                        onSp360Changed: requestPaint()
+                                        onPTiltXChanged: requestPaint()
+                                        onPTiltYChanged: requestPaint()
+                                        onPaint: {
+                                            var ctx = getContext("2d");
+                                            ctx.reset();
+                                            var cx = width / 2 - pTiltX * 3.4;
+                                            var cy = 62 - pTiltY * 2.2;
+                                            var ph = budsStage.wavePhase;
+                                            var col = mCol;
+                                            var col2 = mCol2;
+                                            var dir = budsHeroSlot.ncMode === "anc" ? -1.0 : 1.0;
+
+                                            // 0. Subtle specular top & bottom chamber horizon hairlines (100% pure glass transparency preserved)
+                                            var hLine = ctx.createLinearGradient(16, 0, width - 16, 0);
+                                            hLine.addColorStop(0.0, Qt.rgba(1, 1, 1, 0.0));
+                                            hLine.addColorStop(0.5, Qt.rgba(1, 1, 1, ccPal.dark ? 0.07 : 0.14));
+                                            hLine.addColorStop(1.0, Qt.rgba(1, 1, 1, 0.0));
+                                            ctx.fillStyle = hLine;
+                                            ctx.fillRect(16, 1, width - 32, 0.75);
+                                            ctx.fillRect(16, height - 2, width - 32, 0.75);
+
+                                            // 1. Whisper-soft flowing liquid caustic mist (pure glass clarity preserved, zero chunky disc)
+                                            var grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, 115);
+                                            grad.addColorStop(0.0, Qt.rgba(col.r, col.g, col.b, 0.08));
+                                            grad.addColorStop(0.40, Qt.rgba(col2.r, col2.g, col2.b, 0.035));
+                                            grad.addColorStop(0.75, Qt.rgba(col.r, col.g, col.b, 0.010));
+                                            grad.addColorStop(1.0, Qt.rgba(col.r, col.g, col.b, 0.0));
+                                            ctx.fillStyle = grad;
+                                            ctx.fillRect(0, 0, width, height);
+
+                                            // 2. Three 3D perspective-shaded undulating water-wave contours (silky ripples, flowing & airy)
+                                            var bases = [38, 69, 102];
+                                            var alphas = [0.14, 0.08, 0.03];
+                                            for (var rIdx = 0; rIdx < 3; rIdx++) {
+                                                var rb = bases[rIdx];
+                                                var prevX = 0, prevY = 0;
+                                                for (var st = 0; st <= 56; st++) {
+                                                    var ang = (st / 56) * Math.PI * 2;
+                                                    var wob = 3.0 * Math.sin(3 * ang + ph * 1.5 * dir + rIdx * 1.1)
+                                                            + 1.8 * Math.cos(5 * ang - ph * 1.9 * dir + rIdx);
+                                                    if (budsHeroSlot.ncMode === "adaptive") {
+                                                        wob += 1.6 * Math.sin(4 * ang + ph * 2.2);
+                                                    }
+                                                    var rx = rb + wob;
+                                                    var ry = (rb + wob * 0.65) * 0.43;
+                                                    var px = cx + Math.cos(ang) * rx;
+                                                    var py = cy + Math.sin(ang) * ry;
+                                                    if (st > 0) {
+                                                        // Depth cue: sin(ang) > 0 is foreground near viewer, sin(ang) < 0 is far background
+                                                        var depthF = 0.42 + 0.58 * ((Math.sin(ang) + 1.0) * 0.5);
+                                                        ctx.beginPath();
+                                                        ctx.moveTo(prevX, prevY);
+                                                        ctx.lineTo(px, py);
+                                                        ctx.lineWidth = (rIdx === 0 ? 0.85 : 0.60) * (0.72 + 0.42 * depthF);
+                                                        ctx.strokeStyle = Qt.rgba(col.r, col.g, col.b, alphas[rIdx] * depthF);
+                                                        ctx.stroke();
+                                                    }
+                                                    prevX = px; prevY = py;
+                                                }
+                                            }
+
+                                            // 3. Flowing Silk Bezier Acoustic Energy Tethers (Case <-> Left Bud & Case <-> Right Bud)
+                                            var clOrb = Math.max(0.05, Math.min(1.08, budsStage.orbitT));
+                                            var cCenterX = width / 2 + pTiltX * 4.6;
+                                            var cCenterY = 58 + Math.sin(ph * 1.05 + 1.55) * 2.5 + pTiltY * 3.0;
+                                            for (var sDir = -1; sDir <= 1; sDir += 2) {
+                                                var swTh = (sDir < 0 ? Math.PI : 0) - (1 - Math.min(1, budsStage.orbitT)) * sDir * Math.PI * 0.68;
+                                                var bCenterX = width / 2 + Math.cos(swTh) * (96 * clOrb) + pTiltX * 2.2;
+                                                var bCenterY = 61 + Math.sin(swTh) * 24 * (1 - Math.min(1, budsStage.orbitT))
+                                                             + Math.sin(ph * 1.05 + (sDir + 1) * 1.55) * 2.5 + pTiltY * 1.5;
+
+                                                var cp1x = cCenterX + (bCenterX - cCenterX) * 0.36;
+                                                var cp1y = cCenterY + Math.sin(ph * 1.8 + sDir) * 10.5 - 5.0;
+                                                var cp2x = cCenterX + (bCenterX - cCenterX) * 0.68;
+                                                var cp2y = bCenterY - Math.sin(ph * 1.8 - sDir) * 10.5 + 5.0;
+
+                                                // Outer soft aurora silk ribbon glow
+                                                var tGrad = ctx.createLinearGradient(cCenterX, cCenterY, bCenterX, bCenterY);
+                                                tGrad.addColorStop(0.0, Qt.rgba(col.r, col.g, col.b, 0.12));
+                                                tGrad.addColorStop(0.5, Qt.rgba(col2.r, col2.g, col2.b, 0.08));
+                                                tGrad.addColorStop(1.0, Qt.rgba(col.r, col.g, col.b, 0.12));
+                                                ctx.beginPath();
+                                                ctx.moveTo(cCenterX, cCenterY);
+                                                ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, bCenterX, bCenterY);
+                                                ctx.lineWidth = 2.2;
+                                                ctx.strokeStyle = tGrad;
+                                                ctx.stroke();
+
+                                                // Inner razor-crisp iridescent optical filament
+                                                var fGrad = ctx.createLinearGradient(cCenterX, cCenterY, bCenterX, bCenterY);
+                                                fGrad.addColorStop(0.0, Qt.rgba(col.r, col.g, col.b, 0.35));
+                                                fGrad.addColorStop(0.5, Qt.rgba(1, 1, 1, 0.50));
+                                                fGrad.addColorStop(1.0, Qt.rgba(col2.r, col2.g, col2.b, 0.35));
+                                                ctx.beginPath();
+                                                ctx.moveTo(cCenterX, cCenterY);
+                                                ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, bCenterX, bCenterY);
+                                                ctx.lineWidth = 0.75;
+                                                ctx.strokeStyle = fGrad;
+                                                ctx.stroke();
+
+                                                // Gliding liquid-light acoustic energy pulses flowing along the tether
+                                                for (var pIdx = 0; pIdx < 2; pIdx++) {
+                                                    var rawP = (ph * 0.42 * (dir > 0 ? 1 : -1) + pIdx * 0.5 + (sDir > 0 ? 0.25 : 0.0)) % 1.0;
+                                                    if (rawP < 0) rawP += 1.0;
+                                                    var u = 1.0 - rawP;
+                                                    var qx = u*u*u*cCenterX + 3*u*u*rawP*cp1x + 3*u*rawP*rawP*cp2x + rawP*rawP*rawP*bCenterX;
+                                                    var qy = u*u*u*cCenterY + 3*u*u*rawP*cp1y + 3*u*rawP*rawP*cp2y + rawP*rawP*rawP*bCenterY;
+                                                    var edgeFade = Math.sin(rawP * Math.PI);
+                                                    ctx.beginPath();
+                                                    ctx.arc(qx, qy, 2.2, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.15 * edgeFade);
+                                                    ctx.fill();
+                                                    ctx.beginPath();
+                                                    ctx.arc(qx, qy, 1.1, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(1, 1, 1, 0.75 * edgeFade);
+                                                    ctx.fill();
+                                                }
+                                            }
+
+                                            // 4. Interactive expanding water-droplet shockwave ring on open / mode switch / tap
+                                            if (budsStage.splashT < 0.99) {
+                                                var stT = budsStage.splashT;
+                                                var spR = 20 + stT * 118;
+                                                var spAlpha = 0.62 * Math.pow(1 - stT, 1.65);
+                                                ctx.beginPath();
+                                                for (var k = 0; k <= 60; k++) {
+                                                    var a2 = (k / 60) * Math.PI * 2;
+                                                    var wx = cx + Math.cos(a2) * spR;
+                                                    var wy = cy + Math.sin(a2) * (spR * 0.45);
+                                                    if (k === 0) ctx.moveTo(wx, wy);
+                                                    else ctx.lineTo(wx, wy);
+                                                }
+                                                ctx.closePath();
+                                                ctx.lineWidth = 1.4 * (1 - stT * 0.65);
+                                                ctx.strokeStyle = Qt.rgba(1, 1, 1, spAlpha * 0.40);
+                                                ctx.stroke();
+                                            }
+
+                                            // 5. Far-Side (Back-Occluded, sin <= 0) 3D Orbital Comet Droplets
+                                            var orbRx = 98, orbRy = 27;
+                                            for (var m = 0; m < 3; m++) {
+                                                var headA = ph * 0.95 + m * (Math.PI * 2 / 3);
+                                                for (var seg = 0; seg < 9; seg++) {
+                                                    var ta0 = headA - seg * 0.065;
+                                                    var ta1 = headA - (seg + 1) * 0.065;
+                                                    if (Math.sin(ta0) <= 0.08) {
+                                                        ctx.beginPath();
+                                                        ctx.moveTo(cx + Math.cos(ta0) * orbRx, cy + Math.sin(ta0) * orbRy);
+                                                        ctx.lineTo(cx + Math.cos(ta1) * orbRx, cy + Math.sin(ta1) * orbRy);
+                                                        ctx.lineWidth = 1.0 * (1 - seg / 9);
+                                                        ctx.strokeStyle = Qt.rgba(col.r, col.g, col.b, 0.16 * (1 - seg / 9));
+                                                        ctx.stroke();
+                                                    }
+                                                }
+                                                if (Math.sin(headA) <= 0.0) {
+                                                    var hx = cx + Math.cos(headA) * orbRx;
+                                                    var hy = cy + Math.sin(headA) * orbRy;
+                                                    ctx.beginPath();
+                                                    ctx.arc(hx, hy, 2.8, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.10);
+                                                    ctx.fill();
+                                                    ctx.beginPath();
+                                                    ctx.arc(hx, hy, 1.2, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(1, 1, 1, 0.60);
+                                                    ctx.fill();
+                                                }
+                                            }
+
+                                            // 6. Back half of tilted 360° Spatial Audio gyroscopic orbit ring
+                                            if (sp360) {
+                                                ctx.save();
+                                                ctx.translate(cx, cy);
+                                                ctx.rotate(-0.26);
+                                                ctx.beginPath();
+                                                for (var s3 = 28; s3 <= 56; s3++) {
+                                                    var sa = (s3 / 56) * Math.PI * 2;
+                                                    var sx = Math.cos(sa) * 80;
+                                                    var sy = Math.sin(sa) * 33;
+                                                    if (s3 === 28) ctx.moveTo(sx, sy);
+                                                    else ctx.lineTo(sx, sy);
+                                                }
+                                                ctx.lineWidth = 1.1;
+                                                ctx.strokeStyle = Qt.rgba(0.22, 0.74, 0.97, 0.24);
+                                                ctx.stroke();
+                                                ctx.restore();
+                                            }
+                                        }
+                                    }
+
+                                    // ── Z-Strata 2: Three Elevated Liquid Glass Droplet Pods with Contact Shadows & Parallax ──
+                                    Repeater {
+                                        model: [
+                                            { side: -1, kind: "budL", shortTag: "L", fullTag: "Left",  val: root.earbudsState.battery ? root.earbudsState.battery.left : null },
+                                            { side:  0, kind: "case", shortTag: "Case", fullTag: "Case", val: root.earbudsState.battery ? root.earbudsState.battery.case : null },
+                                            { side:  1, kind: "budR", shortTag: "R", fullTag: "Right", val: root.earbudsState.battery ? root.earbudsState.battery.right : null }
+                                        ]
+                                        delegate: Item {
+                                            id: podNode
+                                            required property var modelData
+                                            readonly property bool isCenter: modelData.side === 0
+                                            readonly property real orbD: isCenter ? 70 : 56
+                                            readonly property bool hasVal: modelData.val !== null && modelData.val !== undefined
+                                            readonly property real pct: hasVal ? Math.max(0, Math.min(100, Number(modelData.val))) : (root.earbudsState.connected ? 100 : 0)
+
+                                            // 3D elliptical orbital sweep + continuous water buoyancy + visionOS Z-parallax
+                                            readonly property real clampedOrb: Math.max(0, Math.min(1.08, budsStage.orbitT))
+                                            readonly property real sweepTheta: (modelData.side < 0 ? Math.PI : 0)
+                                                                             - (1 - Math.min(1, budsStage.orbitT)) * modelData.side * Math.PI * 0.68
+                                            readonly property real stageCx: budsStage.width / 2
+                                            readonly property real stageCy: 59
+                                            readonly property real bobY: Math.sin(budsStage.wavePhase * 1.05 + (modelData.side + 1) * 1.55) * 2.6
+                                            readonly property real parX: budsHeroSlot.tiltX * (isCenter ? 4.6 : 2.2)
+                                            readonly property real parY: budsHeroSlot.tiltY * (isCenter ? 3.0 : 1.5)
+
+                                            z: isCenter ? 3 : 2
+                                            width: orbD; height: orbD
+                                            x: (isCenter ? stageCx : (stageCx + Math.cos(sweepTheta) * (96 * clampedOrb))) + parX - orbD / 2
+                                            y: (isCenter ? (stageCy - 3 + (1 - Math.min(1, budsStage.orbitT)) * 10)
+                                                         : (stageCy + Math.sin(sweepTheta) * 24 * (1 - Math.min(1, budsStage.orbitT))))
+                                               + bobY + parY - orbD / 2
+
+                                            property real hoverScale: podMa.pressed ? 0.92 : (podMa.containsMouse ? 1.09 : 1.0)
+                                            Behavior on hoverScale { NumberAnimation { duration: 280; easing.type: Easing.OutBack; easing.overshoot: 2.3 } }
+                                            scale: (isCenter ? (0.82 + 0.18 * clampedOrb) : (0.58 + 0.42 * clampedOrb)) * hoverScale
+
+                                            // 0. Grounded visionOS Contact Shadow + Caustic Water Floor Reflection (breathes with bobY)
+                                            Canvas {
+                                                id: contactShadowCanvas
+                                                z: -1
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                y: parent.height - 6 - podNode.bobY * 0.45
+                                                width: podNode.orbD * 1.15
+                                                height: 22
+                                                antialiasing: true
+                                                property real cBob: podNode.bobY
+                                                property color cCol: budsHeroSlot.modeColor
+                                                onCBobChanged: requestPaint()
+                                                onCColChanged: requestPaint()
+                                                onPaint: {
+                                                    var sc = getContext("2d");
+                                                    sc.reset();
+                                                    var w = width, h = height;
+                                                    // Closer to floor (bobY > 0) = tighter, deeper contact shadow & brighter caustic bounce
+                                                    var prox = Math.max(0.55, Math.min(1.25, 1.0 + cBob * 0.08));
+                                                    sc.save();
+                                                    sc.translate(w / 2, h / 2);
+                                                    sc.scale(1.0 / prox, 0.34);
+                                                    var sg = sc.createRadialGradient(0, 0, 1, 0, 0, w * 0.44);
+                                                    sg.addColorStop(0.0, Qt.rgba(0, 0, 0, (ccPal.dark ? 0.18 : 0.10) * prox));
+                                                    sg.addColorStop(0.55, Qt.rgba(cCol.r, cCol.g, cCol.b, 0.08 * prox));
+                                                    sg.addColorStop(1.0, Qt.rgba(0, 0, 0, 0.0));
+                                                    sc.fillStyle = sg;
+                                                    sc.beginPath();
+                                                    sc.arc(0, 0, w * 0.44, 0, Math.PI * 2);
+                                                    sc.fill();
+                                                    sc.restore();
+                                                }
+                                            }
+
+                                            // 1. Real Optical Liquid Glass Droplet Sphere (`flatInner: 0` = spherical droplet refraction)
+                                            GGlass {
+                                                anchors.fill: parent
+                                                gx: hubg
+                                                cornerR: podNode.orbD / 2
+                                                thickness: podNode.isCenter ? 26 : 21
+                                                strengthMul: 1.45
+                                                tintMul: 0.72
+                                                flatInner: 0
+                                                shadowAmt: 0.58
+                                            }
+
+                                            // 2. Pure Water-Droplet Specular Fresnel Sheen (zero dark muddiness)
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: podNode.orbD / 2
+                                                gradient: Gradient {
+                                                    GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, ccPal.dark ? 0.24 : 0.36) }
+                                                    GradientStop { position: 0.42; color: Qt.rgba(1, 1, 1, 0.02) }
+                                                    GradientStop { position: 1.0; color: Qt.rgba(budsHeroSlot.modeColor.r, budsHeroSlot.modeColor.g, budsHeroSlot.modeColor.b, 0.14) }
+                                                }
+                                            }
+
+                                            // 3. Outer Specular Glass Rim + Subtle Inner Fresnel Ring
+                                            CornerBorder {
+                                                z: 2
+                                                anchors.fill: parent
+                                                cornerR: podNode.orbD / 2
+                                                dark: hubg.dark
+                                                tint: podMa.containsMouse ? budsHeroSlot.modeColor : root.menuBorderColor
+                                                amount: 1
+                                                lineW: podNode.isCenter ? 1.25 : 1.05
+                                            }
+
+                                            // 4. Precision Dual-Tone Gradient Shimmer / Circular Battery Bezel
+                                            Canvas {
+                                                id: podRingCanvas
+                                                anchors.fill: parent
+                                                anchors.margins: 3
+                                                antialiasing: true
+                                                property real rPhase: budsStage.wavePhase
+                                                property real rPct: podNode.pct
+                                                property bool liveBat: podNode.hasVal || root.earbudsState.connected
+                                                property color rCol: budsHeroSlot.modeColor
+                                                property color rCol2: budsHeroSlot.modeColor2
+                                                onRPhaseChanged: if (!liveBat) requestPaint()
+                                                onRPctChanged: requestPaint()
+                                                onLiveBatChanged: requestPaint()
+                                                onRColChanged: requestPaint()
+                                                onRCol2Changed: requestPaint()
+                                                onPaint: {
+                                                    var c = getContext("2d");
+                                                    c.reset();
+                                                    var cxR = width / 2, cyR = height / 2;
+                                                    var rad = Math.min(width, height) / 2 - 2;
+                                                    c.lineCap = "round";
+
+                                                    // Fine recessed inner bezel track
+                                                    c.lineWidth = 1.6;
+                                                    c.strokeStyle = Qt.rgba(1, 1, 1, ccPal.dark ? 0.10 : 0.22);
+                                                    c.beginPath();
+                                                    c.arc(cxR, cyR, rad, 0, Math.PI * 2);
+                                                    c.stroke();
+
+                                                    if (liveBat) {
+                                                        var bCol = rPct <= 15 ? "#FF453A" : "#30D158";
+                                                        c.lineWidth = 2.4;
+                                                        c.strokeStyle = bCol;
+                                                        c.beginPath();
+                                                        c.arc(cxR, cyR, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (rPct / 100));
+                                                        c.stroke();
+                                                    } else {
+                                                        // Dual-tone gradient liquid-light shimmer arc + specular tip jewel
+                                                        var a0 = rPhase * (podNode.isCenter ? -0.78 : 0.96) + podNode.modelData.side * 1.4;
+                                                        var a1 = a0 + 1.95;
+                                                        var rg = c.createLinearGradient(cxR + Math.cos(a0) * rad, cyR + Math.sin(a0) * rad,
+                                                                                        cxR + Math.cos(a1) * rad, cyR + Math.sin(a1) * rad);
+                                                        rg.addColorStop(0.0, Qt.rgba(rCol2.r, rCol2.g, rCol2.b, 0.10));
+                                                        rg.addColorStop(0.55, Qt.rgba(rCol.r, rCol.g, rCol.b, 0.72));
+                                                        rg.addColorStop(1.0, Qt.rgba(1, 1, 1, 0.90));
+                                                        c.lineWidth = 2.2;
+                                                        c.strokeStyle = rg;
+                                                        c.beginPath();
+                                                        c.arc(cxR, cyR, rad, a0, a1);
+                                                        c.stroke();
+                                                    }
+                                                }
+                                            }
+
+                                            // 5. High-Clarity 3D Studio-Lit Galaxy Buds 4 Vector Artwork
+                                            BudsPodArt {
+                                                z: 2
+                                                anchors.centerIn: parent
+                                                width: podNode.isCenter ? 35 : 28
+                                                height: width
+                                                kind: podNode.modelData.kind
+                                                color: ccPal.fg
+                                                accentColor: root.earbudsState.connected ? "#30D158" : budsHeroSlot.modeColor
+                                            }
+
+                                            // 6. Minimalist Frosted Status Micro-Pill Below Contact Shadow
+                                            Rectangle {
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                y: parent.height + 7
+                                                width: podBadgeLbl.implicitWidth + 14
+                                                height: 17; radius: 8.5
+                                                color: ccPal.dark ? Qt.rgba(1, 1, 1, podMa.containsMouse ? 0.18 : 0.09)
+                                                                  : Qt.rgba(0, 0, 0, podMa.containsMouse ? 0.12 : 0.06)
+                                                border.width: 0.65
+                                                border.color: Qt.rgba(1, 1, 1, ccPal.dark ? 0.17 : 0.32)
+
+                                                Text {
+                                                    id: podBadgeLbl
+                                                    anchors.centerIn: parent
+                                                    text: (podNode.hasVal || root.earbudsState.connected)
+                                                          ? (podNode.modelData.shortTag + " · " + Math.round(podNode.pct) + "%")
+                                                          : podNode.modelData.fullTag
+                                                    color: (podNode.hasVal || root.earbudsState.connected || podMa.containsMouse) ? ccPal.fg : ccPal.fg2
+                                                    opacity: (podNode.hasVal || root.earbudsState.connected || podMa.containsMouse) ? 0.96 : 0.80
+                                                    font.family: root.fontForWeight(Font.DemiBold, ccPal.fam)
+                                                    font.pixelSize: 10; font.weight: Font.DemiBold
+                                                    font.letterSpacing: 0.25
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: podMa
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: budsStage.triggerSplash()
+                                            }
+                                        }
+                                    }
+
+                                    // ── Z-Strata 3 (Foreground Pass): Near-Side 3D Orbiting Light Droplets Passing IN FRONT of Orbs ──
+                                    Canvas {
+                                        id: frontOrbitCanvas
+                                        z: 4
+                                        anchors.fill: parent
+                                        enabled: false
+                                        antialiasing: true
+                                        property color mCol: budsHeroSlot.modeColor
+                                        property bool sp360: root.earbudsState.spatial360
+                                        property real pTiltX: budsHeroSlot.tiltX
+                                        property real pTiltY: budsHeroSlot.tiltY
+                                        onMColChanged: requestPaint()
+                                        onSp360Changed: requestPaint()
+                                        onPTiltXChanged: requestPaint()
+                                        onPTiltYChanged: requestPaint()
+                                        onPaint: {
+                                            var ctx = getContext("2d");
+                                            ctx.reset();
+                                            var cx = width / 2 - pTiltX * 3.4;
+                                            var cy = 62 - pTiltY * 2.2;
+                                            var ph = budsStage.wavePhase;
+                                            var col = mCol;
+                                            var orbRx = 98, orbRy = 27;
+
+                                            // Near-half (sin > 0) 3D foreground comet tails & luminous water droplets
+                                            for (var m = 0; m < 3; m++) {
+                                                var headA = ph * 0.95 + m * (Math.PI * 2 / 3);
+                                                for (var seg = 0; seg < 9; seg++) {
+                                                    var ta0 = headA - seg * 0.065;
+                                                    var ta1 = headA - (seg + 1) * 0.065;
+                                                    if (Math.sin(ta0) > 0.0) {
+                                                        var nearBoost = Math.sin(ta0);
+                                                        ctx.beginPath();
+                                                        ctx.moveTo(cx + Math.cos(ta0) * orbRx, cy + Math.sin(ta0) * orbRy);
+                                                        ctx.lineTo(cx + Math.cos(ta1) * orbRx, cy + Math.sin(ta1) * orbRy);
+                                                        ctx.lineWidth = (1.5 * (1 - seg / 9)) * (0.75 + 0.35 * nearBoost);
+                                                        ctx.strokeStyle = Qt.rgba(col.r, col.g, col.b, 0.28 * (1 - seg / 9) * (0.65 + 0.35 * nearBoost));
+                                                        ctx.stroke();
+                                                    }
+                                                }
+                                                if (Math.sin(headA) > 0.0) {
+                                                    var hx = cx + Math.cos(headA) * orbRx;
+                                                    var hy = cy + Math.sin(headA) * orbRy;
+                                                    ctx.beginPath();
+                                                    ctx.arc(hx, hy, 3.6, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.14);
+                                                    ctx.fill();
+                                                    ctx.beginPath();
+                                                    ctx.arc(hx, hy, 1.5, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(1, 1, 1, 0.85);
+                                                    ctx.fill();
+                                                }
+                                            }
+
+                                            // Front half of tilted 360° Spatial Audio gyroscopic orbit ring
+                                            if (sp360) {
+                                                ctx.save();
+                                                ctx.translate(cx, cy);
+                                                ctx.rotate(-0.26);
+                                                ctx.beginPath();
+                                                for (var s3 = 0; s3 <= 28; s3++) {
+                                                    var sa = (s3 / 56) * Math.PI * 2;
+                                                    var sx = Math.cos(sa) * 80;
+                                                    var sy = Math.sin(sa) * 33;
+                                                    if (s3 === 0) ctx.moveTo(sx, sy);
+                                                    else ctx.lineTo(sx, sy);
+                                                }
+                                                ctx.lineWidth = 1.35;
+                                                ctx.strokeStyle = Qt.rgba(0.22, 0.74, 0.97, 0.45);
+                                                ctx.stroke();
+                                                var nodeA = -ph * 1.4;
+                                                if (Math.sin(nodeA) >= -0.05) {
+                                                    ctx.beginPath();
+                                                    ctx.arc(Math.cos(nodeA) * 80, Math.sin(nodeA) * 33, 2.7, 0, Math.PI * 2);
+                                                    ctx.fillStyle = "#38BDF8";
+                                                    ctx.fill();
+                                                }
+                                                ctx.restore();
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // ── Bottom Control: Native MacShell `GlassSegmented` Water-Droplet Stretching Noise Control ──
+                                // Clicking OR dragging across Off · Ambient · ANC · Adaptive melts the marker into a stretching,
+                                // refractive Liquid Glass water-droplet lens that magnifies the words underneath!
+                                GlassSegmented {
+                                    z: 4
+                                    x: 12; y: 200
+                                    height: 36
+                                    segWidth: (budsHeroSlot.width - 28) / 4
+                                    readonly property var modeIds: ["off", "ambient", "adaptive", "anc"]
+                                    model: ["Off", "Ambient", "Adaptive", "ANC"]
+                                    current: Math.max(0, modeIds.indexOf(budsHeroSlot.ncMode))
+                                    onPicked: i => {
+                                        budsStage.triggerSplash();
+                                        root.earbudsAction("set-mode", modeIds[i]);
+                                    }
+                                    dark: ccPal.dark
+                                    textColor: ccPal.fg
+                                    fontFamily: ccPal.fam
+                                    fontSize: 12
+                                    trackColor: ccPal.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06)
+                                    trackBorder: ccPal.dark ? Qt.rgba(1, 1, 1, 0.13) : Qt.rgba(0, 0, 0, 0.08)
+                                    dividerColor: ccPal.dark ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(0, 0, 0, 0.12)
+                                    pillColor: ccPal.dark ? Qt.rgba(1, 1, 1, 0.23) : "#FFFFFF"
+                                    baseColor: ccPal.dark ? "#1E222B" : "#F2F4F8"
+                                    glass: root.liquidActive
+                                    shaderUrl: root.glassShaderUrl
+                                    glassLiquid: root.glassLiquid
+                                    glassRim: root.glassRim
+                                    glassGrain: root.glassGrain
+                                    glassTint: root.glassOpacity
+                                    borderTint: root.menuBorderColor
+                                    lensStrength: 0.36
+                                    onGlassFailed: root.glassState = "failed"
+                                }
+                            }
+                        }
+
+                        // ════════════════════════════════════════════════════════════════
+                        // BENTO ROW 2: 360° SPATIAL AUDIO & SAMSUNG GAMING MODE CAPSULES
+                        // ════════════════════════════════════════════════════════════════
+                        Row {
+                            width: parent.width
+                            spacing: 8
+
+                            HubBento {
+                                seq: hubPop.openSeq; row: 2; col: 0; cornerR: 33
+                                width: hubCol.halfW; height: 66
+
+                                CCTile {
+                                    id: sp360Tile
+                                    anchors.fill: parent
+                                    t: ccPal; gx: hubg; radius: 33
+                                    clickable: true
+                                    on: root.earbudsState.spatial360
+                                    onClicked: {
+                                        budsStage.triggerSplash();
+                                        root.earbudsAction("toggle-360");
+                                    }
+
+                                    CCBtn {
+                                        plain: true
+                                        t: ccPal; gx: hubg
+                                        x: 12; anchors.verticalCenter: parent.verticalCenter
+                                        kind: "headphones"
+                                        on: root.earbudsState.spatial360
+                                    }
+                                    Column {
+                                        x: 60; anchors.verticalCenter: parent.verticalCenter
+                                        width: parent.width - 70
+                                        spacing: 1
+                                        Text {
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: "360° Audio"
+                                            color: sp360Tile.fg
+                                            font.family: root.fontForWeight(Font.DemiBold, ccPal.fam)
+                                            font.pixelSize: 13; font.weight: Font.DemiBold
+                                        }
+                                        MorphText {
+                                            animateWidth: false; duration: 320
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: root.earbudsState.spatial360 ? "Binaural On" : "Off"
+                                            color: sp360Tile.fg2
+                                            font.family: root.fontForWeight(Font.Normal, ccPal.fam); font.pixelSize: 12
+                                        }
+                                    }
+                                }
+                            }
+
+                            HubBento {
+                                seq: hubPop.openSeq; row: 2; col: 1; cornerR: 33
+                                width: hubCol.halfW; height: 66
+
+                                CCTile {
+                                    id: gameSyncTile
+                                    anchors.fill: parent
+                                    t: ccPal; gx: hubg; radius: 33
+                                    clickable: true
+                                    on: root.earbudsState.lowLatency
+                                    onTint: "#30D158"
+                                    onClicked: root.earbudsAction("toggle-latency")
+
+                                    CCBtn {
+                                        plain: true
+                                        t: ccPal; gx: hubg
+                                        x: 12; anchors.verticalCenter: parent.verticalCenter
+                                        kind: "gamepad"
+                                        on: root.earbudsState.lowLatency
+                                        onTint: "#30D158"
+                                    }
+                                    Column {
+                                        x: 60; anchors.verticalCenter: parent.verticalCenter
+                                        width: parent.width - 70
+                                        spacing: 1
+                                        Text {
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: "Gaming Mode"
+                                            color: gameSyncTile.fg
+                                            font.family: root.fontForWeight(Font.DemiBold, ccPal.fam)
+                                            font.pixelSize: 13; font.weight: Font.DemiBold
+                                        }
+                                        MorphText {
+                                            animateWidth: false; duration: 320
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: root.earbudsState.lowLatency ? "Low Latency" : "Off"
+                                            color: gameSyncTile.fg2
+                                            font.family: root.fontForWeight(Font.Normal, ccPal.fam); font.pixelSize: 12
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ════════════════════════════════════════════════════════════════
+                        // BENTO ROW 3: EQUALIZER SPECTRUM CAPSULE + ROUND TOUCH-LOCK BUTTON
+                        // ════════════════════════════════════════════════════════════════
+                        Row {
+                            width: parent.width
+                            spacing: 8
+
+                            HubBento {
+                                seq: hubPop.openSeq; row: 3; col: 0; cornerR: 32
+                                width: parent.width - 72; height: 64
+
+                                CCTile {
+                                    id: eqBentoTile
+                                    anchors.fill: parent
+                                    t: ccPal; gx: hubg; radius: 32
+                                    clickable: true
+                                    onClicked: root.earbudsEqExpanded = !root.earbudsEqExpanded
+
+                                    // 40×40 Spherical Liquid Glass 5-Band Spectrum Medallion (morphs live with active EQ preset!)
+                                    Item {
+                                        id: eqOrbMedallion
+                                        x: 12; anchors.verticalCenter: parent.verticalCenter
+                                        width: 40; height: 40
+
+                                        property real pop: 0
+                                        Connections {
+                                            target: eqStudioSlot
+                                            function onPresetNameChanged() { eqOrbPopAnim.restart(); }
+                                        }
+                                        SequentialAnimation {
+                                            id: eqOrbPopAnim
+                                            NumberAnimation { target: eqOrbMedallion; property: "pop"; to: 1; duration: 110; easing.type: Easing.OutCubic }
+                                            NumberAnimation { target: eqOrbMedallion; property: "pop"; to: 0; duration: 380; easing.type: Easing.OutBack; easing.overshoot: 2.5 }
+                                        }
+                                        scale: 1 - 0.15 * pop
+
+                                        GGlass {
+                                            anchors.fill: parent
+                                            gx: hubg
+                                            cornerR: 20
+                                            thickness: 18
+                                            strengthMul: 1.32
+                                            tintMul: 0.72
+                                            flatInner: 0
+                                            shadowAmt: 0.42
+                                        }
+
+                                        Canvas {
+                                            anchors.fill: parent
+                                            antialiasing: true
+                                            property real ph: budsStage.wavePhase
+                                            property color c1: eqStudioSlot.eqCol1
+                                            property color c2: eqStudioSlot.eqCol2
+                                            property real v0: eqStudioSlot.b0
+                                            property real v1: eqStudioSlot.b1
+                                            property real v2: eqStudioSlot.b3
+                                            property real v3: eqStudioSlot.b5
+                                            property real v4: eqStudioSlot.b6
+                                            onPhChanged: requestPaint()
+                                            onC1Changed: requestPaint()
+                                            onC2Changed: requestPaint()
+                                            onV0Changed: requestPaint()
+                                            onV2Changed: requestPaint()
+                                            onV4Changed: requestPaint()
+                                            onPaint: {
+                                                var ctx = getContext("2d");
+                                                ctx.reset();
+                                                var cx = width / 2, cy = height / 2;
+                                                ctx.save();
+                                                ctx.beginPath();
+                                                ctx.arc(cx, cy, 18.6, 0, Math.PI * 2);
+                                                ctx.clip();
+
+                                                // Swirling dual-tone EQ mood aurora inside the glass sphere
+                                                var lx = cx + Math.cos(ph * 1.15) * 5.2;
+                                                var ly = cy + Math.sin(ph * 1.15) * 5.2;
+                                                var g1 = ctx.createRadialGradient(lx, ly, 1, lx, ly, 16);
+                                                g1.addColorStop(0.0, Qt.rgba(c1.r, c1.g, c1.b, 0.65));
+                                                g1.addColorStop(1.0, Qt.rgba(c1.r, c1.g, c1.b, 0.0));
+                                                ctx.fillStyle = g1;
+                                                ctx.fillRect(0, 0, width, height);
+
+                                                var lx2 = cx + Math.cos(-ph * 0.95 + 2.0) * 5.5;
+                                                var ly2 = cy + Math.sin(-ph * 0.95 + 2.0) * 5.5;
+                                                var g2 = ctx.createRadialGradient(lx2, ly2, 1, lx2, ly2, 15);
+                                                g2.addColorStop(0.0, Qt.rgba(c2.r, c2.g, c2.b, 0.55));
+                                                g2.addColorStop(1.0, Qt.rgba(c2.r, c2.g, c2.b, 0.0));
+                                                ctx.fillStyle = g2;
+                                                ctx.fillRect(0, 0, width, height);
+
+                                                // Top-left spherical droplet specular sheen
+                                                var sh = ctx.createRadialGradient(cx - 5.5, cy - 7.5, 0.5, cx - 4, cy - 5.5, 12.5);
+                                                sh.addColorStop(0.0, Qt.rgba(1, 1, 1, 0.32));
+                                                sh.addColorStop(1.0, Qt.rgba(1, 1, 1, 0.0));
+                                                ctx.fillStyle = sh;
+                                                ctx.fillRect(0, 0, width, height);
+
+                                                // 5 sculpted rounded EQ spectrum bars reflecting the active frequency curve
+                                                var vals = [v0, v1, v2, v3, v4];
+                                                ctx.lineCap = "round";
+                                                ctx.lineWidth = 2.15;
+                                                ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.95);
+                                                for (var bi = 0; bi < 5; bi++) {
+                                                    var bx = cx + (bi - 2) * 3.65;
+                                                    var wob = 1.1 * Math.sin(ph * 2.2 + bi * 0.9);
+                                                    var bh = Math.max(3.4, Math.min(15.5, 7.6 + vals[bi] * 5.8 + wob));
+                                                    ctx.beginPath();
+                                                    ctx.moveTo(bx, cy - bh / 2);
+                                                    ctx.lineTo(bx, cy + bh / 2);
+                                                    ctx.stroke();
+                                                }
+                                                ctx.restore();
+                                            }
+                                        }
+
+                                        CornerBorder {
+                                            z: 2
+                                            anchors.fill: parent
+                                            cornerR: 20
+                                            dark: hubg.dark
+                                            tint: root.menuBorderColor
+                                            amount: 1
+                                            lineW: 1.0
+                                        }
+                                    }
+
+                                    Column {
+                                        x: 60; anchors.verticalCenter: parent.verticalCenter
+                                        width: parent.width - 102
+                                        spacing: 1
+                                        Text {
+                                            text: "Equalizer"
+                                            color: ccPal.fg
+                                            font.family: root.fontForWeight(Font.DemiBold, ccPal.fam)
+                                            font.pixelSize: 13; font.weight: Font.DemiBold
+                                        }
+                                        MorphText {
+                                            animateWidth: false; duration: 320
+                                            width: parent.width; elide: Text.ElideRight
+                                            text: eqStudioSlot.presetName
+                                            color: ccPal.fg2
+                                            opacity: 0.78
+                                            font.family: root.fontForWeight(Font.Normal, ccPal.fam); font.pixelSize: 11
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        anchors.right: parent.right; anchors.rightMargin: 14
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 24; height: 24; radius: 12
+                                        color: ccPal.dark ? Qt.rgba(1, 1, 1, root.earbudsEqExpanded ? 0.14 : 0.07)
+                                                          : Qt.rgba(0, 0, 0, root.earbudsEqExpanded ? 0.10 : 0.05)
+                                        border.width: 0.6
+                                        border.color: Qt.rgba(1, 1, 1, ccPal.dark ? 0.14 : 0.25)
+                                        Glyph {
+                                            anchors.centerIn: parent
+                                            width: 10; height: 10
+                                            kind: "chevR"
+                                            rotation: root.earbudsEqExpanded ? 90 : 0
+                                            Behavior on rotation { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: 1.9 } }
+                                            color: root.earbudsEqExpanded ? ccPal.fg : ccPal.fg2
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 1-Cell Circle Button: Touchpad Lock (turns solid white when locked, exact Control Center circle tile!)
+                            HubBento {
+                                seq: hubPop.openSeq; row: 3; col: 1; cornerR: 32
+                                width: 64; height: 64
+
+                                CCTile {
+                                    anchors.fill: parent
+                                    t: ccPal; gx: hubg; radius: 32
+                                    clickable: true
+                                    on: root.earbudsState.touchLock
+                                    onClicked: root.earbudsAction("toggle-touch")
+
+                                    CCBtn {
+                                        plain: true
+                                        t: ccPal; gx: hubg
+                                        anchors.centerIn: parent
+                                        kind: "lock"
+                                        on: root.earbudsState.touchLock
+                                    }
+                                }
+                            }
+                        }
+
+                        // ════════════════════════════════════════════════════════════════
+                        // BENTO ROW 4: MINIMAL TAHOE 2D WATER-DROPLET EQUALIZER DROPDOWN
+                        // ════════════════════════════════════════════════════════════════
+                        HubBento {
+                            id: eqStudioSlot
+                            seq: hubPop.openSeq; row: 4; col: 0; cornerR: 21
+                            width: parent.width
+                            readonly property real fullEqH: 72
+                            property real openP: root.earbudsEqExpanded ? 1 : 0
+                            Behavior on openP {
+                                NumberAnimation {
+                                    duration: root.earbudsEqExpanded ? 380 : 210
+                                    easing.type: root.earbudsEqExpanded ? Easing.OutBack : Easing.OutCubic
+                                    easing.overshoot: 1.14
+                                }
+                            }
+                            height: Math.max(0, Math.round(fullEqH * Math.min(1.0, openP)))
+                            visible: openP > 0.008
+                            glow: openP > 0.92
+
+                            readonly property var eqList: root.earbudsState.supportedEq || ["Normal", "Bass Boost", "Soft", "Dynamic", "Clear", "Treble Boost"]
+                            readonly property string presetName: root.earbudsState.eqPreset || "Dynamic"
+                            readonly property int activeIdx: Math.max(0, eqList.indexOf(presetName))
+
+                            // Drives the 40×40 5-band spectrum medallion (`eqOrbMedallion`) on the collapsed Equalizer capsule above
+                            readonly property var eqProfiles: ({
+                                "Normal":       { c1: "#94A3B8", c2: "#CBD5E1", b: [ 0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00] },
+                                "Bass Boost":   { c1: "#FB7185", c2: "#F59E0B", b: [ 0.92,  0.76,  0.32, -0.06,  0.04,  0.10,  0.08] },
+                                "Soft":         { c1: "#34D399", c2: "#2DD4BF", b: [ 0.24,  0.32,  0.18, -0.06, -0.26, -0.46, -0.58] },
+                                "Dynamic":      { c1: "#38BDF8", c2: "#A78BFA", b: [ 0.82,  0.54, -0.18, -0.10,  0.38,  0.74,  0.86] },
+                                "Clear":        { c1: "#22D3EE", c2: "#60A5FA", b: [-0.26, -0.14,  0.20,  0.70,  0.86,  0.52,  0.30] },
+                                "Treble Boost": { c1: "#C084FC", c2: "#F472B6", b: [-0.14, -0.08,  0.04,  0.24,  0.60,  0.86,  0.96] }
+                            })
+                            readonly property var curProf: eqProfiles[presetName] || eqProfiles["Dynamic"]
+
+                            property color eqCol1: curProf.c1
+                            property color eqCol2: curProf.c2
+                            Behavior on eqCol1 { ColorAnimation { duration: 380; easing.type: Easing.OutCubic } }
+                            Behavior on eqCol2 { ColorAnimation { duration: 380; easing.type: Easing.OutCubic } }
+
+                            property real b0: curProf.b[0]
+                            property real b1: curProf.b[1]
+                            property real b3: curProf.b[3]
+                            property real b5: curProf.b[5]
+                            property real b6: curProf.b[6]
+                            Behavior on b0 { NumberAnimation { duration: 420; easing.type: Easing.OutBack; easing.overshoot: 1.45 } }
+                            Behavior on b1 { NumberAnimation { duration: 420; easing.type: Easing.OutBack; easing.overshoot: 1.45 } }
+                            Behavior on b3 { NumberAnimation { duration: 420; easing.type: Easing.OutBack; easing.overshoot: 1.45 } }
+                            Behavior on b5 { NumberAnimation { duration: 420; easing.type: Easing.OutBack; easing.overshoot: 1.45 } }
+                            Behavior on b6 { NumberAnimation { duration: 420; easing.type: Easing.OutBack; easing.overshoot: 1.45 } }
+
+                            Item {
+                                id: eqCardBody
+                                width: parent.width
+                                height: eqStudioSlot.fullEqH
+                                y: -(1 - Math.min(1.0, eqStudioSlot.openP)) * 10
+                                scale: 0.95 + 0.05 * eqStudioSlot.openP
+                                transformOrigin: Item.Top
+                                opacity: Math.max(0, Math.min(1, eqStudioSlot.openP * 1.35))
+
+                                // Optical water-coalescing focus pull during unfold/fold (matches `hubPop` & `volPop`)
+                                readonly property bool unfolding: eqStudioSlot.openP > 0.01 && Math.abs(eqStudioSlot.openP - 1) > 0.012
+                                layer.enabled: unfolding
+                                layer.smooth: true
+                                layer.effect: MultiEffect {
+                                    blurEnabled: true
+                                    blurMax: 24
+                                    blur: Math.pow(Math.max(0, 1 - Math.min(1, eqStudioSlot.openP)), 1.35) * 0.65
+                                    autoPaddingEnabled: true
+                                }
+
+                                CCTile {
+                                    anchors.fill: parent
+                                    t: ccPal; gx: hubg; radius: 21
+
+                                    // Borderless 2D Tahoe Segmented Water Surface (exact 2D sibling of `GlassSegmented.qml`)
+                                    Item {
+                                        id: eqSeg2D
+                                        x: 5; y: 5
+                                        width: parent.width - 10
+                                        height: parent.height - 10
+
+                                        readonly property real colGap: 2
+                                        readonly property real rowGap: 2
+                                        readonly property real cellW: (width - colGap * 2) / 3
+                                        readonly property real cellH: (height - rowGap) / 2
+                                        readonly property int count: eqStudioSlot.eqList.length
+
+                                        function cellX(i) { return (i % 3) * (cellW + colGap); }
+                                        function cellY(i) { return Math.floor(i / 3) * (cellH + rowGap); }
+
+                                        // 4 independent edges for 2D viscous surface-tension stretching
+                                        property real pL: 0
+                                        property real pR: 100
+                                        property real pT: 0
+                                        property real pB: 30
+                                        property int tgtIdx: eqStudioSlot.activeIdx
+                                        property int hovIdx: -1
+                                        property bool ready: false
+                                        property bool dragging: false
+
+                                        // Water-droplet refraction state: swells into pure magnifying Liquid Glass while touched or sliding
+                                        property bool hold: false
+                                        readonly property bool glassOn: eqMa.pressed || hold
+                                        property real pressT: glassOn ? 1 : 0
+                                        Behavior on pressT {
+                                            NumberAnimation {
+                                                duration: eqSeg2D.glassOn ? 400 : 320
+                                                easing.type: Easing.OutBack
+                                                easing.overshoot: 2.2
+                                            }
+                                        }
+                                        Timer { id: eqHoldT; interval: 480; onTriggered: eqSeg2D.hold = false }
+
+                                        // Subtle clear-water meniscus ripple ring on selection
+                                        property real ripP: 1
+                                        property int ripIdx: 0
+                                        NumberAnimation {
+                                            id: eqRipAnim
+                                            target: eqSeg2D; property: "ripP"
+                                            from: 0; to: 1; duration: 440
+                                            easing.type: Easing.OutCubic
+                                        }
+                                        function triggerRipple(i) { ripIdx = i; eqRipAnim.restart(); }
+
+                                        NumberAnimation { id: animEqL; target: eqSeg2D; property: "pL" }
+                                        NumberAnimation { id: animEqR; target: eqSeg2D; property: "pR" }
+                                        NumberAnimation { id: animEqT; target: eqSeg2D; property: "pT" }
+                                        NumberAnimation { id: animEqB; target: eqSeg2D; property: "pB" }
+
+                                        function snapTo(i) {
+                                            var idx = Math.max(0, Math.min(count - 1, i));
+                                            tgtIdx = idx;
+                                            pL = cellX(idx); pR = pL + cellW;
+                                            pT = cellY(idx); pB = pT + cellH;
+                                        }
+
+                                        function settleTo(i) {
+                                            if (i < 0 || i >= count) return;
+                                            var tl = cellX(i), tr = tl + cellW;
+                                            var tt = cellY(i), tb = tt + cellH;
+                                            if (!ready || cellW <= 1) { snapTo(i); return; }
+                                            tgtIdx = i;
+                                            var moveRight = tr >= pR;
+                                            var moveDown = tb >= pB;
+                                            animEqL.stop(); animEqR.stop(); animEqT.stop(); animEqB.stop();
+
+                                            var leadX = moveRight ? animEqR : animEqL;
+                                            var trailX = moveRight ? animEqL : animEqR;
+                                            leadX.duration = 285;  leadX.easing.type = Easing.OutBack;  leadX.easing.overshoot = 1.55;
+                                            trailX.duration = 430; trailX.easing.type = Easing.OutBack; trailX.easing.overshoot = 0.85;
+
+                                            var leadY = moveDown ? animEqB : animEqT;
+                                            var trailY = moveDown ? animEqT : animEqB;
+                                            leadY.duration = 285;  leadY.easing.type = Easing.OutBack;  leadY.easing.overshoot = 1.45;
+                                            trailY.duration = 420; trailY.easing.type = Easing.OutBack; trailY.easing.overshoot = 0.85;
+
+                                            animEqL.to = tl; animEqR.to = tr;
+                                            animEqT.to = tt; animEqB.to = tb;
+                                            animEqL.start(); animEqR.start();
+                                            animEqT.start(); animEqB.start();
+                                        }
+
+                                        function commit(i) {
+                                            var idx = Math.max(0, Math.min(count - 1, i));
+                                            hold = true; eqHoldT.restart();
+                                            if (idx !== tgtIdx) triggerRipple(idx);
+                                            settleTo(idx);
+                                            if (idx !== eqStudioSlot.activeIdx) {
+                                                root.earbudsAction("set-eq", eqStudioSlot.eqList[idx]);
+                                            }
+                                        }
+
+                                        onWidthChanged: if (ready && !animEqL.running && !animEqR.running && !dragging && !eqMa.pressed) snapTo(eqStudioSlot.activeIdx)
+                                        Component.onCompleted: Qt.callLater(function() { snapTo(eqStudioSlot.activeIdx); ready = true; })
+
+                                        Connections {
+                                            target: eqStudioSlot
+                                            function onActiveIdxChanged() {
+                                                if (!eqSeg2D.ready || eqSeg2D.dragging || eqMa.pressed) return;
+                                                if (eqStudioSlot.activeIdx === eqSeg2D.tgtIdx && (animEqL.running || animEqT.running)) return;
+                                                eqSeg2D.hold = true; eqHoldT.restart();
+                                                eqSeg2D.triggerRipple(eqStudioSlot.activeIdx);
+                                                eqSeg2D.settleTo(eqStudioSlot.activeIdx);
+                                            }
+                                        }
+
+                                        // 1. Whisper-faint 1px vertical dividers between unselected neighbors (auto-dissolve next to active droplet)
+                                        Repeater {
+                                            model: 4
+                                            delegate: Rectangle {
+                                                required property int index
+                                                readonly property int rowIdx: Math.floor(index / 2)
+                                                readonly property int colIdx: index % 2
+                                                readonly property int leftCell: rowIdx * 3 + colIdx
+                                                readonly property int rightCell: leftCell + 1
+                                                width: 1; height: 13
+                                                x: Math.round(eqSeg2D.cellX(leftCell) + eqSeg2D.cellW + eqSeg2D.colGap * 0.5)
+                                                y: Math.round(eqSeg2D.cellY(leftCell) + (eqSeg2D.cellH - height) / 2)
+                                                color: ccPal.dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.11)
+                                                opacity: (eqSeg2D.tgtIdx === leftCell || eqSeg2D.tgtIdx === rightCell) ? 0 : 1
+                                                Behavior on opacity { NumberAnimation { duration: 200 } }
+                                            }
+                                        }
+
+                                        // 2. Monochrome translucent water-meniscus ripple ring
+                                        Rectangle {
+                                            visible: eqSeg2D.ripP < 0.99
+                                            x: eqSeg2D.cellX(eqSeg2D.ripIdx)
+                                            y: eqSeg2D.cellY(eqSeg2D.ripIdx)
+                                            width: eqSeg2D.cellW; height: eqSeg2D.cellH
+                                            radius: height / 2
+                                            scale: 0.86 + 0.22 * eqSeg2D.ripP
+                                            color: "transparent"
+                                            border.width: 1
+                                            border.color: Qt.rgba(1, 1, 1, (ccPal.dark ? 0.20 : 0.32) * (1 - eqSeg2D.ripP))
+                                        }
+
+                                        // 3. The 2D Water-Droplet Marker: calm monochrome capsule at rest, magnifying Liquid Glass lens while moving
+                                        Item {
+                                            id: eqMarker
+                                            z: 2
+                                            readonly property real gw: 4.5
+                                            readonly property real gh: 2.2
+                                            x: eqSeg2D.pL - gw * eqSeg2D.pressT / 2
+                                            y: eqSeg2D.pT - gh * eqSeg2D.pressT / 2
+                                            width: Math.max(24, eqSeg2D.pR - eqSeg2D.pL + gw * eqSeg2D.pressT)
+                                            height: Math.max(20, eqSeg2D.pB - eqSeg2D.pT + gh * eqSeg2D.pressT)
+                                            readonly property real rad: Math.min(width, height) / 2
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: eqMarker.rad
+                                                color: ccPal.dark ? Qt.rgba(1, 1, 1, 0.23) : "#FFFFFF"
+                                                border.width: 1
+                                                border.color: ccPal.dark ? Qt.rgba(1, 1, 1, 0.09) : Qt.rgba(0, 0, 0, 0.08)
+                                                opacity: root.liquidActive ? Math.max(0, Math.min(1, 1 - eqSeg2D.pressT * 1.4)) : 1
+                                            }
+
+                                            Loader {
+                                                anchors.fill: parent
+                                                active: root.liquidActive && eqSeg2D.pressT > 0.02
+                                                opacity: Math.max(0, Math.min(1, eqSeg2D.pressT * 1.55))
+                                                sourceComponent: Item {
+                                                    GGlass {
+                                                        anchors.fill: parent
+                                                        gx: hubg
+                                                        cornerR: eqMarker.rad
+                                                        thickness: 20
+                                                        strengthMul: 1.52
+                                                        tintMul: 0.40
+                                                        flatInner: 1
+                                                        shadowAmt: 0.45
+                                                    }
+                                                    CornerBorder {
+                                                        z: 2
+                                                        anchors.fill: parent
+                                                        cornerR: eqMarker.rad
+                                                        dark: hubg.dark
+                                                        tint: root.menuBorderColor
+                                                        amount: 1
+                                                        lineW: 0.9
+                                                    }
+                                                    Rectangle {
+                                                        anchors.fill: parent
+                                                        radius: eqMarker.rad
+                                                        gradient: Gradient {
+                                                            GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, ccPal.dark ? 0.16 : 0.24) }
+                                                            GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0.02) }
+                                                            GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, ccPal.dark ? 0.05 : 0.09) }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // 4. Pure Minimalist Preset Typography (zero boxes, zero colored dots)
+                                        Repeater {
+                                            model: eqStudioSlot.eqList
+                                            delegate: Item {
+                                                z: 3
+                                                required property string modelData
+                                                required property int index
+                                                readonly property bool active: eqSeg2D.tgtIdx === index
+                                                readonly property bool hovered: eqSeg2D.hovIdx === index
+                                                x: eqSeg2D.cellX(index)
+                                                y: eqSeg2D.cellY(index)
+                                                width: eqSeg2D.cellW
+                                                height: eqSeg2D.cellH
+
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: modelData
+                                                    color: ccPal.fg
+                                                    opacity: active ? 1.0 : (hovered ? 0.98 : 0.86)
+                                                    Behavior on opacity { NumberAnimation { duration: 180 } }
+                                                    scale: active ? (1.0 + 0.03 * eqSeg2D.pressT) : 1.0
+                                                    font.family: root.fontForWeight(active ? Font.DemiBold : Font.Medium, ccPal.fam)
+                                                    font.pixelSize: 12
+                                                    font.weight: active ? Font.DemiBold : Font.Medium
+                                                }
+                                            }
+                                        }
+
+                                        // 5. Unified Click & 2D Viscous Water-Droplet Drag Surface
+                                        MouseArea {
+                                            id: eqMa
+                                            z: 4
+                                            anchors.fill: parent
+                                            anchors.margins: -3
+                                            hoverEnabled: true
+                                            preventStealing: true
+                                            cursorShape: Qt.PointingHandCursor
+
+                                            property real pressX: 0
+                                            property real pressY: 0
+                                            property real lastX: 0
+                                            property real lastY: 0
+                                            property real grabX: 0
+                                            property real grabY: 0
+                                            property real vx: 0
+                                            property real vy: 0
+
+                                            function pt(m) { return eqMa.mapToItem(eqSeg2D, m.x, m.y); }
+                                            function idxAt(px, py) {
+                                                var c = px < eqSeg2D.cellX(1) ? 0 : (px < eqSeg2D.cellX(2) ? 1 : 2);
+                                                var r = py < eqSeg2D.cellY(3) ? 0 : 1;
+                                                return Math.max(0, Math.min(eqSeg2D.count - 1, r * 3 + c));
+                                            }
+
+                                            onEntered: eqSeg2D.hovIdx = -1
+                                            onExited: eqSeg2D.hovIdx = -1
+
+                                            onPressed: mouse => {
+                                                eqHoldT.stop(); eqSeg2D.hold = false;
+                                                animEqL.stop(); animEqR.stop(); animEqT.stop(); animEqB.stop();
+                                                var p = pt(mouse);
+                                                pressX = p.x; pressY = p.y;
+                                                lastX = p.x;  lastY = p.y;
+                                                vx = 0; vy = 0;
+                                                var cx = (eqSeg2D.pL + eqSeg2D.pR) / 2;
+                                                var cy = (eqSeg2D.pT + eqSeg2D.pB) / 2;
+                                                var inside = Math.abs(p.x - cx) <= eqSeg2D.cellW * 0.6 && Math.abs(p.y - cy) <= eqSeg2D.cellH * 0.6;
+                                                grabX = inside ? (p.x - cx) : 0;
+                                                grabY = inside ? (p.y - cy) : 0;
+                                                eqSeg2D.dragging = false;
+                                            }
+
+                                            onPositionChanged: mouse => {
+                                                var p = pt(mouse);
+                                                eqSeg2D.hovIdx = idxAt(p.x, p.y);
+                                                if (!pressed) return;
+                                                if (!eqSeg2D.dragging && (Math.abs(p.x - pressX) > 4 || Math.abs(p.y - pressY) > 4)) {
+                                                    eqSeg2D.dragging = true;
+                                                }
+                                                if (!eqSeg2D.dragging) return;
+                                                var w = eqSeg2D.cellW, h = eqSeg2D.cellH;
+                                                var minCx = w / 2, maxCx = eqSeg2D.width - w / 2;
+                                                var minCy = h / 2, maxCy = eqSeg2D.height - h / 2;
+                                                var cx = Math.max(minCx, Math.min(maxCx, p.x - grabX));
+                                                var cy = Math.max(minCy, Math.min(maxCy, p.y - grabY));
+                                                vx = vx * 0.5 + (p.x - lastX) * 0.5;
+                                                vy = vy * 0.5 + (p.y - lastY) * 0.5;
+                                                lastX = p.x; lastY = p.y;
+                                                // Subtle viscous velocity stretch along drag vector
+                                                var sx = Math.min(6, Math.abs(vx) * 0.35);
+                                                var sy = Math.min(3, Math.abs(vy) * 0.25);
+                                                eqSeg2D.pL = cx - w / 2 - (vx < 0 ? sx : 0);
+                                                eqSeg2D.pR = cx + w / 2 + (vx > 0 ? sx : 0);
+                                                eqSeg2D.pT = cy - h / 2 - (vy < 0 ? sy : 0);
+                                                eqSeg2D.pB = cy + h / 2 + (vy > 0 ? sy : 0);
+                                                eqSeg2D.tgtIdx = idxAt(cx, cy);
+                                            }
+
+                                            onReleased: mouse => {
+                                                var p = pt(mouse);
+                                                var target = eqSeg2D.dragging
+                                                    ? idxAt((eqSeg2D.pL + eqSeg2D.pR) / 2 + vx * 4, (eqSeg2D.pT + eqSeg2D.pB) / 2 + vy * 4)
+                                                    : idxAt(p.x, p.y);
+                                                eqSeg2D.dragging = false;
+                                                eqSeg2D.commit(target);
+                                            }
+
+                                            onCanceled: {
+                                                eqSeg2D.dragging = false;
+                                                eqSeg2D.settleTo(eqStudioSlot.activeIdx);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

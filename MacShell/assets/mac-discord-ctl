@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""
+mac-discord-ctl: Discord / Vesktop voice stream & shortcut bridge for MacShell.
+
+Detects active Discord clients on Hyprland + PipeWire voice streams and synchronizes
+microphone mute, call audio deafen, and window focus / launch without requiring any
+Discord API tokens or plugins.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+CACHE_HOME = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+STATE_FILE = os.path.join(CACHE_HOME, "macshell-discord-state.json")
+
+CLIENT_NAMES = ("vesktop", "discord", "equibop", "legcord", "webcord", "armcord")
+
+
+def run_cmd(args, timeout=2.5):
+    try:
+        r = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=timeout,
+        )
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
+def get_discord_window():
+    raw = run_cmd(["hyprctl", "-j", "clients"], timeout=1.2)
+    if not raw:
+        return None
+    try:
+        clients = json.loads(raw)
+        for c in clients:
+            cls = (c.get("class") or "").lower()
+            title = (c.get("title") or "").lower()
+            if any(k in cls or k in title for k in CLIENT_NAMES):
+                return c
+    except Exception:
+        pass
+    return None
+
+
+def get_pw_state():
+    raw = run_cmd(["pw-dump"], timeout=1.5)
+    in_streams = []
+    out_streams = []
+    if raw:
+        try:
+            objs = json.loads(raw)
+            for o in objs:
+                if o.get("type") != "PipeWire:Interface:Node":
+                    continue
+                info = o.get("info") or {}
+                props = info.get("props") or {}
+                media_class = props.get("media.class", "")
+                if not media_class.startswith("Stream/"):
+                    continue
+                app_name = (props.get("application.name") or "").lower()
+                bin_name = (props.get("application.process.binary") or "").lower()
+                node_name = (props.get("node.name") or "").lower()
+                is_discord = (
+                    any(k in app_name or k in bin_name for k in CLIENT_NAMES)
+                    or "webrtc" in node_name
+                    or (bin_name == "electron" and "chromium" in app_name)
+                )
+                if not is_discord:
+                    continue
+
+                muted = False
+                vol = 1.0
+                params = info.get("params") or {}
+                for p in params.get("Props") or []:
+                    if "mute" in p:
+                        muted = bool(p["mute"])
+                    if "channelVolumes" in p and p["channelVolumes"]:
+                        v = float(p["channelVolumes"][0])
+                        vol = round(v ** (1.0 / 3.0), 2) if v > 0 else 0.0
+
+                entry = {
+                    "id": o.get("id"),
+                    "name": props.get("media.name") or props.get("node.description") or "Voice Audio",
+                    "muted": muted,
+                    "volume": vol,
+                    "state": info.get("state", ""),
+                }
+                if "Input" in media_class:
+                    in_streams.append(entry)
+                elif "Output" in media_class:
+                    out_streams.append(entry)
+        except Exception:
+            pass
+    return in_streams, out_streams
+
+
+def get_default_mic():
+    out = run_cmd(["wpctl", "get-volume", "@DEFAULT_AUDIO_SOURCE@"], timeout=0.8)
+    muted = "[MUTED]" in out
+    vol = 1.0
+    for part in out.split():
+        try:
+            vol = float(part)
+            break
+        except ValueError:
+            pass
+    return muted, vol
+
+
+def load_saved_state():
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"deafened": False, "muted": False}
+
+
+def save_state(st):
+    try:
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+    except Exception:
+        pass
+
+
+def get_status():
+    win = get_discord_window()
+    proc_running = bool(win) or bool(
+        run_cmd(["pgrep", "-fi", "|".join(CLIENT_NAMES)], timeout=0.6)
+    )
+    in_streams, out_streams = get_pw_state() if proc_running else ([], [])
+    mic_muted, mic_vol = get_default_mic()
+    st = load_saved_state()
+
+    in_call = len(in_streams) > 0
+    stream_muted = any(s["muted"] for s in in_streams) if in_streams else False
+    out_muted = all(s["muted"] for s in out_streams) if out_streams else st.get("deafened", False)
+    voice_vol = out_streams[0]["volume"] if out_streams else st.get("voiceVolume", 1.0)
+
+    channel_label = "Connected" if in_call else ("Standby" if proc_running else "Offline")
+    if win and win.get("title"):
+        t = win["title"]
+        parts = [
+            p.strip()
+            for p in t.replace(" - Vesktop", "").replace("Discord |", "").split("|")
+            if p.strip()
+        ]
+        if parts:
+            channel_label = " \u00b7 ".join(parts[:2])
+
+    return {
+        "running": proc_running,
+        "inCall": in_call,
+        "channel": channel_label,
+        "muted": mic_muted or stream_muted,
+        "deafened": out_muted,
+        "micVolume": round(mic_vol, 2),
+        "voiceVolume": round(float(voice_vol), 2),
+        "inStreams": in_streams,
+        "outStreams": out_streams,
+    }
+
+
+def toggle_mute(explicit=None):
+    saved = load_saved_state()
+    if explicit is not None:
+        target_bool = explicit in ("1", "true", "True")
+    else:
+        st = get_status()
+        target_bool = not st["muted"]
+    target_mute = "1" if target_bool else "0"
+    run_cmd(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", target_mute], timeout=0.8)
+    in_streams, out_streams = get_pw_state()
+    for s in in_streams:
+        run_cmd(["wpctl", "set-mute", str(s["id"]), target_mute], timeout=0.8)
+    # Ensure call audio is never muted or deafened by microphone mute
+    if not saved.get("deafened", False):
+        for s in out_streams:
+            if s.get("muted"):
+                run_cmd(["wpctl", "set-mute", str(s["id"]), "0"], timeout=0.8)
+    win = get_discord_window()
+    if win and win.get("address"):
+        run_cmd(
+            ["hyprctl", "dispatch", "sendshortcut", f"CTRL SHIFT, M, address:{win['address']}"],
+            timeout=0.8,
+        )
+    saved["muted"] = target_bool
+    save_state(saved)
+    return {"ok": True, "muted": target_bool}
+
+
+def toggle_deaf(explicit=None):
+    saved = load_saved_state()
+    if explicit is not None:
+        target_deaf = explicit in ("1", "true", "True")
+    else:
+        st = get_status()
+        target_deaf = not st["deafened"]
+    target_val = "1" if target_deaf else "0"
+    in_streams, out_streams = get_pw_state()
+    for s in out_streams:
+        run_cmd(["wpctl", "set-mute", str(s["id"]), target_val], timeout=0.8)
+    if target_deaf:
+        run_cmd(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "1"], timeout=0.8)
+        for s in in_streams:
+            run_cmd(["wpctl", "set-mute", str(s["id"]), "1"], timeout=0.8)
+    win = get_discord_window()
+    if win and win.get("address"):
+        run_cmd(
+            ["hyprctl", "dispatch", "sendshortcut", f"CTRL SHIFT, D, address:{win['address']}"],
+            timeout=0.8,
+        )
+    saved["deafened"] = target_deaf
+    if target_deaf:
+        saved["muted"] = True
+    save_state(saved)
+    return {"ok": True, "deafened": target_deaf}
+
+
+def set_voice_vol(val):
+    v = max(0.0, min(1.5, float(val)))
+    saved = load_saved_state()
+    saved["voiceVolume"] = round(v, 2)
+    save_state(saved)
+    _, out_streams = get_pw_state()
+    for s in out_streams:
+        run_cmd(["wpctl", "set-volume", str(s["id"]), f"{v:.2f}"], timeout=0.8)
+    return {"ok": True, "voiceVolume": round(v, 2)}
+
+
+def set_mic_vol(val):
+    v = max(0.0, min(1.5, float(val)))
+    run_cmd(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", f"{v:.2f}"], timeout=0.8)
+    st = get_status()
+    for s in st["inStreams"]:
+        run_cmd(["wpctl", "set-volume", str(s["id"]), f"{v:.2f}"], timeout=0.8)
+    return get_status()
+
+
+def resolve_launch_cmd():
+    for candidate in CLIENT_NAMES:
+        if shutil.which(candidate):
+            return candidate
+    if shutil.which("flatpak"):
+        fp_list = run_cmd(["flatpak", "list", "--app", "--columns=application"], timeout=1.5)
+        for app_id in ("dev.vencord.Vesktop", "com.discordapp.Discord"):
+            if app_id in fp_list:
+                return f"flatpak run {app_id}"
+    return "discord"
+
+
+def focus_or_launch():
+    win = get_discord_window()
+    if win and win.get("address"):
+        run_cmd(["hyprctl", "dispatch", "focuswindow", f"address:{win['address']}"], timeout=0.8)
+    else:
+        subprocess.Popen(
+            ["hyprctl", "dispatch", "exec", resolve_launch_cmd()],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    return {"ok": True}
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if cmd == "status":
+        print(json.dumps(get_status()))
+    elif cmd == "toggle-mute":
+        print(json.dumps(toggle_mute(sys.argv[2] if len(sys.argv) > 2 else None)))
+    elif cmd == "toggle-deaf":
+        print(json.dumps(toggle_deaf(sys.argv[2] if len(sys.argv) > 2 else None)))
+    elif cmd == "set-voice-vol" and len(sys.argv) > 2:
+        print(json.dumps(set_voice_vol(sys.argv[2])))
+    elif cmd == "set-mic-vol" and len(sys.argv) > 2:
+        print(json.dumps(set_mic_vol(sys.argv[2])))
+    elif cmd == "focus":
+        print(json.dumps(focus_or_launch()))
+    else:
+        print(json.dumps({"error": f"Unknown command: {cmd}"}))
+
+
+if __name__ == "__main__":
+    main()
