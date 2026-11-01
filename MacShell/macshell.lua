@@ -7,7 +7,7 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("sh ~/.config/quickshell/MacLock/enable-sleep-lock.sh")
     hl.exec_cmd("sh ~/.local/bin/macshell-start")
 end)
--- The Settings window floats and centres itself when it opens, so it needs no window rule.
+-- The Settings window floats and centres itself: the shell registers its own window rule at start-up, so this file needs none.
 
 -- keybinds (the name after -c is the config folder name, case-sensitive)
 local qs = "qs -c MacShell ipc call "
@@ -31,8 +31,8 @@ local hwkeys = {
     { "XF86AudioLowerVolume",  hw("volumeDown",     "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),        true  },
     { "XF86AudioMute",         hw("mute",           "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),       false },
     { "XF86AudioMicMute",      hw("micMute",        "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),     false },
-    { "XF86MonBrightnessUp",   hw("brightnessUp",   "brightnessctl -q set 5%+"),                         true  },
-    { "XF86MonBrightnessDown", hw("brightnessDown", "brightnessctl -q -n1 set 5%-"),                     true  },
+    { "XF86MonBrightnessUp",   hw("brightnessUp",   "brightnessctl -q -c backlight set 5%+ 2>/dev/null || ddcutil setvcp 10 + 5"),                      true  },
+    { "XF86MonBrightnessDown", hw("brightnessDown", "brightnessctl -q -n1 -c backlight set 5%- 2>/dev/null || ddcutil setvcp 10 - 5"),                  true  },
     { "XF86KbdBrightnessUp",   "brightnessctl -q -d '*kbd_backlight*' set 10%+",                         true  },
     { "XF86KbdBrightnessDown", "brightnessctl -q -d '*kbd_backlight*' set 10%-",                         true  },
     { "XF86AudioPlay",         "playerctl play-pause",                                                   false },

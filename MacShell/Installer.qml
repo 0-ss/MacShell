@@ -40,7 +40,7 @@ Scope {
         { name: I18n.tr("Screenshots and recording"), about: "Screenshots, screen recording, the colour picker and clipboard history",
           pkgs: ["grim", "slurp", "wf-recorder", "hyprpicker", "wl-clipboard", "cliphist", "xdg-desktop-portal-hyprland"] },
         { name: I18n.tr("System controls"), about: "Sound, brightness, Bluetooth, Wi-Fi, Internet Sharing, power, the lock screen and Night Shift",
-          pkgs: ["pipewire", "wireplumber", "pipewire-pulse", "brightnessctl", "bluez-utils", "util-linux", "networkmanager", "iw", "power-profiles-daemon", "hypridle", "hyprlock", "hyprsunset", "libnotify", "zenity", "polkit"] },
+          pkgs: ["pipewire", "wireplumber", "pipewire-pulse", "brightnessctl", "ddcutil", "bluez-utils", "util-linux", "networkmanager", "iw", "power-profiles-daemon", "hypridle", "hyprlock", "hyprsunset", "libnotify", "zenity", "polkit"] },
         { name: I18n.tr("Look and apps"), about: "Fonts, emoji, icons, the terminal and About This Linux",
           pkgs: ["inter-font", "noto-fonts", "noto-fonts-emoji", "papirus-icon-theme", "kitty", "fastfetch"] }
     ]

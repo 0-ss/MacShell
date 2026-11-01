@@ -76,7 +76,10 @@ ShellRoot {
         readonly property bool captureHold: churn || !windowCapture || macBar.gaming
         // Liquid Glass: only stage 1, and only while windows open / close. Live capture pauses (the glass keeps its last frame, the capture
         // source stays attached, so nothing goes blank), then resumes. Not tied to the previews switch, never cut.
-        readonly property bool glassHold: churn || preClose || macBar.gaming
+        // The glass no longer pauses while windows open / close (that made it lazy when a bunch of tiled terminals were opened / closed:
+        // every open or close froze the whole backdrop for 350 ms, and a series of them kept it frozen). Only a close the shell itself is about
+        // to send (preClose) and gaming pause it. MACSHELL_CHURNPAUSE=1 (environment) brings the old pause back.
+        readonly property bool glassHold: (churn && Quickshell.env("MACSHELL_CHURNPAUSE") === "1") || preClose || macBar.gaming
         property bool captureCut: false
         // Dock previews no longer pause as a whole while windows open / close (that froze every preview for ~1.5 s):
         // only the CLOSING window's own preview stops its live capture, the moment Hyprland announces the close
@@ -175,8 +178,9 @@ ShellRoot {
         }
 
         // ── window capture gate (shared by the Menu Bar and the Dock glass) ──
-        // A window is only handed to a ScreencopyView 0.2 s after it appeared (shorter than the open animation, so nobody sees it),
-        // and windows that appear together (opening a batch of apps, a game launcher...) are admitted ONE EVERY 110 ms instead of
+        // A window is only handed to a ScreencopyView 90 ms after it appeared (was 200 ms: a window that opened next to an open menu
+        // showed the bare wallpaper for that long), and windows that appear together (opening a batch of apps, a game launcher...) are
+        // admitted ONE EVERY 60 ms (was 110) instead of
         // all at once. Hyprland answers every live capture with a frame request; starting a dozen of them in the same instant
         // while a screen recorder is also pulling frames is what made the compositor drop frames and the Wayland connection
         // die ("invalid object NN"). Short-lived dialogs that close while their first frame is in flight are covered by the 0.2 s.
@@ -195,7 +199,7 @@ ShellRoot {
             var ts = Hyprland.toplevels.values, st = tlState, now = Date.now();
             for (var i = 0; i < ts.length; i++) {
                 var a = ts[i].address;
-                if (st.ready[a] === undefined) { st.ready[a] = Math.max(now + 200, st.last + 110); st.last = st.ready[a]; }
+                if (st.ready[a] === undefined) { st.ready[a] = Math.max(now + 90, st.last + 60); st.last = st.ready[a]; }
             }
         }
         function tlFor(addr) {
@@ -205,7 +209,7 @@ ShellRoot {
                 if (ts[i].address !== a) continue;
                 var st = tlState, now = Date.now();
                 if (st.ready[a] === undefined) {
-                    st.ready[a] = Math.max(now + 200, st.last + 110);
+                    st.ready[a] = Math.max(now + 90, st.last + 60);
                     st.last = st.ready[a];
                 }
                 if (st.ready[a] > now) {

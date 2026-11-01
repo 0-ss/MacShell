@@ -5,9 +5,8 @@
 // Pins are saved to ~/.config/macdock/pinned.json once you use "Keep in Dock".
 //
 // Settings are saved to ~/.config/macdock/settings.json (right-click the dock → Dock Preferences…).
-// The preferences window is frameless; make it float in Hyprland, e.g. (hyprland.conf syntax):
-//   windowrule = float, title:^(Dock Preferences)$
-//   windowrule = center, title:^(Dock Preferences)$
+// The settings window is frameless and always opens floating + centred: the shell registers the Hyprland window rule for it
+// itself (registerSettingsRule below), so nothing has to be added to the Hyprland config.
 //
 // Dock style (Dock Preferences → Appearance):
 //   Normal Blur         – the original translucent tint; blur comes from the Hyprland layer rule below.
@@ -733,8 +732,9 @@ Scope {
 
         Shortcut { sequences: ["Escape", "Ctrl+W"]; onActivated: prefsWindow.visible = false }
 
-        // Settings always opens as a floating, centred window (no windowrule needed in hyprland.conf)
-        onVisibleChanged: if (visible) { if (root.bar) { root.bar.updateDialogOpen = root.bar.updateState === "available"; root.bar.checkForUpdates(true); } showNormal(); applyScaledSize(); floatTries = 0; floatTimer.restart(); if (root.glassState === "idle") root.startGlass(); }
+        // Settings always opens as a floating, centred window: the shell registers its own window rule (root.registerSettingsRule),
+        // so no windowrule is needed in the Hyprland config. The dispatches below are only the fallback / re-apply.
+        onVisibleChanged: if (visible) { root.registerSettingsRule(false); if (root.bar) { root.bar.updateDialogOpen = root.bar.updateState === "available"; root.bar.checkForUpdates(true); } showNormal(); applyScaledSize(); floatTries = 0; floatTimer.restart(); if (root.glassState === "idle") root.startGlass(); }
         property int floatTries: 0
         readonly property int preferredWidth: Math.round(800 * root.uiS)
         readonly property int preferredHeight: Math.round(880 * root.uiS)
@@ -3942,7 +3942,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.4.7 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.4.8 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(Font.Normal, pal.fam)
                             font.pixelSize: 12
@@ -4750,8 +4750,23 @@ Scope {
     }
     Timer { id: busyDebounce; interval: 120; onTriggered: root.refreshBusy() }
 
+    // The Settings window has to be floating from its FIRST frame, otherwise Hyprland tiles it full size and it only jumps to
+    // floating afterwards (the float dispatches below can only run once the window is mapped). A static window rule is applied
+    // at map time, so the shell registers one itself (Hyprland 0.55+ Lua, `hyprctl eval`): no Hyprland config edit needed.
+    // force = false keeps it idempotent (one rule per Hyprland session); a config reload drops it, so that re-registers it.
+    function registerSettingsRule(force) {
+        var rule = 'hl.window_rule({ name = "macshell-settings-float", match = { title = "^(macshell Settings)$" }, float = true, center = true, border_size = 0 })';
+        Quickshell.execDetached(["hyprctl", "eval", force ? ('macshell_settings_rule = ' + rule) : ('macshell_settings_rule = macshell_settings_rule or ' + rule)]);
+    }
+    Timer { id: ruleReload; interval: 400; onTriggered: root.registerSettingsRule(true) }
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) { if (event.name === "configreloaded") ruleReload.restart(); }
+    }
+
     Component.onCompleted: {
         Quickshell.execDetached(["mkdir", "-p", configDir]);
+        registerSettingsRule(false);
         rebuild();
         refreshBusy();
         trashCheck();
@@ -5274,9 +5289,11 @@ Scope {
 
                         ListModel { id: wm }
                         Repeater {
+                            id: wrep
                             model: wm
                             delegate: Item {
                                 id: gw
+                                property alias cap: sc
                                 required property string addr
                                 required property real wx
                                 required property real wy
@@ -5314,9 +5331,10 @@ Scope {
                                 // SafeCapture (not a Loader + bare ScreencopyView): a capture is never destroyed while a frame is in flight.
                                 // `want` going null stops the stream at once but keeps the source for a moment (see SafeCapture.qml); that is
                                 // what used to crash the shell when a window was closed soon after it opened.
-                                SafeCapture {
+                                GlassCapture {
                                     id: sc
                                     anchors.fill: parent
+                                    placeholder: (root.bar ? root.bar.darkMode : true) ? "#1e1e20" : "#f2f2f7"
                                     want: (gw.near && !gw.released) ? gw.tl : null
                                     // Real-time glass ON: a window that reaches the Dock STREAMS (live: every frame the compositor renders), windows
                                     // elsewhere refresh at 30 Hz-ish single shots (5 Hz when far away) so they are fresh the moment they slide under the Dock.
@@ -5342,6 +5360,25 @@ Scope {
                             }
                         }
 
+                        // The layout changed (a window opened / closed / was re-tiled): Hyprland fails the running captures of the windows that moved.
+                        // About 0.3 / 0.6 / 0.9 s later every capture that lost its picture is rebuilt at once and the others take a fresh frame, so the Dock
+                        // glass follows the windows while they slide into place.
+                        property int settleN: 0
+                        // off unless MACSHELL_BURST=1 is set in the environment: the extra rebuilds / frames right after a layout change are experimental
+                        function burst() { if (Quickshell.env("MACSHELL_BURST") !== "1") return; settleN = 0; glassSettle.restart(); }
+                        function rearm() {
+                            for (var q = 0; q < wrep.count; q++) {
+                                var it = wrep.itemAt(q);
+                                if (!it || !it.cap || it.gone || !it.cap.canRun) continue;
+                                it.cap.kick();
+                                if (!it.cap.wantLive) it.cap.snap();
+                            }
+                        }
+                        Timer {
+                            id: glassSettle
+                            interval: 300; repeat: true
+                            onTriggered: { bd.rearm(); if (++bd.settleN >= 3) stop(); }
+                        }
                         function sync() {
                             var mon = null;
                             for (var i = 0; i < root.monData.length; i++)
@@ -5376,7 +5413,7 @@ Scope {
                         property int lastCount: -1
                         Connections {
                             target: root
-                            function onGlassClientsChanged() { bd.sync(); }
+                            function onGlassClientsChanged() { bd.sync(); bd.burst(); }
                             function onMonDataChanged() { bd.sync(); }
                         }
                         Component.onCompleted: sync()
