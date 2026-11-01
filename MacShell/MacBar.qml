@@ -2268,7 +2268,8 @@ Scope {
                     if (f.length < 3) continue;
                     var type = f[1];
                     if (type !== "vpn" && type !== "802-3-ethernet") continue;
-                    rows.push({ name: f[0], type: type, device: f[2] === "--" ? "" : f[2], active: f[2] !== "--" });
+                    var dev = (f[2] === "--" || f[2] === "") ? "" : f[2];
+                    rows.push({ name: f[0], type: type, device: dev, active: dev !== "" });
                 }
                 rows.sort(function (a,b) { return (b.active?1:0)-(a.active?1:0); });
                 root.otherConnections = rows;
