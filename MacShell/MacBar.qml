@@ -2356,9 +2356,12 @@ Scope {
         for (var i = 0; i < ns.length; i++) {
             var n = ns[i];
             if (!n || !n.audio || !n.isStream) continue;
-            var playback = n.type !== undefined ? ((n.type & PwNodeType.AudioOutStream) !== 0) : !n.isSink;
-            if (!playback) continue;
             var p = n.properties || {};
+            var mc = String(p["media.class"] || "");
+            var mn = String(p["media.name"] || "").toLowerCase();
+            // Output streams: playback of call audio to speakers / headphones
+            var isOut = mc === "Stream/Output/Audio" || mn === "playback" || (!mc && !n.isSink);
+            if (!isOut || mc === "Stream/Input/Audio" || mn === "recordstream") continue;
             var idStr = String(p["application.name"] || "") + " " + String(p["application.process.binary"] || "") + " " + String(p["node.name"] || n.name || "");
             if (re.test(idStr) || (String(p["application.process.binary"] || "").toLowerCase() === "electron" && /chromium/i.test(String(p["application.name"] || "")))) {
                 out.push(n);
@@ -2372,9 +2375,12 @@ Scope {
         for (var i = 0; i < ns.length; i++) {
             var n = ns[i];
             if (!n || !n.audio || !n.isStream) continue;
-            var capture = n.type !== undefined ? ((n.type & PwNodeType.AudioInStream) !== 0) : n.isSink;
-            if (!capture) continue;
             var p = n.properties || {};
+            var mc = String(p["media.class"] || "");
+            var mn = String(p["media.name"] || "").toLowerCase();
+            // Input streams: microphone capture into Discord
+            var isIn = mc === "Stream/Input/Audio" || mn === "recordstream";
+            if (!isIn || mc === "Stream/Output/Audio" || mn === "playback") continue;
             var idStr = String(p["application.name"] || "") + " " + String(p["application.process.binary"] || "") + " " + String(p["node.name"] || n.name || "");
             if (re.test(idStr) || (String(p["application.process.binary"] || "").toLowerCase() === "electron" && /chromium/i.test(String(p["application.name"] || "")))) {
                 out.push(n);
@@ -2409,9 +2415,15 @@ Scope {
             var targetMute = !next.muted;
             next.muted = targetMute;
             root.discordState = next;
+            // Only mute/unmute the microphone source and recording input streams
             if (root.micSource && root.micSource.audio) root.micSource.audio.muted = targetMute;
             var ins = root.discordInNodes;
             for (var i = 0; i < ins.length; i++) if (ins[i] && ins[i].audio) ins[i].audio.muted = targetMute;
+            // Ensure call audio output streams are NEVER muted or deafened on microphone mute toggle
+            var outs = root.discordOutNodes;
+            for (var k = 0; k < outs.length; k++) {
+                if (outs[k] && outs[k].audio && !next.deafened) outs[k].audio.muted = false;
+            }
             Quickshell.execDetached(["python3", root.discordCtlScript, "toggle-mute", targetMute ? "1" : "0"]);
             hubSyncT.restart();
             return;

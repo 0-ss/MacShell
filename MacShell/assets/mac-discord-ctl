@@ -179,6 +179,14 @@ def toggle_mute(explicit=None):
         target_bool = not st["muted"]
     target_mute = "1" if target_bool else "0"
     run_cmd(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", target_mute], timeout=0.8)
+    in_streams, out_streams = get_pw_state()
+    for s in in_streams:
+        run_cmd(["wpctl", "set-mute", str(s["id"]), target_mute], timeout=0.8)
+    # Ensure call audio is never muted or deafened by microphone mute
+    if not saved.get("deafened", False):
+        for s in out_streams:
+            if s.get("muted"):
+                run_cmd(["wpctl", "set-mute", str(s["id"]), "0"], timeout=0.8)
     win = get_discord_window()
     if win and win.get("address"):
         run_cmd(
@@ -197,8 +205,14 @@ def toggle_deaf(explicit=None):
     else:
         st = get_status()
         target_deaf = not st["deafened"]
+    target_val = "1" if target_deaf else "0"
+    in_streams, out_streams = get_pw_state()
+    for s in out_streams:
+        run_cmd(["wpctl", "set-mute", str(s["id"]), target_val], timeout=0.8)
     if target_deaf:
         run_cmd(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "1"], timeout=0.8)
+        for s in in_streams:
+            run_cmd(["wpctl", "set-mute", str(s["id"]), "1"], timeout=0.8)
     win = get_discord_window()
     if win and win.get("address"):
         run_cmd(
@@ -206,6 +220,8 @@ def toggle_deaf(explicit=None):
             timeout=0.8,
         )
     saved["deafened"] = target_deaf
+    if target_deaf:
+        saved["muted"] = True
     save_state(saved)
     return {"ok": True, "deafened": target_deaf}
 
