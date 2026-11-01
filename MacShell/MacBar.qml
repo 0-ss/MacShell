@@ -901,9 +901,22 @@ Scope {
             } else if (k === "bolt") {
                 poly([10, 1.5, 4.5, 10, 8.4, 10, 7.6, 16.5, 13.5, 7.6, 9.6, 7.6], true);
             } else if (k === "appstore") {
-                line(9, 2.8, 3.8, 14.6);
-                line(9, 2.8, 14.2, 14.6);
-                line(5.4, 11.2, 12.6, 11.2);
+                ctx.lineWidth = 2.3;
+                line(10.0, 2.56, 5.5, 11.56);                       // left leg
+                ctx.lineWidth = 1.9;
+                line(1.74, 11.56, 15.78, 11.56);                    // bar
+                ctx.lineWidth = 1.7;
+                line(4.0, 13.47, 3.07, 15.34);                      // foot (detached below the bar)
+                // the right leg cuts a thin gap on its left side through the bar and the left leg, below where the legs cross
+                ctx.save();
+                ctx.beginPath(); ctx.rect(0, 5.6, 18, 13); ctx.clip();
+                ctx.globalCompositeOperation = "destination-out";
+                ctx.lineWidth = 2.3;
+                line(6.9, 2.56, 13.02, 15.34);
+                ctx.restore();
+                ctx.lineWidth = 2.3;
+                line(7.5, 2.56, 13.62, 15.34);                      // right leg
+                ctx.lineWidth = 1.5;
             } else if (k === "folder") {
                 ctx.beginPath();
                 ctx.moveTo(2.2, 13);
@@ -1479,16 +1492,18 @@ Scope {
         property bool glass: true       // false: a flat circle instead of a Liquid Glass disc
         property bool matchMenuBorder: false // use the same outline primitive as Spotlight's search pill
         property bool plain: false      // icon only: no glass disc and no click area of its own (the tile is the button)
+        property bool bare: false       // icon only but still clickable: no glass disc, no border, no background fill
         readonly property bool inWide: plain && parent && parent.width > 110     // icon on a wide (two-cell) tile
         // icon on a small (one-cell) tile = a "circle button": a little smaller circle with a bigger icon
         readonly property bool circleBtn: plain && parent && parent.width <= 110
         width: circleBtn ? 21 : d; height: width
         scale: (bounce && bma.pressed) ? 0.88 : 1
         Behavior on scale { NumberAnimation { duration: 230; easing.type: Easing.OutBack; easing.overshoot: 3.2 } }
-        GGlass { visible: !b.plain && b.glass; anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: 0; flatInner: 1 }
-        CornerBorder { visible: !b.plain && b.glass && !b.matchMenuBorder; z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: b.gx.dark; tint: b.gx.borderTint; amount: b.gx.borderAmount; lineW: 0.8 }
-        MenuBorder { visible: !b.plain && b.glass && b.matchMenuBorder; z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: root.panelDarkMode; tint: root.menuBorderColor; amount: 1 }
+        GGlass { visible: !b.plain && !b.bare && b.glass; anchors.fill: parent; gx: b.gx; cornerR: b.d / 2; thickness: 14; strengthMul: 0.6; shadowAmt: 0; flatInner: 1 }
+        CornerBorder { visible: !b.plain && !b.bare && b.glass && !b.matchMenuBorder; z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: b.gx.dark; tint: b.gx.borderTint; amount: b.gx.borderAmount; lineW: 0.8 }
+        MenuBorder { visible: !b.plain && !b.bare && b.glass && b.matchMenuBorder; z: 2; anchors.fill: parent; cornerR: b.d / 2; dark: root.panelDarkMode; tint: root.menuBorderColor; amount: 1 }
         Rectangle {
+            visible: !b.bare
             anchors.fill: parent
             radius: b.width / 2
             // enabled: solid white fill (the icon carries the accent colour); off: grey circle only on wide tiles
@@ -9788,6 +9803,7 @@ Scope {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 kind: "dots"
+                                bare: true
                                 on: ui.clipMenu
                                 onClicked: ui.clipMenu = !ui.clipMenu
                             }
@@ -10192,6 +10208,26 @@ Scope {
                         transformOrigin: Item.Top
                         Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
                         Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        // morph blur: the panel comes into focus as it fades in (a touch slower than the fade, so the blur is
+                        // still resolving as the panel lands) and softens again as it leaves. The layer only exists while this
+                        // runs, so the open panel is drawn directly: crisp text, no extra render pass. "Reduce motion" skips it.
+                        property real focusT: ui.spMode === "apps" ? 1 : 0
+                        Behavior on focusT {
+                            NumberAnimation {
+                                duration: root.reduceMotion ? 0 : (ui.spMode === "apps" ? 380 : 200)
+                                easing.type: ui.spMode === "apps" ? Easing.OutCubic : Easing.InQuad
+                            }
+                        }
+                        readonly property real blurAmt: Math.pow(Math.max(0, 1 - focusT), 1.5)
+                        readonly property bool morphing: !root.reduceMotion && focusT > 0.002 && focusT < 0.998
+                        layer.enabled: morphing
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            blurEnabled: true
+                            blurMax: 48
+                            blur: appsPanel.blurAmt * 0.9
+                            autoPaddingEnabled: true
+                        }
                         width: spot.width
                         height: Math.min(64 + appsCol.height + 14, 520)
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 34; strengthMul: 1.0; shadowAmt: 0.22 }
@@ -10218,7 +10254,7 @@ Scope {
                             TextInput {
                                 id: appsInput
                                 x: 40
-                                width: parent.width - 40 - 48
+                                width: parent.width - 40
                                 anchors.verticalCenter: parent.verticalCenter
                                 clip: true
                                 color: panelPal.fg
@@ -10227,15 +10263,6 @@ Scope {
                                 font.family: root.fontForWeight(Font.Normal, panelPal.fam); font.pixelSize: 24
                                 onTextChanged: { if (ui.spMode === "apps") { ui.spQuery = text; ui.spSel = 0; } }
                                 Keys.onPressed: event => ui.spKey(event)
-                            }
-                            CCBtn {
-                                t: pal; gx: spg
-                                d: 34
-                                bounce: true
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                kind: "dots"
-                                onClicked: ui.spSetMode("home")
                             }
                         }
 

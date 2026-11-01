@@ -206,9 +206,22 @@ Canvas {
         } else if (k === "bolt") {
             poly([10, 1.5, 4.5, 10, 8.4, 10, 7.6, 16.5, 13.5, 7.6, 9.6, 7.6], true);
         } else if (k === "appstore") {
-            line(9, 2.8, 3.8, 14.6);
-            line(9, 2.8, 14.2, 14.6);
-            line(5.4, 11.2, 12.6, 11.2);
+            ctx.lineWidth = 2.3;
+            line(10.0, 2.56, 5.5, 11.56);                       // left leg
+            ctx.lineWidth = 1.9;
+            line(1.74, 11.56, 15.78, 11.56);                    // bar
+            ctx.lineWidth = 1.7;
+            line(4.0, 13.47, 3.07, 15.34);                      // foot (detached below the bar)
+            // the right leg cuts a thin gap on its left side through the bar and the left leg, below where the legs cross
+            ctx.save();
+            ctx.beginPath(); ctx.rect(0, 5.6, 18, 13); ctx.clip();
+            ctx.globalCompositeOperation = "destination-out";
+            ctx.lineWidth = 2.3;
+            line(6.9, 2.56, 13.02, 15.34);
+            ctx.restore();
+            ctx.lineWidth = 2.3;
+            line(7.5, 2.56, 13.62, 15.34);                      // right leg
+            ctx.lineWidth = 1.5;
         } else if (k === "folder") {
             ctx.beginPath();
             ctx.moveTo(2.2, 13);

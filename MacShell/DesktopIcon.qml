@@ -16,6 +16,10 @@ Item {
 
     readonly property int pad: 10
     readonly property int boxSize: iconSize + 2 * pad
+    // pictures (screenshots) are shown as a short landscape thumbnail instead of a square one
+    readonly property bool isPicture: item !== null && item.kind === "Image"
+    readonly property int iconH: isPicture ? Math.round(iconSize * 0.6) : iconSize
+    readonly property int boxH: iconH + 2 * pad
 
     opacity: dragging ? 0.82 : 1.0
 
@@ -24,7 +28,7 @@ Item {
         id: box
         anchors.horizontalCenter: parent.horizontalCenter
         y: 0
-        width: ic.boxSize; height: ic.boxSize
+        width: ic.boxSize; height: ic.boxH
         opacity: (ic.selected || ic.dropTarget) ? 1 : 0
 
         // soft dark hairline just outside the rim, so the highlight stays readable on bright wallpapers
@@ -54,7 +58,7 @@ Item {
         id: img
         anchors.horizontalCenter: parent.horizontalCenter
         y: ic.pad
-        width: ic.iconSize; height: ic.iconSize
+        width: ic.iconSize; height: ic.iconH
         asynchronous: true; cache: true; smooth: true; mipmap: true
         fillMode: ic.item && ic.item.kind === "Image" ? Image.PreserveAspectCrop : Image.PreserveAspectFit
         sourceSize: Qt.size(ic.iconSize * 2, ic.iconSize * 2)
@@ -64,7 +68,7 @@ Item {
     // ── name ──
     Text {
         anchors.horizontalCenter: parent.horizontalCenter
-        y: ic.boxSize + 3
+        y: ic.boxH + 3
         width: parent.width - 8
         horizontalAlignment: Text.AlignHCenter
         maximumLineCount: 2; wrapMode: Text.Wrap; elide: Text.ElideMiddle

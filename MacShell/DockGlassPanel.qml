@@ -41,7 +41,8 @@ Item {
 
     height: bodyH + tailH
 
-    readonly property real m: 64         // backdrop captured around the bubble (blur reach)
+    property real blurReach: 64          // blur kernel size in px; also how far around the bubble the backdrop is captured (smaller = cheaper)
+    readonly property real m: blurReach  // backdrop captured around the bubble (blur reach)
     readonly property real sp: 48        // room around the bubble for the shadow
     readonly property real hp: 2         // room around the bubble for the hairline
     // where the bubble's top-left corner lies in the backdrop (kept up to date every frame while it can be seen: the hover label moves
@@ -163,7 +164,7 @@ Item {
                 source: ses
                 autoPaddingEnabled: false
                 blurEnabled: true
-                blurMax: 64
+                blurMax: gp.blurReach
                 blur: gp.blurAmount
                 saturation: 0.30
                 brightness: gp.dark ? -0.03 : 0.03
