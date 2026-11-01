@@ -4603,18 +4603,29 @@ Scope {
     onNotifUnreadChanged: lockNotifSave.restart()
     Connections { target: notifHist; function onCountChanged() { lockNotifSave.restart(); } }
     Timer { id: lockNotifSave; interval: 300; onTriggered: root.lockNotifWrite() }
-    function appIconFor(app) {
+    function appIconFor(app, notifIcon) {
+        if (notifIcon && notifIcon !== "") {
+            if (notifIcon.charAt(0) === "/") return "file://" + notifIcon;
+            return notifIcon;
+        }
         if (!app) return "";
+        var low = app.toLowerCase();
+        if (low.indexOf("macshell") >= 0 || low === "macbar" || low === "maclock") {
+            return "file://" + Quickshell.env("HOME") + "/.config/quickshell/MacShell/assets/macshell-logo.png";
+        }
         var e = null;
         try { e = DesktopEntries.heuristicLookup ? DesktopEntries.heuristicLookup(app) : null; } catch (err) { e = null; }
-        var nm = (e && e.icon) ? e.icon : app.toLowerCase();
-        return Quickshell.iconPath(nm, true) || "";
+        var nm = (e && e.icon) ? e.icon : low;
+        var p = Quickshell.iconPath(nm, true) || "";
+        if (p === "") p = Quickshell.iconPath("preferences-system-notifications", true) || "";
+        if (p === "") p = Quickshell.iconPath("dialog-information", true) || "";
+        return p;
     }
     function lockNotifWrite() {
         var out = [], n = Math.min(notifUnread, notifHist.count, 20);
         for (var i = 0; i < n; i++) {
             var r = notifHist.get(i);
-            out.push({ id: r.nid, app: r.app || "Notification", icon: appIconFor(r.app), time: r.time });
+            out.push({ id: r.nid, app: r.app || "Notification", icon: appIconFor(r.app, r.icon), time: r.time });
         }
         Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.cache/macshell\" && printf '%s\\n' \"$1\" > \"$HOME/.cache/macshell/lock-notifs.json.tmp\" && mv -f \"$HOME/.cache/macshell/lock-notifs.json.tmp\" \"$HOME/.cache/macshell/lock-notifs.json\"",
             "sh", JSON.stringify(out)]);

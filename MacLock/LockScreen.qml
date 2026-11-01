@@ -416,13 +416,52 @@ Item {
 
                 Glass { anchors.fill: parent; src: glassTex; frame: ls; cornerR: 20 * ls.u; thickness: 20; tint: 0.40; shadowAmt: 0.3 }
                 Rectangle { anchors.fill: parent; radius: 20 * ls.u; color: "white"; opacity: ncMa.pressed ? 0.12 : (ncMa.containsMouse ? 0.06 : 0); Behavior on opacity { NumberAnimation { duration: 140 } } }
-                Image {
+                Item {
+                    id: ncIconBox
                     x: 14 * ls.u; anchors.verticalCenter: parent.verticalCenter
                     width: 34 * ls.u; height: width
-                    // apps without an icon (MacShell's own, notify-send…) get the system notifications icon
-                    source: nc.icon && status !== Image.Error ? nc.icon : "image://icon/preferences-system-notifications"
-                    sourceSize: Qt.size(96, 96)
-                    smooth: true; mipmap: true
+
+                    // Fallback container with clean frosted background & bell glyph when icon is missing or loading
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 8 * ls.u
+                        color: Qt.rgba(1, 1, 1, 0.16)
+                        visible: !ncImg.visible || ncImg.status !== Image.Ready
+                        Glyph {
+                            anchors.centerIn: parent
+                            width: 18 * ls.u; height: width
+                            kind: "bell"
+                            color: "white"
+                        }
+                    }
+
+                    Image {
+                        id: ncImg
+                        anchors.fill: parent
+                        visible: status === Image.Ready && source != ""
+                        source: {
+                            if (nc.icon && nc.icon !== "" && nc.icon.indexOf("image://icon/") !== 0) {
+                                if (nc.icon.charAt(0) === "/") return "file://" + nc.icon;
+                                return nc.icon;
+                            }
+                            var appLow = (nc.app || "").toLowerCase();
+                            if (appLow.indexOf("macshell") >= 0 || appLow === "macbar" || appLow === "maclock") {
+                                return "file://" + Quickshell.env("HOME") + "/.config/quickshell/MacShell/assets/macshell-logo.png";
+                            }
+                            if (nc.icon && nc.icon.indexOf("image://icon/") === 0) {
+                                var iname = nc.icon.slice(13);
+                                var ip = Quickshell.iconPath(iname, true);
+                                if (ip !== "") return ip;
+                            }
+                            var fallback = Quickshell.iconPath("preferences-system-notifications", true);
+                            if (fallback === "") fallback = Quickshell.iconPath("dialog-information", true);
+                            return fallback || "";
+                        }
+                        sourceSize: Qt.size(96, 96)
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true; mipmap: true
+                        asynchronous: true
+                    }
                 }
                 Column {
                     x: 60 * ls.u; anchors.verticalCenter: parent.verticalCenter

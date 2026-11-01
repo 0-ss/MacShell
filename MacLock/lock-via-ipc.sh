@@ -2,6 +2,8 @@
 # Each WlSessionLock instance is used once. Start a fresh IPC-capable instance per lock.
 set -u
 
+[ -f "$HOME/.config/macshell/env" ] && . "$HOME/.config/macshell/env"
+
 get_state() {
     qs -c MacLock ipc call lockscreen state 2>/dev/null || true
 }
