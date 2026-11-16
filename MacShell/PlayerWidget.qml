@@ -400,7 +400,7 @@ Item {
             y: w.artY * w.k
             width: w.artS * w.k
             height: width
-            r: (w.isLarge ? 11 : (w.isSmall ? 11 : 12)) * w.k
+            r: (w.isLarge ? 22 : (w.isSmall ? 18 : 20)) * w.k
             opacity: w.lyricsView ? 0 : 1
             visible: opacity > 0
             scale: w.lyricsView ? 0.9 : 1

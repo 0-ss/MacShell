@@ -13,6 +13,7 @@ Item {
     property bool selected: false
     property bool dropTarget: false      // another icon is being dragged over this one
     property bool dragging: false
+    property string emoji: ""            // emoji shown on a folder ("" = none)
 
     readonly property int pad: 10
     readonly property int boxSize: iconSize + 2 * pad
@@ -63,6 +64,16 @@ Item {
         fillMode: ic.item && ic.item.kind === "Image" ? Image.PreserveAspectCrop : Image.PreserveAspectFit
         sourceSize: Qt.size(ic.iconSize * 2, ic.iconSize * 2)
         source: ic.source
+    }
+
+    // ── emoji set on a folder: drawn on the folder's body ──
+    Text {
+        visible: ic.emoji !== ""
+        anchors.horizontalCenter: img.horizontalCenter
+        y: ic.pad + Math.round(ic.iconH * 0.34)
+        text: ic.emoji
+        font.pixelSize: Math.round(ic.iconSize * 0.42)
+        renderType: Text.QtRendering
     }
 
     // ── name ──

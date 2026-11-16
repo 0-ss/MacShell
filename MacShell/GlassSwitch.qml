@@ -39,7 +39,7 @@ Item {
     // ── geometry (measured from the reference: track about 2.2x as wide as tall, knob about 60 % of the width and 84 % of the height) ──
     readonly property real inset: Math.max(2, height * 0.085)
     readonly property real kh0: height - 2 * inset
-    readonly property real kw0: Math.round(kh0 * 1.6)
+    readonly property real kw0: Math.round(kh0 * 1.75)
     readonly property real travel: width - 2 * inset - kw0
 
     // the two edges of the knob run on their own so the knob can stretch while it moves (0 = off side, 1 = on side)
@@ -60,8 +60,8 @@ Item {
     Timer { id: holdT; interval: 480; onTriggered: s.hold = false }
 
     // knob grows a little while held
-    readonly property real gw: height * 0.14
-    readonly property real gh: height * 0.07
+    readonly property real gw: height * 0.50
+    readonly property real gh: height * 0.26
     readonly property real kw: kw0 + gw * pressT
     readonly property real kh: kh0 + gh * pressT
     readonly property real leftEdge: inset + pL * travel - (kw - kw0) / 2

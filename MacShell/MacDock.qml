@@ -1865,6 +1865,16 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
+                        title: I18n.tr("Save on Desktop")
+                        subtitle: I18n.tr("New screenshots land on the Desktop as icons. Turn off to save them in the folder below")
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.screenshotDesktop : true
+                            onToggled: v => { if (root.bar) root.bar.screenshotDesktop = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
                         title: I18n.tr("Save to a folder")
                         subtitle: I18n.tr("Press Print to select an area. Turn off to only copy it to the clipboard")
                         SSwitch {
@@ -1875,8 +1885,9 @@ Scope {
                     }
                     SRow {
                         t: pal
+                        visible: !(root.bar ? root.bar.screenshotDesktop : true)
                         title: I18n.tr("Save location")
-                        subtitle: I18n.tr("Leave empty to save on the Desktop")
+                        subtitle: I18n.tr("Leave empty to use ~/Pictures/Screenshots")
                         Row {
                             spacing: 8
                             Rectangle {
@@ -1913,6 +1924,7 @@ Scope {
                     }
                     SRow {
                         t: pal
+                        visible: !(root.bar ? root.bar.screenshotDesktop : true)
                         title: I18n.tr("Quick folders")
                         SSegmented {
                             t: pal
@@ -2740,7 +2752,7 @@ Scope {
             id: paneCC
             Column {
                 spacing: 10
-                SLabel { t: pal; text: I18n.tr("Choose which controls appear in Control Center. You can also drag them around in Control Center → Edit Controls.") }
+                SLabel { t: pal; text: I18n.tr("Choose which controls appear in Control Center. You can also drag them around and resize them with the corner knob in Control Center → Edit Controls.") }
                 SCard {
                     t: pal
                     Repeater {
@@ -2842,7 +2854,7 @@ Scope {
                         t: pal
                         title: I18n.tr("Arrange widgets")
                         subtitle: wgPane.editing
-                                  ? I18n.tr("Editing is on: drag a widget to move it, use the \u2212 badge to remove it, then click Stop Editing.")
+                                  ? I18n.tr("Editing is on: drag a widget to move it, drag the knob on its corner to resize it, use the \u2212 badge to remove it, then click Stop Editing.")
                                   : I18n.tr("Drag a widget to move it (it snaps to the grid). Use the \u2212 badge on a widget to remove it.")
                         SButton {
                             t: pal
@@ -3966,7 +3978,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.5.1 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.5.2 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(Font.Normal, pal.fam)
                             font.pixelSize: 12
@@ -4299,6 +4311,34 @@ Scope {
     }
     Timer { id: youngWin; interval: 250; onTriggered: root.rebuild() }
 
+    // ── drops onto the Trash from other surfaces (the desktop's icons) ──
+    // every Dock window registers its `ui` item under its screen's name
+    property var trashProbes: ({})
+    function trashHit(screenName, x, y) {
+        var u = trashProbes[screenName];
+        return u ? u.trashHit(x, y) === true : false;
+    }
+    // centre of the Trash cell in screen coordinates (null when the Dock has none to show)
+    function trashCenter(screenName) {
+        var u = trashProbes[screenName];
+        return u ? u.trashCenter() : null;
+    }
+    // the Trash icon hops once: something has just landed in it
+    // an icon is being dragged over the Trash (on = true) or has left it again: the Trash icon lifts to say "let go to throw it away"
+    function trashArm(screenName, on) {
+        var u = trashProbes[screenName];
+        if (u) u.trashArmed = on === true;
+    }
+    function trashPulse(screenName) {
+        var u = trashProbes[screenName];
+        if (u) u.trashKick++;
+    }
+    // an icon from the desktop is held near the bottom edge: slide an auto-hidden Dock up so the Trash can be reached (and back down after)
+    function trashReveal(screenName, on) {
+        var u = trashProbes[screenName];
+        if (u) u.dragReveal(on === true);
+    }
+
     function iconSrc(icon) {
         if (!icon) return Quickshell.iconPath("application-x-executable");
         if (icon.charAt(0) === "/") return "file://" + icon;
@@ -4322,16 +4362,30 @@ Scope {
         var x = Quickshell.env("XDG_DATA_HOME");
         return ((x && x !== "") ? x : Quickshell.env("HOME") + "/.local/share") + "/Trash/files";
     }
+    property int trashCount: 0
+    property bool trashCountKnown: false
+    property real trashExpectAt: 0
+    function trashExpect() { trashExpectAt = Date.now(); }
+    function trashPulseAll() { for (var nm in trashProbes) trashPulse(nm); }
+    // Empty Trash animation: the Trash icon on every screen shakes and hops once
+    function trashEmptyAnimAll() { for (var nm in trashProbes) { var u = trashProbes[nm]; if (u) u.trashEmptyKick++; } }
     function trashCheck() { if (!trashCheckProc.running) trashCheckProc.running = true; }
     Process {
         id: trashCheckProc
-        command: ["sh", "-c", "mkdir -p \"$1\"; if [ -n \"$(ls -A \"$1\" 2>/dev/null | head -n 1)\" ]; then s=1; else s=0; fi; "
-                              + "if command -v inotifywait >/dev/null 2>&1; then w=w; else w=p; fi; echo \"$s $w\"", "sh", root.trashDir]
+        command: ["sh", "-c", "mkdir -p \"$1\"; n=$(ls -A \"$1\" 2>/dev/null | wc -l); if [ \"$n\" -gt 0 ]; then s=1; else s=0; fi; "
+                              + "if command -v inotifywait >/dev/null 2>&1; then w=w; else w=p; fi; echo \"$s $w $n\"", "sh", root.trashDir]
         stdout: StdioCollector {
             onStreamFinished: {
                 var t = text.trim().split(" ");
                 root.trashFull = t[0] === "1";
                 root.trashPoll = t[1] === "p";
+                // something new landed in the Trash (file manager, terminal, another app): the Trash icon hops too, unless the
+                // desktop has just thrown it in itself (that has its own fly-in and hops at the end of it)
+                var n = Number(t[2]);
+                if (!isNaN(n)) {
+                    if (root.trashCountKnown && n > root.trashCount && Date.now() - root.trashExpectAt > 2500) root.trashPulseAll();
+                    root.trashCount = n; root.trashCountKnown = true;
+                }
                 root.trashReady = true;
             }
         }
@@ -4353,9 +4407,11 @@ Scope {
             + "find \"$d/files\" \"$d/info\" -mindepth 1 -delete 2>/dev/null; "
             + "rm -f \"$d/directorysizes\""]);
         trashAfterEmpty.restart();
+        trashEmptyAnimAll();
         if (bar) bar.playSound("trash", 0.8);
     }
-    Timer { id: trashAfterEmpty; interval: 900; onTriggered: root.trashCheck() }
+    // the icon turns "empty" as the hop starts (≈ 520 ms in); the real check follows and corrects it if needed
+    Timer { id: trashAfterEmpty; interval: 520; onTriggered: { root.trashFull = false; root.trashCheck(); } }
     Timer { id: trashDebounce; interval: 150; onTriggered: root.trashCheck() }
     Timer { interval: 3000; repeat: true; running: root.showTrash && root.trashPoll; onTriggered: root.trashCheck() }
 
@@ -4981,6 +5037,38 @@ Scope {
             Item {
                 id: ui
                 anchors.fill: parent
+
+                // Is the screen point (sx, sy) over this Dock's Trash cell? (the Dock's surface only covers the bottom of the screen,
+                // so the point is turned into this surface's own coordinates first)
+                function trashHit(sx, sy) {
+                    if (!root.showTrash || tucked) return false;
+                    var ly = sy - (win.modelData.height - win.height);
+                    for (var i = 0; i < rep.count; i++) {
+                        var c = rep.itemAt(i);
+                        if (!c || !c.modelData || c.modelData.special !== "trash") continue;
+                        var p = c.mapToItem(ui, 0, 0), pad = 18;
+                        return sx >= p.x - pad && sx <= p.x + c.width + pad && ly >= p.y - 44 && ly <= p.y + c.height + pad;
+                    }
+                    return false;
+                }
+                property int trashKick: 0
+                property int trashEmptyKick: 0
+                property bool trashArmed: false
+                function dragReveal(on) {
+                    if (on) { hideTimer.stop(); revealed = true; }
+                    else hideTimer.restart();
+                }
+                function trashCenter() {
+                    for (var i = 0; i < rep.count; i++) {
+                        var c = rep.itemAt(i);
+                        if (!c || !c.modelData || c.modelData.special !== "trash") continue;
+                        var p = c.mapToItem(ui, c.width / 2, c.height / 2);
+                        return Qt.point(p.x, p.y + (win.modelData.height - win.height));
+                    }
+                    return null;
+                }
+                Component.onCompleted: { var m = root.trashProbes; m[win.modelData.name] = ui; root.trashProbes = m; }
+                Component.onDestruction: { var m = root.trashProbes; delete m[win.modelData.name]; root.trashProbes = m; }
 
                 // pointer x, followed EXACTLY (no animation). This used to ease over 55 ms, restarted on every pointer event: moving
                 // the mouse quickly left the magnification a few frames behind the pointer, worse with many icons
@@ -5811,6 +5899,11 @@ Scope {
                                     id: img
                                     visible: false
                                     property real lift: 0
+                                    // Empty Trash shake: rotation (deg), pivot at the icon's bottom
+                                    property real wob: 0
+                                    // lifted while an icon from the desktop is held over the Trash (drop it to throw it away)
+                                    property real armLift: (ui.trashArmed && cell.modelData.special === "trash") ? root.iconSize * 0.22 : 0
+                                    Behavior on armLift { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                     // icon art drawn at ~99%: the dock and the cells keep their size. Whole pixels only: at rest this was
                                     // 51.48 px wide and centred on a fractional x, so the GPU re-sampled the icon texture (blurry) until the
                                     // magnification made it big enough that the blur was no longer noticeable
@@ -5818,7 +5911,7 @@ Scope {
                                     height: width
                                     x: Math.round((parent.width - width) / 2)
                                     anchors.bottom: parent.bottom
-                                    anchors.bottomMargin: Math.round(lift)
+                                    anchors.bottomMargin: Math.round(lift + armLift)
                                     source: cell.isSep ? "" : root.cellIconSrc(cell.modelData)
                                     sourceSize: Qt.size(Math.ceil(root.iconSize * root.magnification * 1.25),
                                                         Math.ceil(root.iconSize * root.magnification * 1.25))
@@ -5831,6 +5924,8 @@ Scope {
                                     visible: !cell.isSep && !cell.thumbReady
                                     source: img
                                     anchors.fill: img
+                                    rotation: img.wob
+                                    transformOrigin: Item.Bottom
                                     shadowEnabled: true
                                     shadowColor: "black"
                                     shadowOpacity: 0.32
@@ -5928,6 +6023,30 @@ Scope {
                                             bounceAnim.stop(); settleAnim.stop(); img.lift = 0; cell.bounceShown = false;
                                         } else cell.bounceStep();
                                     }
+                                }
+                                // something was just thrown into the Trash: the icon hops once and settles with a small bounce
+                                Connections {
+                                    target: ui
+                                    function onTrashKickChanged() { if (cell.modelData.special === "trash" && !ui.tucked) { trashHop.restart(); } }
+                                }
+                                SequentialAnimation {
+                                    id: trashHop
+                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.30; duration: 150; easing.type: Easing.OutCubic }
+                                    NumberAnimation { target: img; property: "lift"; to: 0; duration: 420; easing.type: Easing.OutBounce }
+                                }
+
+                                // ── Empty Trash: a short shake and one hop ──
+                                Connections {
+                                    target: ui
+                                    function onTrashEmptyKickChanged() { if (cell.modelData.special === "trash" && !ui.tucked) trashEmpty.restart(); }
+                                }
+                                SequentialAnimation {
+                                    id: trashEmpty
+                                    NumberAnimation { target: img; property: "wob"; to: -7; duration: 70 }
+                                    NumberAnimation { target: img; property: "wob"; to: 7; duration: 110 }
+                                    NumberAnimation { target: img; property: "wob"; to: 0; duration: 80 }
+                                    NumberAnimation { target: img; property: "lift"; to: root.iconSize * 0.34; duration: 160; easing.type: Easing.OutCubic }
+                                    NumberAnimation { target: img; property: "lift"; to: 0; duration: 420; easing.type: Easing.OutBounce }
                                 }
                                 SequentialAnimation {
                                     id: bounceAnim
@@ -6089,6 +6208,7 @@ Scope {
                 // Dock. Rows are 22 pt with capsule highlights, as in macOS 26.
                 DockGlassPanel {
                     id: menu
+                    shadow: false
                     z: 60
                     visible: opacity > 0
                     opacity: ui.menuOpen ? 1 : 0

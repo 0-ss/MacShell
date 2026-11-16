@@ -505,7 +505,7 @@ var strings = {
     // Control Center
     "Add Controls": "Добавить элементы",
     "Edit Controls": "Изменить элементы",
-    "Choose which controls appear in Control Center. You can also drag them around in Control Center → Edit Controls.": "Выберите элементы Пункта управления. Их можно перетаскивать прямо в Пункте управления → «Изменить элементы».",
+    "Choose which controls appear in Control Center. You can also drag them around and resize them with the corner knob in Control Center → Edit Controls.": "Выберите элементы Пункта управления. Их можно перетаскивать и менять их размер за кружок в углу прямо в Пункте управления → «Изменить элементы».",
     "No controls. Use Edit Controls to add some.": "Нет элементов. Добавьте их через «Изменить элементы».",
     "Done": "Готово",
     "Display": "Дисплей",
@@ -629,7 +629,7 @@ var strings = {
 
     // two-line texts and status lines
     "Drag a widget to move it (it snaps to the grid). Use the − badge on a widget to remove it.": "Перетащите виджет, чтобы переместить его (он прилипает к сетке). Значок − на виджете удаляет его.",
-    "Editing is on: drag a widget to move it, use the − badge to remove it, then click Stop Editing.": "Правка включена: перетаскивайте виджеты, значок − удаляет виджет, затем нажмите «Завершить правку».",
+    "Editing is on: drag a widget to move it, drag the knob on its corner to resize it, use the − badge to remove it, then click Stop Editing.": "Правка включена: перетаскивайте виджеты, тяните за кружок в углу, чтобы изменить размер, значок − удаляет виджет, затем нажмите «Завершить правку».",
     "Liquid Glass couldn't start (install qt6-shadertools)": "Liquid Glass не запустился (установите qt6-shadertools)",
     "Liquid Glass couldn't start (install qt6-shadertools) – using Normal Blur": "Liquid Glass не запустился (установите qt6-shadertools) – используется обычное размытие",
     "Preparing the Liquid Glass shader…": "Подготовка шейдера Liquid Glass…",
@@ -664,7 +664,7 @@ var strings = {
     "Smaller": "Меньше",
     "Larger": "Больше",
     "Windows behind the Dock stream live (every frame); workspace switches, new windows and wallpaper changes show through at once": "Окна за доком транслируются вживую (каждый кадр); переключения рабочих столов, новые окна и смена обоев видны сразу",
-    "Version 0.5.1 • Hyprland • Quickshell": "Версия 0.5.1 • Hyprland • Quickshell",
+    "Version 0.5.2 • Hyprland • Quickshell": "Версия 0.5.2 • Hyprland • Quickshell",
     "Just now": "Только что",
     "min ago": "мин назад",
     "hour ago": "час назад",

@@ -504,7 +504,7 @@ var strings = {
     // Control Center
     "Add Controls": "Añadir controles",
     "Edit Controls": "Editar controles",
-    "Choose which controls appear in Control Center. You can also drag them around in Control Center → Edit Controls.": "Elige qué controles aparecen en el Centro de control. También puedes arrastrarlos en Centro de control → Editar controles.",
+    "Choose which controls appear in Control Center. You can also drag them around and resize them with the corner knob in Control Center → Edit Controls.": "Elige qué controles aparecen en el Centro de control. También puedes arrastrarlos y cambiar su tamaño con el tirador de la esquina en Centro de control → Editar controles.",
     "No controls. Use Edit Controls to add some.": "Sin controles. Usa Editar controles para añadir.",
     "Done": "Hecho",
     "Display": "Pantalla",
@@ -627,7 +627,7 @@ var strings = {
 
     // two-line texts and status lines
     "Drag a widget to move it (it snaps to the grid). Use the − badge on a widget to remove it.": "Arrastra un widget para moverlo (se ajusta a la cuadrícula). Usa la insignia − para quitarlo.",
-    "Editing is on: drag a widget to move it, use the − badge to remove it, then click Stop Editing.": "Edición activada: arrastra para mover, usa − para quitar y pulsa Dejar de editar.",
+    "Editing is on: drag a widget to move it, drag the knob on its corner to resize it, use the − badge to remove it, then click Stop Editing.": "Edición activada: arrastra para mover, arrastra el tirador de la esquina para cambiar el tamaño, usa − para quitar y pulsa Dejar de editar.",
     "Liquid Glass couldn't start (install qt6-shadertools)": "Liquid Glass no pudo arrancar (instala qt6-shadertools)",
     "Liquid Glass couldn't start (install qt6-shadertools) – using Normal Blur": "Liquid Glass no pudo arrancar (instala qt6-shadertools) – usando Desenfoque normal",
     "Preparing the Liquid Glass shader…": "Preparando el shader Liquid Glass…",
@@ -666,7 +666,7 @@ var strings = {
     "Smaller": "Más pequeño",
     "Larger": "Más grande",
     "Windows behind the Dock stream live (every frame); workspace switches, new windows and wallpaper changes show through at once": "Las ventanas tras el Dock se ven en vivo (cada fotograma); los cambios de escritorio, ventanas nuevas y fondos se muestran al momento",
-    "Version 0.5.1 • Hyprland • Quickshell": "Versión 0.5.1 • Hyprland • Quickshell",
+    "Version 0.5.2 • Hyprland • Quickshell": "Versión 0.5.2 • Hyprland • Quickshell",
     "Just now": "Ahora mismo",
     "min ago": "min",
     "hour ago": "h",

@@ -217,6 +217,35 @@ Scope {
         }
         recount(); scheduleSave();
     }
+    // Resize with the corner knob: the widget keeps its top-left corner and only takes a size whose footprint is free
+    // (on screen, no overlap). `wantCols` / `wantRows` are where the pointer is, in grid cells (1.0 = one cell wide / tall);
+    // the nearest of Small (1x1), Medium (2x1) and Large (2x2) that fits wins.
+    function fitsAt(x, y, size, skipId) {
+        var ss = screenSize(), d = dims(size);
+        return x >= gridLeft && y >= gridTop
+            && x + d[0] <= ss[0] - gridRight && y + d[1] <= ss[1] - gridBottom
+            && !overlaps(x, y, d, skipId);
+    }
+    function sizeForDrag(id, x, y, wantCols, wantRows, current) {
+        var best = current, bd = Infinity, names = ["small", "medium", "large"];
+        for (var i = 0; i < names.length; i++) {
+            var sp = spans(names[i]);
+            if (names[i] !== current && !fitsAt(x, y, names[i], id)) continue;
+            var dd = (sp[0] - wantCols) * (sp[0] - wantCols) + (sp[1] - wantRows) * (sp[1] - wantRows);
+            if (dd < bd) { bd = dd; best = names[i]; }
+        }
+        return best;
+    }
+    function setSizeInPlace(id, size) {
+        for (var i = 0; i < wmodel.count; i++) {
+            var m = wmodel.get(i);
+            if (m.wid !== id) continue;
+            if (m.wsize === size || !fitsAt(m.wx, m.wy, size, id)) return;
+            wmodel.setProperty(i, "wsize", size);
+            break;
+        }
+        recount(); scheduleSave();
+    }
     function moveWidget(id, x, y) {
         for (var i = 0; i < wmodel.count; i++)
             if (wmodel.get(i).wid === id) {
@@ -322,7 +351,7 @@ Scope {
             root.scheduleSave();
             root.refresh();
         }
-        onLoadFailed: { root.ready = true; }
+        onLoadFailed: { root.ready = true; root.refresh(); }
     }
     Timer { id: saveTimer; interval: 400; onTriggered: root.saveSettings() }
 
@@ -511,12 +540,43 @@ Scope {
     }
     onWidgetCountChanged: if (count("weather") > 0 && !wxReady) refreshSoon()
 
+    // A failed lookup (no network yet right after login, a flaky DNS, an API hiccup) is retried with a growing delay
+    // instead of waiting for the 15-minute timer; a success resets the delay.
+    property int wxFails: 0
+    function wxFail(msg) {
+        wxError = msg;
+        wxFails = wxFails + 1;
+        wxRetry.interval = Math.min(5000 * Math.pow(2, Math.min(wxFails - 1, 5)), 120000);   // 5s, 10s, 20s ... 2min
+        wxRetry.restart();
+    }
+    Timer { id: wxRetry; interval: 5000; onTriggered: root.refresh() }
+
+    // last good forecast, kept on disk so the widget shows it straight away after a restart (and while offline)
+    function wxSaveCache() {
+        wxCache.setText(JSON.stringify({ city: wxCity, temp: wxTemp, hi: wxHi, lo: wxLo, code: wxCode, day: wxDay,
+                                         unit: tempUnit, hourly: wxHourly, daily: wxDaily, at: Date.now() }));
+    }
+    FileView {
+        id: wxCache
+        path: root.configDir + "/weather-cache.json"
+        printErrors: false
+        onLoaded: {
+            try {
+                var o = JSON.parse(text());
+                if (root.wxReady || o.unit !== root.tempUnit || !Array.isArray(o.hourly) || !Array.isArray(o.daily)) return;
+                root.wxCity = String(o.city); root.wxTemp = o.temp; root.wxHi = o.hi; root.wxLo = o.lo;
+                root.wxCode = o.code; root.wxDay = o.day === true; root.wxHourly = o.hourly; root.wxDaily = o.daily;
+                root.wxReady = true;
+            } catch (err) { }
+        }
+    }
+
     // automatic location (IP): ipwho.is, falling back to ipapi.co
     Process {
         id: locProc
         command: ["sh", "-c",
-            "o=$(curl -fsS --max-time 8 https://ipwho.is/ 2>/dev/null); "
-            + "case \"$o\" in *'\"latitude\"'*) printf '%s' \"$o\";; *) curl -fsS --max-time 8 https://ipapi.co/json/;; esac"]
+            "o=$(curl -fsS --retry 2 --retry-all-errors --retry-delay 1 --max-time 8 https://ipwho.is/ 2>/dev/null); "
+            + "case \"$o\" in *'\"latitude\"'*) printf '%s' \"$o\";; *) curl -fsS --retry 2 --retry-all-errors --retry-delay 1 --max-time 8 https://ipapi.co/json/;; esac"]
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
@@ -526,14 +586,14 @@ Scope {
                     root.wxPlace = o.city || o.region || o.country || "Current Location";
                     root.wxLocated = true;
                     wxProc.running = true;
-                } catch (err) { root.wxError = "location lookup failed"; console.log("[macwidgets] location:", err, text.substring(0, 120)); }
+                } catch (err) { root.wxFail("location lookup failed"); console.log("[macwidgets] location:", err, text.substring(0, 120)); }
             }
         }
     }
     // a city typed in Settings
     Process {
         id: geoProc
-        command: ["curl", "-fsS", "--max-time", "8", "-G", "https://geocoding-api.open-meteo.com/v1/search",
+        command: ["curl", "-fsS", "--retry", "2", "--retry-all-errors", "--retry-delay", "1", "--max-time", "8", "-G", "https://geocoding-api.open-meteo.com/v1/search",
                   "--data-urlencode", "name=" + root.cityName.trim(), "-d", "count=1", "-d", "language=en", "-d", "format=json"]
         stdout: StdioCollector {
             onStreamFinished: {
@@ -543,13 +603,13 @@ Scope {
                     root.wxPlace = r.name;
                     root.wxLocated = false;
                     wxProc.running = true;
-                } catch (err) { root.wxError = "city not found"; console.log("[macwidgets] geocoding:", err); }
+                } catch (err) { root.wxFail("city not found"); console.log("[macwidgets] geocoding:", err); }
             }
         }
     }
     Process {
         id: wxProc
-        command: ["curl", "-fsS", "--max-time", "10", "-G", "https://api.open-meteo.com/v1/forecast",
+        command: ["curl", "-fsS", "--retry", "2", "--retry-all-errors", "--retry-delay", "1", "--max-time", "10", "-G", "https://api.open-meteo.com/v1/forecast",
                   "-d", "latitude=" + root.wxLat, "-d", "longitude=" + root.wxLon,
                   "-d", "current=temperature_2m,weather_code,is_day",
                   "-d", "hourly=temperature_2m,weather_code,is_day",
@@ -579,7 +639,10 @@ Scope {
                     root.wxCity = root.wxPlace;
                     root.wxReady = true;
                     root.wxError = "";
-                } catch (err) { root.wxError = "weather lookup failed"; console.log("[macwidgets] forecast:", err, text.substring(0, 120)); }
+                    root.wxFails = 0;
+                    wxRetry.stop();
+                    root.wxSaveCache();
+                } catch (err) { root.wxFail("weather lookup failed"); console.log("[macwidgets] forecast:", err, text.substring(0, 120)); }
             }
         }
     }
@@ -710,8 +773,15 @@ Scope {
                         y: wy + dragDY
                         readonly property var baseDims: root.dims(wsize)
                         readonly property real radiusPx: 28 * root.widgetScale * (wsize === "small" ? 168 / 158 : (wsize === "medium" ? 358 / 338 : 1))
-                        width: baseDims[0]
-                        height: baseDims[1]
+                        // while the corner knob is held the frame follows the pointer (liveW / liveH); on release it settles into the snapped size
+                        property real liveW: -1
+                        property real liveH: -1
+                        property bool settling: false
+                        width: liveW >= 0 ? liveW : baseDims[0]
+                        height: liveH >= 0 ? liveH : baseDims[1]
+                        Behavior on width { enabled: ww.liveW < 0 && ww.settling; NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+                        Behavior on height { enabled: ww.liveH < 0 && ww.settling; NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+                        Timer { id: settleT; interval: 200; onTriggered: ww.settling = false }
 
                         WidgetVisual {
                             id: visual
@@ -766,6 +836,33 @@ Scope {
                             border.color: Qt.rgba(0, 0, 0, 0.18)
                             Text { id: chooseText; anchors.centerIn: parent; text: I18n.tr("Choose Image\u2026"); color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
                             MouseArea { id: chooseMa; anchors.fill: parent; onClicked: root.pickImage(ww.wid, "small") }
+                        }
+                        // resize knob (bottom-right corner): drag it to step through Small / Medium / Large
+                        ResizeKnob {
+                            id: sizeKnob
+                            active: root.editing
+                            ref: ui
+                            cornerR: ww.radiusPx
+                            sweep: 1; reach: 5                 // desktop widgets get the longer, full-corner knob
+                            // pointer position when the knob was grabbed + the widget's size at that moment
+                            property real p0x: 0
+                            property real p0y: 0
+                            property real w0: 0
+                            property real h0: 0
+                            property bool armed: false
+                            onDragStarted: { armed = false; w0 = ww.width; h0 = ww.height; ww.settling = false; settleT.stop(); ww.liveW = w0; ww.liveH = h0; }
+                            onDragMoved: (x, y) => {
+                                if (!armed) { p0x = x; p0y = y; armed = true; return; }
+                                var w = Math.max(0, w0 + (x - p0x)), h = Math.max(0, h0 + (y - p0y));
+                                // real time: the widget's frame tracks the pointer between the Small and the Large size
+                                var smallD = root.dims("small"), largeD = root.dims("large");
+                                ww.liveW = Math.max(smallD[0], Math.min(largeD[0], w));
+                                ww.liveH = Math.max(smallD[1], Math.min(largeD[1], h));
+                                var gx = root.gridCell + root.gridGapX, gy = root.gridCell + root.gridGapY;
+                                var next = root.sizeForDrag(ww.wid, ww.wx, ww.wy, (w + root.gridGapX) / gx, (h + root.gridGapY) / gy, ww.wsize);
+                                if (next !== ww.wsize) root.setSizeInPlace(ww.wid, next);
+                            }
+                            onDragEnded: { armed = false; ww.settling = true; settleT.restart(); ww.liveW = -1; ww.liveH = -1; }
                         }
                         Rectangle {   // "−" remove badge
                             visible: root.editing

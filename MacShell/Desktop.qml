@@ -13,6 +13,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import "I18n.js" as I18n
 import "Fonts.js" as Fonts
+import "EmojiData.js" as EmojiData
 
 Scope {
     id: root
@@ -279,6 +280,39 @@ Scope {
         folderGlyphs = m;
         Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/macshell\" && printf '%s' \"$1\" > \"$HOME/.config/macshell/desktop-glyphs.json\"", "sh", JSON.stringify(m)]);
     }
+    // ── folder emoji (any emoji drawn on a folder), kept in ~/.config/macshell/desktop-emojis.json ──
+    property var folderEmoji: ({})
+    FileView {
+        id: emojiFile
+        path: root.home + "/.config/macshell/desktop-emojis.json"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: { try { root.folderEmoji = JSON.parse(text()); } catch (e) { root.folderEmoji = ({}); } }
+    }
+    // the first emoji of a text (a pasted sentence would not fit on a folder): one symbol with its variation selector / skin tone / keycap
+    // mark, a flag (two regional indicators) or a whole ZWJ sequence (family, profession, ...)
+    function firstEmoji(text) {
+        var t = String(text || "").replace(/[\r\n]+/g, " ").trim();
+        if (t === "") return "";
+        var cps = Array.from(t), e = cps[0], i = 1;
+        function cpOf(c) { return c.codePointAt(0); }
+        function isRI(c) { var n = cpOf(c); return n >= 0x1F1E6 && n <= 0x1F1FF; }
+        if (isRI(e) && cps.length > 1 && isRI(cps[1])) { e += cps[1]; i = 2; }
+        while (i < cps.length && i < 14) {
+            var n = cpOf(cps[i]);
+            if (n === 0xFE0F || n === 0x20E3 || (n >= 0x1F3FB && n <= 0x1F3FF)) { e += cps[i]; i++; }
+            else if (n === 0x200D && i + 1 < cps.length) { e += cps[i] + cps[i + 1]; i += 2; }
+            else break;
+        }
+        return e;
+    }
+    function setFolderEmoji(paths, emoji) {
+        var m = {}; for (var k in folderEmoji) m[k] = folderEmoji[k];
+        for (var i = 0; i < paths.length; i++) { if (emoji === "") delete m[paths[i]]; else m[paths[i]] = emoji; }
+        folderEmoji = m;
+        Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/macshell\" && printf '%s' \"$1\" > \"$HOME/.config/macshell/desktop-emojis.json\"", "sh", JSON.stringify(m)]);
+    }
     // which glyphs the installed icon pack really has (looked up once: every folder_color_purple_<glyph> file in the icon folders)
     Process {
         running: true
@@ -484,8 +518,14 @@ Scope {
         Quickshell.execDetached(["sh", "-c", "d=\"$1\"; shift; for f in \"$@\"; do [ \"$f\" = \"$d\" ] || mv -- \"$f\" \"$d\"/; done", "sh", folderPath].concat(paths));
         rescan.restart();
     }
+    // icons that have just been thrown away: hidden at once (the folder is only re-read a moment later)
+    property var trashHidden: ({})
+    Timer { id: trashHiddenClear; interval: 1800; onTriggered: root.trashHidden = ({}) }
     function trash(path) { trashMany([path]); }
     function trashMany(paths) {
+        var th = {}; for (var hk in trashHidden) th[hk] = true;
+        for (var hi = 0; hi < paths.length; hi++) th[paths[hi]] = true;
+        trashHidden = th; trashHiddenClear.restart();
         Quickshell.execDetached(["sh", "-c", "for f in \"$@\"; do gio trash \"$f\" 2>/dev/null || { mkdir -p \"$HOME/.local/share/Trash/files\" && mv -- \"$f\" \"$HOME/.local/share/Trash/files/\"; }; done", "sh"].concat(paths));
         clearSelection();
         rescan.restart();
@@ -510,7 +550,7 @@ Scope {
             color: "transparent"
             WlrLayershell.namespace: "macdesktop"
             WlrLayershell.layer: WlrLayer.Bottom
-            WlrLayershell.keyboardFocus: ((renameSheet.open || linkSheet.open) && !root.picking) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+            WlrLayershell.keyboardFocus: ((renameSheet.open || linkSheet.open || emojiSheet.open) && !root.picking) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
             // The whole screen takes the pointer (empty desktop: selection rectangle, right-click menu) EXCEPT
             //   * a Player widget's buttons, which live in the widgets window and still have to be clickable, and
@@ -526,14 +566,14 @@ Scope {
             }
 
             // any glass (right-click menu or a sheet) on screen?
-            readonly property bool glassNeeded: dctx.open || renameSheet.visible || previewSheet.visible || picSheet.visible || linkSheet.visible || glyphSheet.visible
+            readonly property bool glassNeeded: dctx.open || renameSheet.visible || previewSheet.visible || picSheet.visible || linkSheet.visible || glyphSheet.visible || emojiSheet.visible
             // Shortly after start-up every sheet is shown once at opacity 0.01: the glass (shaders, blur and mask objects, canvases) gets
             // built and compiled then, instead of during the first real Quick Preview.
             property bool warm: false
             Timer { running: true; interval: 3000; onTriggered: { w.warm = true; warmOff.start(); } }
             Timer { id: warmOff; interval: 1500; onTriggered: w.warm = false }
-            readonly property bool sheetOpen: renameSheet.open || previewSheet.open || picSheet.open || linkSheet.open || glyphSheet.open
-            function closeSheets() { renameSheet.open = false; previewSheet.open = false; picSheet.open = false; linkSheet.open = false; glyphSheet.open = false; }
+            readonly property bool sheetOpen: renameSheet.open || previewSheet.open || picSheet.open || linkSheet.open || glyphSheet.open || emojiSheet.open
+            function closeSheets() { renameSheet.open = false; previewSheet.open = false; picSheet.open = false; linkSheet.open = false; glyphSheet.open = false; emojiSheet.open = false; }
             // puts a sheet in the middle of the band between the top bar and the Dock, off the widgets
             function placeSheet(sh) {
                 var top = root.barBottom() + 8;
@@ -577,12 +617,58 @@ Scope {
                 }
                 return out;
             }
+            // The icons thrown into the Trash shrink, turn a little and fly into the Trash icon one after the other, then the Trash hops.
+            // the Trash icon lifts while a dragged icon is held over it
+            property bool trashArmed: false
+            property bool dockRevealed: false     // an auto-hidden Dock was brought up because an icon is held at the bottom edge
+            function setDockReveal(on) {
+                if (dockRevealed === on) return;
+                dockRevealed = on;
+                if (root.dock && root.dock.trashReveal) root.dock.trashReveal(modelData.name, on);
+            }
+            function updateTrashArmOff() {
+                setDockReveal(false);
+                if (trashArmed) { trashArmed = false; if (root.dock && root.dock.trashArm) root.dock.trashArm(modelData.name, false); }
+            }
+            function updateTrashArm(x, y) {
+                // nothing is thrown here: the Trash only lifts while the icon is held over it. The throw happens in finishDrag, on release.
+                if (y >= height - 28) setDockReveal(true);
+                else if (!trashArmed) setDockReveal(false);
+                var on = !!(root.dock && root.dock.trashHit && root.dock.trashHit(modelData.name, x, y));
+                if (on === trashArmed) return;
+                trashArmed = on;
+                if (root.dock && root.dock.trashArm) root.dock.trashArm(modelData.name, on);
+            }
+            function flyToTrash(list, dx, dy, px, py) {
+                if (root.dock && root.dock.trashExpect) root.dock.trashExpect();     // this one already animates: the Dock must not hop a second time
+                var tc = root.dock && root.dock.trashCenter ? root.dock.trashCenter(modelData.name) : null;
+                var tx = tc ? tc.x : px, ty = tc ? tc.y : py;
+                for (var i = 0; i < list.length; i++) {
+                    var p = layoutMap[list[i].name];
+                    if (!p) continue;
+                    flyComp.createObject(flyLayer, { src: root.iconSourceFor(list[i]), size: root.iconSize,
+                                                     sx: p.x + dx + root.cellW / 2, sy: p.y + dy + 10 + root.iconSize / 2,
+                                                     tx: tx, ty: ty, delay: Math.min(i, 8) * 55 });
+                }
+                pulseT.interval = 380 + Math.min(list.length - 1, 8) * 55;
+                pulseT.restart();
+            }
+            Timer { id: pulseT; onTriggered: if (root.dock && root.dock.trashPulse) root.dock.trashPulse(w.modelData.name) }
             // drop the dragged icons: onto a folder / another icon, or snap each to the nearest free cell
             function finishDrag(px, py) {
                 var moved = root.selectedItems().filter(function (it) { return !!layoutMap[it.name]; });
                 var dx = dragDX, dy = dragDY;
+                // decided at the moment of release, before the Dock is allowed to slide away again
+                var overTrash = !!(root.dock && root.dock.trashHit && root.dock.trashHit(modelData.name, px, py));
+                updateTrashArmOff();
                 dragActive = false; dragDX = 0; dragDY = 0; dropPath = "";
                 if (moved.length === 0) return;
+                // let go over the Dock's Trash: only now are the dragged icons thrown away
+                if (overTrash) {
+                    flyToTrash(moved, dx, dy, px, py);
+                    root.trashMany(moved.map(function (it) { return it.path; }));
+                    return;
+                }
                 var target = iconAt(px, py);
                 if (target && root.isSelected(target.path)) target = null;
                 if (target && target.isDir) { root.moveMany(moved.map(function (it) { return it.path; }), target.path); return; }
@@ -694,6 +780,7 @@ Scope {
                             w.dragDX = mouse.x - px;
                             w.dragDY = mouse.y - py;
                             var t = w.iconAt(mouse.x, mouse.y);
+                            w.updateTrashArm(mouse.x, mouse.y);
                             w.dropPath = (t && !root.isSelected(t.path) && (t.isDir || root.selectionCount === 1)) ? t.path : "";
                         } else {
                             w.marqueeActive = true;
@@ -711,7 +798,7 @@ Scope {
                         w.marqueeActive = false;
                         pressedItem = null;
                     }
-                    onCanceled: { w.dragActive = false; w.dragDX = 0; w.dragDY = 0; w.dropPath = ""; w.marqueeActive = false; pressedItem = null; }
+                    onCanceled: { w.updateTrashArmOff(); w.dragActive = false; w.dragDX = 0; w.dragDY = 0; w.dropPath = ""; w.marqueeActive = false; pressedItem = null; }
                     onDoubleClicked: mouse => {
                         if (ignoring || mouse.button !== Qt.LeftButton || addMode) return;
                         var it = w.iconAt(mouse.x, mouse.y);
@@ -726,7 +813,7 @@ Scope {
                         required property var modelData
                         readonly property var place: w.layoutMap[modelData.name] || null
                         readonly property bool moving: w.dragActive && selected
-                        visible: place !== null
+                        visible: place !== null && root.trashHidden[modelData.path] !== true
                         x: (place ? place.x : 0) + (moving ? w.dragDX : 0)
                         y: (place ? place.y : 0) + (moving ? w.dragDY : 0)
                         Behavior on x { enabled: !icon.moving; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -740,6 +827,52 @@ Scope {
                         dropTarget: w.dropPath === modelData.path
                         dragging: moving
                         source: root.iconSourceFor(modelData)
+                        emoji: modelData.isDir ? (root.folderEmoji[modelData.path] || "") : ""
+                    }
+                }
+
+                // icons flying into the Trash
+                Item { id: flyLayer; anchors.fill: parent; z: 80 }
+                Component {
+                    id: flyComp
+                    Item {
+                        id: g
+                        property string src: ""
+                        property real size: 48
+                        property real sx: 0
+                        property real sy: 0
+                        property real tx: 0
+                        property real ty: 0
+                        property int delay: 0
+                        width: size; height: size
+                        x: sx - size / 2; y: sy - size / 2
+                        transformOrigin: Item.Center
+                        Image {
+                            anchors.fill: parent
+                            source: g.src
+                            sourceSize: Qt.size(g.size * 2, g.size * 2)
+                            fillMode: Image.PreserveAspectFit
+                            smooth: true
+                        }
+                        SequentialAnimation {
+                            running: true
+                            PauseAnimation { duration: g.delay }
+                            ParallelAnimation {
+                                NumberAnimation { target: g; property: "x"; to: g.tx - g.size / 2; duration: 380; easing.type: Easing.InOutQuad }
+                                // up a little first, then down into the Dock: a short arc instead of a straight line
+                                SequentialAnimation {
+                                    NumberAnimation { target: g; property: "y"; to: Math.min(g.sy, g.ty) - g.size * 0.35 - g.size / 2; duration: 140; easing.type: Easing.OutCubic }
+                                    NumberAnimation { target: g; property: "y"; to: g.ty - g.size / 2; duration: 240; easing.type: Easing.InCubic }
+                                }
+                                NumberAnimation { target: g; property: "scale"; to: 0.28; duration: 380; easing.type: Easing.InCubic }
+                                NumberAnimation { target: g; property: "rotation"; to: -14; duration: 380; easing.type: Easing.InOutQuad }
+                                SequentialAnimation {
+                                    PauseAnimation { duration: 230 }
+                                    NumberAnimation { target: g; property: "opacity"; to: 0; duration: 150 }
+                                }
+                            }
+                            ScriptAction { script: g.destroy() }
+                        }
                     }
                 }
 
@@ -757,16 +890,17 @@ Scope {
                 // Right-click menu uses the same glass bubble component as the Dock's context menu.
                 DockGlassPanel {
                     id: dctx
+                    shadow: false
                     property var item: undefined
                     readonly property bool open: item !== undefined
-                    // native-feeling pop: a quick fade and a small grow out of the pointer; leaves with a short plain fade
+                    // no pop animation: the menu appears and disappears instantly
                     property real prog: open ? 1 : 0
-                    Behavior on prog { NumberAnimation { duration: dctx.open ? 105 : 60; easing.type: Easing.OutQuad } }
                     property real ox: 0
                     property real oy: 0
-                    visible: prog > 0.01
-                    opacity: Math.min(1, prog * (open ? 1.8 : 1))
-                    transform: Scale { origin.x: dctx.ox; origin.y: dctx.oy; xScale: 0.94 + 0.06 * dctx.prog; yScale: 0.94 + 0.06 * dctx.prog }
+                    // hidden until positionAt() has run for THIS click: otherwise the menu showed for a frame where the previous one was
+                    property bool placed: false
+                    visible: open && placed
+                    opacity: 1
                     z: 50
                     property real menuScale: root.dock ? root.dock.labelK : 1
                     property real clickX: 0
@@ -810,7 +944,7 @@ Scope {
                                          { t: "sep" }, { t: "Desktop Settings\u2026", k: "settings" }, { t: "Change Wallpaper\u2026", k: "wallpaper" }];
                         var m = [{ t: "Open", k: "open" }];
                         if (a.selectionCount <= 1) { m.push({ t: "Quick Preview", k: "ql" }); m.push({ t: "Rename\u2026", k: "rename" }); }
-                        if (hasDir) { m.push({ t: "sep" }); m.push({ t: "colors" }); m.push({ t: "Folder Icon\u2026", k: "glyph" }); }
+                        if (hasDir) { m.push({ t: "sep" }); m.push({ t: "colors" }); m.push({ t: "Folder Icon\u2026", k: "glyph" }); m.push({ t: "Folder Emoji\u2026", k: "emoji" }); }
                         m.push({ t: "sep" });
                         if (a.selectionCount <= 1) m.push({ t: "Copy Path", k: "copy" });
                         m.push({ t: "Move to Trash", k: "trash", danger: true });
@@ -819,9 +953,10 @@ Scope {
                     }
                     function show(it, mx, my) {
                         menuModel = buildModel(it);
+                        placed = false;
                         item = it;
                         clickX = mx; clickY = my;
-                        Qt.callLater(function () { dctx.positionAt(); });
+                        Qt.callLater(function () { if (dctx.open) { dctx.positionAt(); dctx.placed = true; } });
                     }
                     function run(k) {
                         var a = dctx.app, it = dctx.item, sel = a.selectedItems();
@@ -833,12 +968,16 @@ Scope {
                         else if (k === "settings" && a.dock) a.dock.openPrefs("dock");
                         else if (k === "widgets" && a.dock) a.dock.openPrefs("widgets");
                         else if (k === "glyph") glyphSheet.begin(sel.filter(function (s2) { return s2.isDir; }).map(function (s2) { return s2.path; }));
+                        else if (k === "emoji") emojiSheet.begin(sel.filter(function (s2) { return s2.isDir; }));
                         else if (k.indexOf("color:") === 0) {
                             var dirs = sel.filter(function (s2) { return s2.isDir; }).map(function (s2) { return s2.path; });
                             a.setFolderColor(dirs, k.substring(6));
                         }
                         else if (k === "copy" && it) Quickshell.execDetached(["sh", "-c", "printf '%s' \"$1\" | wl-copy", "sh", it.path]);
-                        else if (k === "trash" && it) a.trashMany(sel.map(function (s) { return s.path; }));
+                        else if (k === "trash" && it) {
+                            w.flyToTrash(sel, 0, 0, dctx.clickX, dctx.clickY);      // the same fly-into-the-Trash as a drag and drop
+                            a.trashMany(sel.map(function (s) { return s.path; }));
+                        }
                         else if (k === "newfolder") a.newFolder();
                         else if (k === "wallpaper" && a.dock) a.dock.openPrefs("wallpaper");
                     }
@@ -1205,6 +1344,258 @@ Scope {
                                 MouseArea { id: gMa; anchors.fill: parent; hoverEnabled: true; onClicked: glyphSheet.pick(gcell.modelData) }
                             }
                         }
+                    }
+                }
+
+                // ───────── Folder Emoji (put any emoji on a folder) ─────────
+                // A live preview of the folder on top, a search / paste bar, the category tabs and the full emoji set. Tapping an emoji puts it
+                // on the folder at once (tap the chosen one again, or "Remove Emoji", to take it off). The sheet stays open until Done.
+                DesktopSheet {
+                    warm: w.warm
+                    id: emojiSheet
+                    z: 60
+                    property var items: []
+                    property var paths: []
+                    property int cat: 0
+                    property string query: ""
+                    readonly property bool searching: query !== ""
+                    readonly property string current: paths.length > 0 ? (root.folderEmoji[paths[0]] || "") : ""
+                    readonly property var catIcons: ["😀", "👋", "🐻", "🍔", "✈️", "⚽", "💡", "🔣", "🏳️"]
+                    readonly property var shown: {
+                        var out = [], L = EmojiData.list, q = query.toLowerCase();
+                        for (var i = 0; i < L.length; i++) {
+                            if (q !== "" ? L[i][4].indexOf(q) >= 0 : L[i][3] === cat) out.push(L[i][0]);
+                        }
+                        return out;
+                    }
+                    readonly property color hoverBg: dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
+                    readonly property color pillBg: dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.07)
+                    title: I18n.tr("Folder Emoji")
+                    backdrop: desktopGlassBackdrop
+                    dark: root.darkMode
+                    fam: root.fam
+                    k: root.dock ? root.dock.labelK : 1
+                    contentW: 372
+                    contentH: 424
+                    onCloseRequested: open = false
+                    function begin(list) {
+                        if (!list || list.length === 0) return;
+                        items = list;
+                        paths = list.map(function (it) { return it.path; });
+                        cat = 0; query = ""; emojiIn.text = "";
+                        w.placeSheet(emojiSheet);
+                        ox = width / 2; oy = height / 2;
+                        open = true;
+                        Qt.callLater(function () { emojiIn.forceActiveFocus(); });
+                    }
+                    function apply(e) { root.setFolderEmoji(paths, e); }
+                    function tap(e) { apply(current === e ? "" : e); }
+                    function pasteIn() { if (!pasteProc.running) pasteProc.running = true; }
+                    Process {
+                        id: pasteProc
+                        command: ["sh", "-c", "wl-paste -n 2>/dev/null | head -c 96"]
+                        stdout: StdioCollector {
+                            onStreamFinished: {
+                                var e = root.firstEmoji(text);
+                                if (e !== "") { emojiSheet.apply(e); emojiIn.text = ""; emojiSheet.query = ""; }
+                            }
+                        }
+                    }
+
+                    // ── live preview ──
+                    Item {
+                        id: hero
+                        x: 0; y: 0; width: parent.width; height: Math.round(104 * emojiSheet.k)
+                        readonly property real isz: Math.round(68 * emojiSheet.k)
+                        Image {
+                            id: heroImg
+                            x: Math.round((parent.width - width) / 2); y: Math.round(2 * emojiSheet.k)
+                            width: hero.isz; height: hero.isz
+                            sourceSize: Qt.size(width * 2, height * 2)
+                            asynchronous: true; cache: true; smooth: true; mipmap: true
+                            fillMode: Image.PreserveAspectFit
+                            source: emojiSheet.items.length > 0 ? root.iconSourceFor(emojiSheet.items[0]) : ""
+                        }
+                        Text {
+                            visible: emojiSheet.current !== ""
+                            x: heroImg.x + Math.round((heroImg.width - width) / 2)
+                            y: heroImg.y + Math.round(heroImg.height * 0.30)
+                            text: emojiSheet.current
+                            font.pixelSize: Math.round(hero.isz * 0.46)
+                            renderType: Text.QtRendering
+                        }
+                        Text {
+                            x: Math.round(24 * emojiSheet.k); y: heroImg.y + hero.isz + Math.round(6 * emojiSheet.k)
+                            width: parent.width - 2 * x
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideMiddle
+                            text: emojiSheet.items.length > 1 ? (emojiSheet.items.length + " " + I18n.tr("folders"))
+                                                              : (emojiSheet.items.length === 1 ? emojiSheet.items[0].name : "")
+                            color: emojiSheet.fg2
+                            font.family: root.fam; font.pixelSize: Math.max(9, Math.round(12 * emojiSheet.k))
+                        }
+                    }
+
+                    // ── search / paste bar ──
+                    Rectangle {
+                        id: emojiBar
+                        x: Math.round(16 * emojiSheet.k); y: Math.round(108 * emojiSheet.k)
+                        width: emojiSheet.width - 2 * x - pasteBtn.width - Math.round(8 * emojiSheet.k)
+                        height: Math.round(34 * emojiSheet.k)
+                        radius: height / 2
+                        color: emojiSheet.pillBg
+                        border.width: emojiIn.activeFocus ? 1.5 : 0
+                        border.color: root.accent
+                        TextInput {
+                            id: emojiIn
+                            anchors.fill: parent; anchors.leftMargin: Math.round(16 * emojiSheet.k); anchors.rightMargin: Math.round(16 * emojiSheet.k)
+                            verticalAlignment: TextInput.AlignVCenter
+                            color: root.darkMode ? "white" : "#1d1d1f"
+                            selectionColor: root.accent
+                            font.family: root.fam; font.pixelSize: Math.max(10, Math.round(14 * emojiSheet.k))
+                            selectByMouse: true
+                            clip: true
+                            // plain words search the emoji by name; an emoji typed or pasted here goes onto the folder
+                            onTextEdited: {
+                                var t = text;
+                                if (/^[\x00-\x7f]*$/.test(t)) { emojiSheet.query = t.trim(); }
+                                else {
+                                    var e = root.firstEmoji(t);
+                                    if (e !== "") emojiSheet.apply(e);
+                                    text = ""; emojiSheet.query = "";
+                                }
+                            }
+                            Keys.onEscapePressed: emojiSheet.open = false
+                            onAccepted: emojiSheet.open = false
+                            Text {
+                                visible: emojiIn.text === ""
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: I18n.tr("Search, or paste an emoji")
+                                color: emojiSheet.fg2
+                                font: emojiIn.font
+                            }
+                        }
+                    }
+                    Rectangle {
+                        id: pasteBtn
+                        x: emojiSheet.width - width - Math.round(16 * emojiSheet.k); y: emojiBar.y
+                        width: Math.round(76 * emojiSheet.k); height: emojiBar.height
+                        radius: height / 2
+                        color: pbMa.pressed ? (root.darkMode ? Qt.rgba(1, 1, 1, 0.26) : Qt.rgba(0, 0, 0, 0.16))
+                                            : (pbMa.containsMouse ? (root.darkMode ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.12)) : emojiSheet.pillBg)
+                        Text {
+                            anchors.centerIn: parent
+                            text: I18n.tr("Paste")
+                            color: emojiSheet.fg
+                            font.family: root.fam; font.weight: Font.Medium; font.pixelSize: Math.max(10, Math.round(13 * emojiSheet.k))
+                        }
+                        MouseArea { id: pbMa; anchors.fill: parent; hoverEnabled: true; onClicked: emojiSheet.pasteIn() }
+                    }
+
+                    // ── category tabs (replaced by a result count while searching) ──
+                    Item {
+                        id: tabs
+                        x: Math.round(16 * emojiSheet.k); y: Math.round(150 * emojiSheet.k)
+                        width: Math.round(340 * emojiSheet.k); height: Math.round(30 * emojiSheet.k)
+                        Row {
+                            visible: !emojiSheet.searching
+                            Repeater {
+                                model: emojiSheet.catIcons
+                                delegate: Item {
+                                    required property int index
+                                    required property string modelData
+                                    width: Math.round(340 * emojiSheet.k / 9); height: tabs.height
+                                    Rectangle {
+                                        anchors.centerIn: parent
+                                        width: Math.round(32 * emojiSheet.k); height: Math.round(26 * emojiSheet.k); radius: height / 2
+                                        color: emojiSheet.cat === index ? (root.darkMode ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.13))
+                                                                        : (tbMa.containsMouse ? emojiSheet.hoverBg : "transparent")
+                                    }
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: modelData
+                                        opacity: emojiSheet.cat === index ? 1 : 0.62
+                                        font.pixelSize: Math.max(10, Math.round(16 * emojiSheet.k))
+                                    }
+                                    MouseArea { id: tbMa; anchors.fill: parent; hoverEnabled: true; onClicked: { emojiSheet.cat = index; grid.positionViewAtBeginning(); } }
+                                }
+                            }
+                        }
+                        Text {
+                            visible: emojiSheet.searching
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: Math.round(4 * emojiSheet.k)
+                            text: emojiSheet.shown.length === 0 ? I18n.tr("No emoji found") : (emojiSheet.shown.length + " " + I18n.tr("results"))
+                            color: emojiSheet.fg2
+                            font.family: root.fam; font.pixelSize: Math.max(9, Math.round(12 * emojiSheet.k))
+                        }
+                    }
+                    Rectangle {
+                        x: Math.round(16 * emojiSheet.k); y: Math.round(184 * emojiSheet.k)
+                        width: emojiSheet.width - 2 * x; height: 1
+                        color: emojiSheet.dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.09)
+                    }
+
+                    // ── the emoji ──
+                    GridView {
+                        id: grid
+                        x: Math.round(16 * emojiSheet.k); y: Math.round(190 * emojiSheet.k)
+                        width: Math.round(340 * emojiSheet.k); height: Math.round(178 * emojiSheet.k)
+                        clip: true
+                        cellWidth: Math.round(340 * emojiSheet.k / 8); cellHeight: Math.round(38 * emojiSheet.k)
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: emojiSheet.shown
+                        delegate: Item {
+                            id: ec
+                            required property string modelData
+                            width: grid.cellWidth; height: grid.cellHeight
+                            readonly property bool chosen: emojiSheet.current === modelData
+                            Rectangle {
+                                anchors.fill: parent; anchors.margins: Math.round(2 * emojiSheet.k)
+                                radius: Math.round(9 * emojiSheet.k)
+                                color: ec.chosen ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.38) : (ecMa.containsMouse ? emojiSheet.hoverBg : "transparent")
+                                border.width: ec.chosen ? 1.5 : 0
+                                border.color: root.accent
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: ec.modelData
+                                font.pixelSize: Math.max(10, Math.round(22 * emojiSheet.k))
+                                renderType: Text.QtRendering
+                            }
+                            MouseArea { id: ecMa; anchors.fill: parent; hoverEnabled: true; onClicked: emojiSheet.tap(ec.modelData) }
+                        }
+                    }
+
+                    // ── footer: remove / done ──
+                    Rectangle {
+                        id: removeBtn
+                        readonly property bool live: emojiSheet.current !== ""
+                        x: Math.round(16 * emojiSheet.k); y: Math.round(378 * emojiSheet.k)
+                        width: Math.round(128 * emojiSheet.k); height: Math.round(34 * emojiSheet.k)
+                        radius: height / 2
+                        opacity: live ? 1 : 0.38
+                        color: live && rmMa.containsMouse ? Qt.rgba(1, 0.27, 0.23, 0.26) : Qt.rgba(1, 0.27, 0.23, 0.14)
+                        Text {
+                            anchors.centerIn: parent
+                            text: I18n.tr("Remove Emoji")
+                            color: "#FF6A5F"
+                            font.family: root.fam; font.weight: Font.Medium; font.pixelSize: Math.max(10, Math.round(13 * emojiSheet.k))
+                        }
+                        MouseArea { id: rmMa; anchors.fill: parent; hoverEnabled: true; enabled: removeBtn.live; onClicked: emojiSheet.apply("") }
+                    }
+                    Rectangle {
+                        x: emojiSheet.width - width - Math.round(16 * emojiSheet.k); y: removeBtn.y
+                        width: Math.round(92 * emojiSheet.k); height: removeBtn.height
+                        radius: height / 2
+                        color: dnMa.pressed ? Qt.darker(root.accent, 1.2) : root.accent
+                        Text {
+                            anchors.centerIn: parent
+                            text: I18n.tr("Done")
+                            color: "white"
+                            font.family: root.fam; font.weight: Font.DemiBold; font.pixelSize: Math.max(10, Math.round(13 * emojiSheet.k))
+                        }
+                        MouseArea { id: dnMa; anchors.fill: parent; onClicked: emojiSheet.open = false }
                     }
                 }
 
