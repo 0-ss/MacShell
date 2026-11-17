@@ -34,6 +34,11 @@
 #   settings. Use --local to install exactly what is in a clone, or --check to only look.
 #   (macshell-update still exists for the daily timer and for scripts; "macshell-update rollback" restores both.)
 #
+# Login screen
+#   ./install.sh --login-screen     (or switch on "Login screen" in the graphical installer) replaces your display manager with
+#   greetd and shows MacLock's lock screen as the login screen. Nothing changes until you reboot; --remove-login-screen undoes it.
+#   See MacGreeter/README.md.
+#
 # Your settings (~/.config/macbar, macdock, macshell, macwidgets, ...) are never touched.
 # Before replacing an existing install, the old one is saved to ~/.local/share/macshell/backups/ (last 3 kept).
 #
@@ -57,6 +62,10 @@
 #       --update          quiet update mode (used by macshell-update)
 #       --uninstall       remove MacShell (settings are kept)
 #       --no-lock         do not install MacLock
+#       --login-screen    use MacLock as the login screen (greetd + MacGreeter; Arch only, asks for sudo, needs MacShell installed)
+#       --remove-login-screen   put the previous display manager back and remove the login screen
+#       --login-status    print the login screen's state as one line of JSON (used by the graphical installer)
+#       --login-sync      refresh the wallpaper / picture / settings the login screen shows (no sudo)
 #       --gui             use the graphical installer (MacInstaller): installs what it needs to run, then opens it
 #       --no-gui          never offer the graphical installer
 #       --check           only check whether a newer version exists (exit 0 = up to date, 10 = update available)
@@ -85,6 +94,11 @@ LOCK_DEST="${MACLOCK_DEST:-$CONFIG_HOME/quickshell/$LOCK_NAME}"
 STATE_DIR="$DATA_HOME/macshell"
 GUI_NAME="MacInstaller"
 GUI_DEST="$STATE_DIR/$GUI_NAME"
+GREETER_NAME="MacGreeter"                    # the login screen (a copy of MacLock's look + greetd); the source lives here, the system copy below
+GREETER_DEST="$STATE_DIR/$GREETER_NAME"
+GREETER_SYS="/usr/local/share/macshell-greeter"
+GREETER_VAR="/var/lib/macshell-greeter"
+LOGIN_ACTION=""   # setup | remove | status | sync
 BIN_DIR="$STATE_DIR/bin"
 BACKUP_DIR="$STATE_DIR/backups"
 HYPR_MAC_DIR="$CONFIG_HOME/hypr-macshell"
@@ -184,6 +198,10 @@ while [ $# -gt 0 ]; do
         --no-autostart) SKIP_AUTOSTART=1 ;;
         --no-rules) SKIP_RULES=1 ;;
         --no-lock) SKIP_LOCK=1 ;;
+        --login-screen) LOGIN_ACTION=setup; SKIP_DEPS=1; MODE_FLAG=1 ;;
+        --remove-login-screen) LOGIN_ACTION=remove; SKIP_DEPS=1; MODE_FLAG=1 ;;
+        --login-status) LOGIN_ACTION=status; SKIP_DEPS=1; ASSUME_YES=1; MODE_FLAG=1 ;;
+        --login-sync) LOGIN_ACTION=sync; SKIP_DEPS=1; ASSUME_YES=1; MODE_FLAG=1 ;;
         --gui) GUI=yes; MODE_FLAG=1 ;;
         --no-gui) GUI=no ;;
         --check) CHECK_ONLY=1; SKIP_DEPS=1; MODE_FLAG=1 ;;
@@ -291,6 +309,10 @@ do_uninstall() {
     fi
     remove_auto_update quiet
     remove_hypr_blocks
+    if [ -f "$GREETER_SYS/shell.qml" ]; then
+        warn "the login screen is still set up: run  macshell-install --remove-login-screen  first if you want your old login screen back"
+    fi
+    rm -rf "$GREETER_DEST"; rm -f "$LINK_DIR/macshell-greeter-sync" "$BIN_DIR/macshell-greeter-sync"
     rm -rf "$GUI_DEST"; rm -f "$LINK_DIR/macshell-installer" "$BIN_DIR/macshell-installer" "$APPS_DIR/macshell-installer.desktop"
     rm -f "$LINK_DIR/macshell-update" "$LINK_DIR/macshell-start" "$BIN_DIR/macshell-update" "$BIN_DIR/macshell-start" "$STATE_DIR/state.env"
     ok "removed the update and start tools"
@@ -1004,6 +1026,12 @@ run_doctor() {
     # install
     if [ -f "$DEST/shell.qml" ]; then d_ok "MacShell is installed ($DEST, $(state_get installed | cut -c1-12))"; else d_bad "MacShell is not installed in $DEST: run  bash install.sh"; fi
     [ -f "$LOCK_DEST/shell.qml" ] && d_ok "MacLock is installed" || say "  ${D}- MacLock is not installed${N}"
+    if [ -f "$GREETER_SYS/shell.qml" ]; then
+        if systemctl is-enabled --quiet greetd.service 2>/dev/null; then d_ok "login screen: installed and greetd is enabled"; else d_bad "login screen: installed, but greetd is not enabled (run  macshell-install --login-screen  again)"; fi
+        [ -f "$GREETER_VAR/users/$(id -un)/profile.json" ] && d_ok "login screen: your wallpaper and picture are synced" || d_bad "login screen: nothing is synced for you yet (run  macshell-install --login-sync)"
+    else
+        say "  ${D}- the login screen is not installed (optional: macshell-install --login-screen)${N}"
+    fi
     [ -x "$LINK_DIR/macshell-start" ] && d_ok "start script: $LINK_DIR/macshell-start" || d_bad "macshell-start is missing: run  bash install.sh  again"
     case ":$PATH:" in *":$LINK_DIR:"*) d_ok "$LINK_DIR is in PATH" ;; *) d_bad "$LINK_DIR is not in your PATH (add it to ~/.profile or your shell config, or run the tools with their full path)" ;; esac
 
@@ -1133,6 +1161,7 @@ maybe_menu() {
         printf '  4) Bind help\n'
         printf '  5) Check this setup (doctor)\n'
         printf '  6) Graphical installer\n'
+        printf '  7) Login screen (set up / remove)\n'
         printf '  q) Quit\n\n'
         printf 'Choose [1]: '
     } >/dev/tty
@@ -1167,6 +1196,14 @@ maybe_menu() {
             ;;
         5) run_doctor; exit 0 ;;
         6) GUI=yes; return 0 ;;
+        7)
+            if [ -f "$GREETER_SYS/shell.qml" ]; then
+                if confirm "The login screen is set up. Remove it and bring the old one back?" n; then login_remove; else login_setup; fi
+            else
+                login_setup
+            fi
+            exit 0
+            ;;
         *) exit 0 ;;
     esac
 }
@@ -1301,7 +1338,7 @@ find_component_root() { # find_component_root <source-root> <name> [allow-root-f
     f=$(find "$src" -maxdepth 3 -type f -name shell.qml -path "*/$name/shell.qml" -not -path '*/.git/*' 2>/dev/null \
         | awk '{ print length($0) " " $0 }' | sort -n | head -n1 | cut -d' ' -f2-)
     if [ -z "$f" ] && [ "${3:-}" = fallback ]; then
-        f=$(find "$src" -maxdepth 3 -type f -name shell.qml -not -path '*/.git/*' -not -path "*/$LOCK_NAME/*" 2>/dev/null \
+        f=$(find "$src" -maxdepth 3 -type f -name shell.qml -not -path '*/.git/*' -not -path "*/$LOCK_NAME/*" -not -path "*/$GREETER_NAME/*" -not -path "*/$GUI_NAME/*" 2>/dev/null \
             | awk '{ print length($0) " " $0 }' | sort -n | head -n1 | cut -d' ' -f2-)
     fi
     [ -n "$f" ] && dirname "$f"
@@ -1367,7 +1404,7 @@ backup_current() { # backup_current <dest> <name>
 }
 
 # repository files that are not part of a Quickshell config (MacLock is excluded so it never ends up inside MacShell)
-EXCLUDES=(.git .github install.sh macshell-update macshell-start hypr-macshell README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME" "$GUI_NAME")
+EXCLUDES=(.git .github install.sh macshell-update macshell-start hypr-macshell README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME" "$GUI_NAME" "$GREETER_NAME")
 LOCK_EXCLUDES=(.git .github)
 
 # the destination is emptied of files the source does not have (rsync --delete): refuse folders that are obviously not a
@@ -1436,6 +1473,11 @@ done
 
 # already running for this user? then there is nothing to do
 if pgrep -u "$(id -u)" -f "(^|/)(qs|quickshell)( .*)? (-c|--config) $NAME( |\$)" >/dev/null 2>&1; then exit 0; fi
+
+# keep the login screen's copy of your wallpaper, picture and settings current (only when the login screen is installed)
+if [ -d /var/lib/macshell-greeter/users ] && command -v macshell-greeter-sync >/dev/null 2>&1; then
+    ( sleep 8; macshell-greeter-sync --quiet ) >/dev/null 2>&1 &
+fi
 
 # ── environment: the variables Qt and Quickshell need, whatever started this script ──
 export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-wayland}"
@@ -1935,8 +1977,92 @@ launch_gui() {
     return 0
 }
 
+# ───────────────────────── login screen (MacGreeter + greetd) ─────────────────────────
+# MacLock's lock screen as the login screen: greetd starts a tiny Hyprland that shows it (see MacGreeter/README.md).
+# The files go to /usr/local/share/macshell-greeter, because the greeter account cannot read your home folder.
+greeter_source() { # the MacGreeter folder: the installed copy, else one next to this script or in the clone it was started from
+    local d
+    for d in "$GREETER_DEST" "${MACSHELL_FROM_DIR:+$MACSHELL_FROM_DIR/$GREETER_NAME}" "$(dirname "${BASH_SOURCE[0]:-$0}")/$GREETER_NAME"; do
+        [ -n "$d" ] && [ -f "$d/shell.qml" ] && { printf '%s' "$d"; return 0; }
+    done
+    return 1
+}
+
+login_status() { # one line of JSON (the graphical installer reads it)
+    local inst=false en=false prev="" syn=false
+    [ -f "$GREETER_SYS/shell.qml" ] && [ -x /usr/local/bin/macshell-greeter ] && inst=true
+    systemctl is-enabled --quiet greetd.service 2>/dev/null && en=true
+    [ -f "$GREETER_VAR/previous-dm" ] && prev=$(head -n1 "$GREETER_VAR/previous-dm" 2>/dev/null)
+    [ -f "$GREETER_VAR/users/$(id -un)/profile.json" ] && syn=true
+    printf '{"installed":%s,"enabled":%s,"synced":%s,"previous":"%s"}\n' "$inst" "$en" "$syn" "$prev"
+}
+
+login_sync() {
+    local f="$BIN_DIR/macshell-greeter-sync" src
+    if [ ! -x "$f" ]; then src=$(greeter_source) && f="$src/macshell-greeter-sync"; fi
+    [ -f "$f" ] || die "macshell-greeter-sync was not found: install MacShell first"
+    sh "$f"
+}
+
+login_setup() {
+    step "Setting up the MacShell login screen"
+    [ "$(id -u)" -ne 0 ] || die "run this as your normal user (it asks for sudo itself): the login screen shows YOUR wallpaper, name and picture"
+    detect_pm
+    [ "$PM" = pacman ] || die "the login screen setup supports Arch Linux (pacman) only"
+    [ -n "$SUDO" ] || die "sudo is needed to set up the login screen (install sudo or run this from a root-capable account)"
+    [ -f "$LOCK_DEST/LockScreen.qml" ] || die "MacLock is not installed in $LOCK_DEST: install MacShell (with MacLock) first"
+    local src stage
+    src=$(greeter_source) || die "$GREETER_NAME was not found: install MacShell from a source that contains the $GREETER_NAME folder"
+    have qs || die "quickshell (qs) is not installed"
+    have Hyprland || die "Hyprland is not installed"
+    have jq || warn "jq is not installed: it will be installed with greetd"
+    TMP=$(mktemp -d "${TMPDIR:-/tmp}/macshell-login.XXXXXX") || die "cannot create a temporary folder"   # removed by cleanup (EXIT)
+    stage="$TMP"
+    mkdir -p "$stage/sys"
+    # the login screen = your MacLock (the same LockScreen.qml, shaders, fonts) + the greeter's own files
+    cp -a "$LOCK_DEST"/. "$stage/sys/"
+    local f
+    for f in shell.qml lock-via-ipc.sh enable-sleep-lock.sh build-shaders.sh hyprland.lua README.md spotify-canvas.py genius-lyrics.py .gitkeep; do rm -rf "$stage/sys/$f"; done
+    cp -a "$src"/. "$stage/sys/"
+    mv "$stage/sys/macshell-greeter" "$stage/macshell-greeter"
+    mv "$stage/sys/macshell-greeter-apply" "$stage/apply.sh"
+    rm -f "$stage/sys/macshell-greeter-sync" "$stage/sys/README.md"
+    chmod +x "$stage/apply.sh" "$stage/macshell-greeter" "$stage"/sys/*.sh 2>/dev/null || true
+    say "  This installs greetd and replaces your current login screen at the next boot (sudo will ask for your password)."
+    say "  If the login screen does not appear: press Ctrl+Alt+F2, log in, and run  macshell-install --remove-login-screen"
+    if [ "$ASSUME_YES" != 1 ] && ! confirm "Continue?" y; then say "  nothing was changed"; return 0; fi
+    $SUDO sh "$stage/apply.sh" install "$stage" || die "the login screen setup failed (nothing is switched on unless greetd was enabled above)"
+    # the data it shows, for your account
+    sh "$src/macshell-greeter-sync" || warn "could not copy your wallpaper and picture for the login screen: run  macshell-install --login-sync"
+    ok "login screen installed: reboot to see it"
+    say "  Preview it now:       MACGREETER_PREVIEW=1 qs -p $GREETER_SYS      (Ctrl+Shift+Q closes it)"
+    say "  Undo it any time:     macshell-install --remove-login-screen"
+}
+
+login_remove() {
+    step "Removing the MacShell login screen"
+    [ "$(id -u)" -ne 0 ] || die "run this as your normal user (it asks for sudo itself)"
+    detect_pm
+    [ -n "$SUDO" ] || die "sudo is needed to remove the login screen"
+    [ -f "$GREETER_SYS/shell.qml" ] || [ -f "$GREETER_VAR/previous-dm" ] || { say "  the login screen is not installed"; return 0; }
+    local src tmp
+    TMP=$(mktemp -d "${TMPDIR:-/tmp}/macshell-login.XXXXXX") || die "cannot create a temporary folder"
+    tmp="$TMP/apply.sh"
+    if src=$(greeter_source) && [ -f "$src/macshell-greeter-apply" ]; then cp "$src/macshell-greeter-apply" "$tmp"
+    elif [ -f /usr/local/bin/macshell-greeter-apply ]; then cp /usr/local/bin/macshell-greeter-apply "$tmp"
+    else die "macshell-greeter-apply was not found: install MacShell again, then remove the login screen"; fi
+    $SUDO sh "$tmp" remove || die "removing the login screen failed"
+    ok "the login screen was removed: the previous one is back at the next boot"
+}
+
 # ───────────────────────── main ─────────────────────────
 [ "$DEPS_PLAN" = 1 ] && { run_deps_plan; exit 0; }
+case "$LOGIN_ACTION" in
+    setup)  login_setup; exit 0 ;;
+    remove) login_remove; exit 0 ;;
+    status) login_status; exit 0 ;;
+    sync)   login_sync; exit 0 ;;
+esac
 [ "$DOCTOR" = 1 ] && { run_doctor; exit 0; }
 [ "$CHECK_ONLY" = 1 ] && run_check
 maybe_menu
@@ -1973,6 +2099,7 @@ safe_dest "$DEST" MACSHELL_DEST
 safe_dest "$LOCK_DEST" MACLOCK_DEST
 [ "$DEST" != "$LOCK_DEST" ] || die "MACSHELL_DEST and MACLOCK_DEST are the same folder: MacShell and MacLock are two separate configs"
 LOCK_ROOT=""
+GREETER_ROOT=""
 if [ "$SKIP_LOCK" != 1 ]; then
     LOCK_ROOT=$(find_component_root "$SRC_ROOT" "$LOCK_NAME" || true)
     [ -n "$LOCK_ROOT" ] || warn "MacLock was not found in the source: only MacShell will be installed"
@@ -1988,6 +2115,17 @@ if [ -n "$LOCK_ROOT" ]; then
     sync_files "$LOCK_ROOT" "$LOCK_DEST" "${LOCK_EXCLUDES[@]}"
     fix_modes "$LOCK_DEST"
     ok "MacLock files copied"
+    GREETER_ROOT=$(find_component_root "$SRC_ROOT" "$GREETER_NAME" || true)
+    if [ -n "$GREETER_ROOT" ]; then
+        safe_dest "$GREETER_DEST" GREETER_DEST
+        sync_files "$GREETER_ROOT" "$GREETER_DEST" .git
+        fix_modes "$GREETER_DEST"
+        chmod +x "$GREETER_DEST"/macshell-greeter* 2>/dev/null || true
+        mkdir -p "$BIN_DIR" "$LINK_DIR"
+        cp -f "$GREETER_DEST/macshell-greeter-sync" "$BIN_DIR/macshell-greeter-sync" && chmod +x "$BIN_DIR/macshell-greeter-sync" \
+            && ln -sf "$BIN_DIR/macshell-greeter-sync" "$LINK_DIR/macshell-greeter-sync"
+        ok "login screen files ($GREETER_NAME) -> $GREETER_DEST   (set it up with: macshell-install --login-screen)"
+    fi
 fi
 fix_modes "$DEST"
 install_extras "$SRC_ROOT"
@@ -2020,6 +2158,11 @@ echo
 printf '%sMacShell %s is installed%s.%s\n' "$G" "${RESOLVED_ID:0:12}" "${LOCK_ROOT:+ (with MacLock)}" "$N"
 say "  Start it:            sh $LINK_DIR/macshell-start      (or: qs -c $NAME)"
 [ -n "$LOCK_ROOT" ] && show_lock_hint
+if [ -f "$GREETER_SYS/shell.qml" ]; then
+    say "  Login screen:        run  macshell-install --login-screen  to bring it up to this version"
+elif [ -n "${GREETER_ROOT:-}" ]; then
+    say "  Login screen:        macshell-install --login-screen   (use MacLock as your login screen)"
+fi
 say "  Update / repair:     macshell-install      (or run ./install.sh again: it looks for news on GitHub)"
 say "  Graphical installer: macshell-installer"
 say "  Find problems:       macshell-install --doctor"
