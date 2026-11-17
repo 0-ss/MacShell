@@ -1,0 +1,85 @@
+#!/bin/sh
+# macshell-greeter-apply: the root side of  macshell-install --login-screen.  install.sh runs it through sudo.
+#   macshell-greeter-apply install <staging dir> <your user name>
+#   macshell-greeter-apply remove
+set -eu
+SYS=/usr/local/share/macshell-greeter
+BIN=/usr/local/bin/macshell-greeter
+APPLY=/usr/local/bin/macshell-greeter-apply
+VAR=/var/lib/macshell-greeter
+CFG=/etc/greetd/config.toml
+
+say()  { printf '%s\n' "$*"; }
+warn() { printf '  ! %s\n' "$*" >&2; }
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || die "this part needs root: run it through sudo (install.sh does)"
+
+case "${1:-}" in
+install)
+    stage="${2:-}"; [ -f "$stage/sys/shell.qml" ] || die "the staging folder is missing or incomplete: $stage"
+    command -v Hyprland >/dev/null 2>&1 || die "Hyprland is not installed"
+    command -v qs >/dev/null 2>&1 || die "quickshell (qs) is not installed"
+    command -v jq >/dev/null 2>&1 || pacman -S --needed --noconfirm jq
+    if ! command -v greetd >/dev/null 2>&1; then
+        say "  installing greetd"
+        pacman -S --needed --noconfirm greetd
+    fi
+
+    say "  copying the login screen to $SYS"
+    rm -rf "$SYS.new"; mkdir -p "$SYS.new"
+    cp -a "$stage/sys/." "$SYS.new/"
+    chown -R root:root "$SYS.new"
+    find "$SYS.new" -type d -exec chmod 755 {} +
+    find "$SYS.new" -type f -exec chmod 644 {} +
+    chmod 755 "$SYS.new"/*.sh
+    rm -rf "$SYS"; mv "$SYS.new" "$SYS"
+    install -m 755 -o root -g root "$stage/macshell-greeter" "$BIN"
+    install -m 755 -o root -g root "$0" "$APPLY"       # kept, so the login screen can be removed even after MacShell itself is gone
+
+    # the account greetd runs the login screen as (the greetd package normally creates it)
+    id greeter >/dev/null 2>&1 || useradd -M -s /usr/bin/nologin -d /var/lib/greeter greeter
+    install -d -m 755 -o root -g root "$VAR"
+    install -d -m 1777 "$VAR/users"               # every user may put their own folder here (macshell-greeter-sync)
+    install -d -m 755 -o greeter -g greeter "$VAR/state"
+
+    say "  writing $CFG"
+    mkdir -p /etc/greetd
+    if [ -f "$CFG" ] && [ ! -f "$CFG.macshell-backup" ] && ! grep -q macshell-greeter "$CFG"; then cp -p "$CFG" "$CFG.macshell-backup"; fi
+    cat > "$CFG" <<TOML
+# written by macshell-install --login-screen  (the previous file is saved as config.toml.macshell-backup)
+[terminal]
+vt = 1
+
+[default_session]
+command = "$BIN"
+user = "greeter"
+TOML
+
+    # remember which display manager was on, then switch to greetd (it takes effect at the next boot)
+    prev=$(basename "$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null || true)" 2>/dev/null || true)
+    case "$prev" in
+        ""|greetd.service|display-manager.service) ;;
+        *) printf '%s\n' "$prev" > "$VAR/previous-dm"; say "  the display manager that was on ($prev) is remembered and can be restored" ;;
+    esac
+    systemctl enable --force greetd.service
+    [ "$(systemctl get-default 2>/dev/null)" = graphical.target ] || systemctl set-default graphical.target
+    say "  greetd is enabled: it starts the login screen at the next boot"
+    ;;
+remove)
+    systemctl disable greetd.service 2>/dev/null || true
+    if [ -f "$VAR/previous-dm" ]; then
+        prev=$(head -n1 "$VAR/previous-dm")
+        [ -n "$prev" ] && { systemctl enable --force "$prev" && say "  $prev is enabled again" || warn "could not enable $prev again"; }
+    fi
+    if [ -f "$CFG.macshell-backup" ]; then
+        mv -f "$CFG.macshell-backup" "$CFG"; say "  restored $CFG"
+    elif [ -f "$CFG" ] && grep -q macshell-greeter "$CFG"; then
+        printf '[terminal]\nvt = 1\n\n[default_session]\ncommand = "agreety --cmd /bin/sh"\nuser = "greeter"\n' > "$CFG"
+        say "  $CFG set back to greetd's text login"
+    fi
+    rm -rf "$SYS" "$SYS.new" "$BIN" "$VAR"
+    rm -f "$APPLY"
+    say "  the login screen files were removed"
+    ;;
+*) die "usage: macshell-greeter-apply install <staging dir> | remove" ;;
+esac

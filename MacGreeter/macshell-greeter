@@ -1,0 +1,46 @@
+#!/bin/sh
+# macshell-greeter: what greetd runs (as the "greeter" account) to show the MacShell login screen.
+# It starts a tiny Hyprland whose only job is to host the login screen (see hyprland.lua.in).
+SYS=/usr/local/share/macshell-greeter
+STATE=/var/lib/macshell-greeter
+RT="${XDG_RUNTIME_DIR:-/tmp}"
+
+# keyboard layout: the one the last user to log in has in Hyprland (macshell-greeter-sync saved it), else any user's, else us
+layout=""; variant=""
+lu=$(cat "$STATE/state/last-user" 2>/dev/null)
+for f in "$STATE/users/$lu/kb" "$STATE"/users/*/kb; do
+    [ -f "$f" ] || continue
+    layout=$(sed -n 1p "$f"); variant=$(sed -n 2p "$f")
+    [ -n "$layout" ] && break
+done
+layout="${layout:-us}"
+
+# keep only characters a layout/variant name can contain (the values go into a config file)
+variant=${variant#\[\[EMPTY\]\]}; variant=${variant%\[\[EMPTY\]\]}
+layout=$(printf '%s' "$layout" | tr -cd 'A-Za-z0-9_,:.-')
+variant=$(printf '%s' "$variant" | tr -cd 'A-Za-z0-9_,:.-')
+
+# Hyprland falls into its emergency screen when it cannot build the keymap, so check the layout first (when xkbcli exists)
+# and fall back to the first layout of the list, then to us
+if command -v xkbcli >/dev/null 2>&1; then
+    xkbcli compile-keymap --layout "$layout" --variant "$variant" >/dev/null 2>&1 || { layout=${layout%%,*}; variant=${variant%%,*}
+        xkbcli compile-keymap --layout "$layout" --variant "$variant" >/dev/null 2>&1 || { layout=us; variant=""; }; }
+else
+    layout=${layout%%,*}; variant=${variant%%,*}; layout="${layout:-us}"
+fi
+
+# Hyprland 0.55+ reads a Lua config, older versions the legacy one (an unreadable version counts as new)
+ver=$(Hyprland --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -n1)
+major=${ver%%.*}; minor=${ver#*.}
+if [ -z "$ver" ] || [ "$major" -gt 0 ] 2>/dev/null || [ "$minor" -ge 55 ] 2>/dev/null; then
+    CONF="$RT/macshell-greeter-hyprland.lua"; TPL="$SYS/hyprland.lua.in"
+else
+    CONF="$RT/macshell-greeter-hyprland.conf"; TPL="$SYS/hyprland.conf.in"
+fi
+
+sed -e "s|@SYS@|$SYS|g" -e "s|@KB_LAYOUT@|$layout|g" -e "s|@KB_VARIANT@|$variant|g" "$TPL" > "$CONF" || exit 1
+
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=Hyprland
+export MACGREETER_STATE="$STATE"
+exec Hyprland -c "$CONF" >>"$STATE/state/hyprland.log" 2>&1

@@ -1,0 +1,60 @@
+#!/bin/sh
+# macshell-greeter-sync [--quiet]
+# Copies what the login screen shows (your name and picture, your wallpaper, the lock-screen clock look, the language and
+# the keyboard layout) to /var/lib/macshell-greeter/users/<you>/, where the "greeter" account can read it.
+# It needs no root: the login screen installer makes that folder writable for every user. Safe to run any time.
+R=/var/lib/macshell-greeter
+QUIET=0; [ "${1:-}" = --quiet ] && QUIET=1
+say() { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
+[ -d "$R/users" ] || { say "The login screen is not installed ($R/users is missing): run  macshell-install --login-screen"; exit 0; }
+command -v jq >/dev/null 2>&1 || { say "jq is required"; exit 1; }
+U=$(id -un); D="$R/users/$U"; CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+umask 022
+mkdir -p "$D" 2>/dev/null || { say "cannot write to $D"; exit 1; }
+S="$CFG/macbar/settings.json"; S2="$CFG/macdock/settings.json"
+
+# ── wallpaper: the same lookup order MacLock uses; a video wallpaper becomes its first frame ──
+p=$(jq -r '.wallpaperPath // empty' "$S" 2>/dev/null)
+[ -f "$p" ] || p=$(jq -r '.wallpaperPath // empty' "$S2" 2>/dev/null)
+[ -f "$p" ] || p=$(awww query 2>/dev/null | sed -n 's/.*image: //p' | head -n1)
+wall=""
+if [ -f "$p" ]; then
+    ext=$(printf '%s' "${p##*.}" | tr 'A-Z' 'a-z')
+    case "$ext" in
+        jpg|jpeg|png|webp|bmp|gif|avif)
+            cp -f "$p" "$D/wallpaper.$ext.new" && mv -f "$D/wallpaper.$ext.new" "$D/wallpaper.$ext" && wall="$D/wallpaper.$ext" ;;
+    esac
+fi
+if [ -z "$wall" ]; then
+    v=$(cat "$CFG/macshell/wallpaper-video" 2>/dev/null)
+    [ -f "$v" ] || v="$p"
+    if [ -f "$v" ] && command -v ffmpeg >/dev/null 2>&1; then
+        ffmpeg -y -loglevel error -i "$v" -frames:v 1 "$D/wallpaper.jpg.new.jpg" 2>/dev/null && mv -f "$D/wallpaper.jpg.new.jpg" "$D/wallpaper.jpg" && wall="$D/wallpaper.jpg"
+    fi
+fi
+for f in "$D"/wallpaper.*; do [ -e "$f" ] || continue; [ "$f" = "$wall" ] || rm -f "$f"; done
+
+# ── picture and name ──
+avatar=""
+for a in "$HOME/.face" "$HOME/.face.icon" "/var/lib/AccountsService/icons/$U"; do
+    [ -f "$a" ] && { cp -f "$a" "$D/avatar.new" && mv -f "$D/avatar.new" "$D/avatar" && avatar="$D/avatar"; break; }
+done
+[ -n "$avatar" ] || rm -f "$D/avatar"
+name=$(getent passwd "$U" | cut -d: -f5 | cut -d, -f1); name="${name:-$U}"
+
+# ── look: the settings MacLock reads ──
+h=$(jq -r 'if .use24h == false then "false" else "true" end' "$S" 2>/dev/null); [ "$h" = false ] || h=true
+lang=$(jq -r '.language // "auto"' "$S" 2>/dev/null); lang="${lang:-auto}"
+clock=$(jq -c '{f: .lockClockFont, w: .lockClockWeight, m: .lockClockMaterial, d: .lockClockDate, i: .lockClockIntensity, c: .lockClockTint}' "$S" 2>/dev/null)
+[ -n "$clock" ] || clock='{}'
+
+# ── keyboard layout of the running Hyprland (the greeter uses it, so the password is typed on the same layout) ──
+kb=$(hyprctl getoption input:kb_layout -j 2>/dev/null | jq -r '.str // empty' 2>/dev/null)
+kv=$(hyprctl getoption input:kb_variant -j 2>/dev/null | jq -r '.str // empty' 2>/dev/null)
+[ -n "$kb" ] && printf '%s\n%s\n' "$kb" "$kv" > "$D/kb"
+
+jq -n --arg name "$name" --arg avatar "$avatar" --arg wallpaper "$wall" --argjson use24h "$h" --arg lang "$lang" --argjson clock "$clock" \
+    '{name: $name, avatar: $avatar, wallpaper: $wallpaper, use24h: $use24h, language: $lang, clock: $clock}' > "$D/profile.json.new" \
+    && mv -f "$D/profile.json.new" "$D/profile.json"
+chmod 755 "$D" 2>/dev/null; chmod 644 "$D"/* 2>/dev/null
+say "Login screen data updated for $U ($D)"

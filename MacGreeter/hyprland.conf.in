@@ -1,0 +1,31 @@
+# The Hyprland that only hosts the login screen. macshell-greeter fills in the @…@ values and starts it for greetd.
+# (Legacy syntax, used only on Hyprland older than 0.55; newer versions use hyprland.lua.in.)
+monitor = , preferred, auto, 1
+
+input {
+    kb_layout = @KB_LAYOUT@
+    kb_variant = @KB_VARIANT@
+    follow_mouse = 1
+    touchpad {
+        natural_scroll = false
+        tap-to-click = true
+    }
+}
+
+misc {
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
+    force_default_wallpaper = 0
+    background_color = 0x0b0b10
+    disable_autoreload = true
+    disable_watchdog_warning = true
+    vfr = true
+}
+
+animations {
+    enabled = false
+}
+
+# run-greeter.sh starts the login screen and ends this Hyprland when it quits (after a successful login greetd starts the
+# real session; if the greeter crashes greetd starts a fresh one)
+exec-once = @SYS@/run-greeter.sh

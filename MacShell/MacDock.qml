@@ -52,6 +52,18 @@ Scope {
     }
     property string userName: Quickshell.env("USER") || ""
 
+    function openTerminalCommand(command) {
+        var preferred = bar && bar.terminal ? bar.terminal : "kitty";
+        Quickshell.execDetached(["sh", "-c",
+            "for t in \"$1\" kitty foot alacritty wezterm konsole xterm; do " +
+            "  [ -n \"$t\" ] && command -v \"$t\" >/dev/null 2>&1 || continue; " +
+            "  exec \"$t\" -e sh -c \"$2; echo; read -r -p 'Done. Press Enter to close ' _\"; " +
+            "done; " +
+            "if command -v gnome-terminal >/dev/null 2>&1; then exec gnome-terminal -- sh -c \"$2; echo; read -r -p 'Done. Press Enter to close ' _\"; fi; " +
+            "notify-send 'MacShell' 'No terminal emulator found for the sudo command' 2>/dev/null || true",
+            "sh", preferred, command]);
+    }
+
     // ═════ Displays: main display + resolution / refresh, with a macOS-style "keep or revert" safety net ═════
     property var displays: ({ primary: "", modes: {} })      // saved in ~/.config/macshell/displays.json
     property var monList: []                                  // hyprctl monitors (live)
@@ -3331,9 +3343,24 @@ Scope {
                 id: lockPane
                 spacing: 10
                 property string slot: "top"
+                property bool syncing: false
+                property string syncNotice: ""
+                property string syncOutput: ""
                 Component.onCompleted: slotGet.running = true
                 Process { id: slotGet; command: ["sh", "-c", "jq -r '.mediaSlot // \"top\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo top"]
                           stdout: StdioCollector { onStreamFinished: lockPane.slot = text.trim() === "bottom" ? "bottom" : "top" } }
+                Process {
+                    id: wallpaperSyncProc
+                    command: ["bash", Quickshell.env("MACSHELL_INSTALL_SH") || (Quickshell.env("HOME") + "/.local/bin/macshell-install"), "--login-sync"]
+                    stdout: SplitParser { onRead: d => { var line = String(d).trim(); if (line) lockPane.syncOutput = line; } }
+                    stderr: SplitParser { onRead: d => { var line = String(d).trim(); if (line) lockPane.syncOutput = line; } }
+                    onExited: (code, status) => {
+                        lockPane.syncing = false;
+                        lockPane.syncNotice = code === 0
+                            ? I18n.tr("The login screen now shows your current wallpaper and picture.")
+                            : I18n.tr("Wallpaper sync failed") + (lockPane.syncOutput !== "" ? ": " + lockPane.syncOutput : ".");
+                    }
+                }
                 SCard {
                     t: pal
                     SRow {
@@ -3357,7 +3384,33 @@ Scope {
                         subtitle: I18n.tr("Shared with the menu bar clock")
                         SSwitch { t: pal; checked: root.bar ? root.bar.use24h : true; onToggled: v => { if (root.bar) root.bar.use24h = v; } }
                     }
+                    SRow {
+                        t: pal; title: I18n.tr("Sync wallpaper and picture")
+                        subtitle: I18n.tr("Copies your wallpaper, picture, name and clock look for the login screen. MacShell also does this after every login")
+                        SButton {
+                            t: pal
+                            text: lockPane.syncing ? I18n.tr("Syncing…") : I18n.tr("Sync Now")
+                            enabled: !lockPane.syncing
+                            onClicked: {
+                                lockPane.syncNotice = "";
+                                lockPane.syncOutput = "";
+                                lockPane.syncing = true;
+                                wallpaperSyncProc.running = true;
+                            }
+                        }
+                    }
+                    SRow {
+                        t: pal; title: I18n.tr("Greetd service")
+                        subtitle: I18n.tr("Restarting greetd may interrupt your current session; sudo runs in a terminal")
+                        SButton {
+                            t: pal
+                            text: I18n.tr("Restart Greetd")
+                            onClicked: root.openTerminalCommand("sudo systemctl restart greetd")
+                        }
+                    }
                 }
+                ProgressBar { visible: lockPane.syncing; indeterminate: true }
+                SLabel { t: pal; visible: lockPane.syncNotice !== ""; text: lockPane.syncNotice }
                 // ── Clock ──
                 // the clock fonts, loaded straight from their files so the previews never fall back to another face
                 FontLoader { id: fNunito; source: "file://" + Quickshell.env("HOME") + "/.local/share/fonts/Nunito/Nunito.ttf" }
@@ -3978,7 +4031,7 @@ Scope {
                             y: 138
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: I18n.tr("Version 0.5.2 \u2022 Hyprland \u2022 Quickshell")
+                            text: I18n.tr("Version 0.5.3 \u2022 Hyprland \u2022 Quickshell")
                             color: pal.text2
                             font.family: root.fontForWeight(Font.Normal, pal.fam)
                             font.pixelSize: 12

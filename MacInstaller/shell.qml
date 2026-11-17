@@ -136,6 +136,11 @@ Scope {
     property bool optRules: true
     property bool optAutostart: true
     property bool optLow: false
+    property bool optLogin: false                // also set up the login screen (greetd) after installing
+    property bool loginAfter: false              // set when the Install button was pressed with the login screen switched on
+    property bool loginWait: false               // a terminal for the login screen setup was opened: keep checking its state
+    property var login: ({ installed: false, enabled: false, synced: false, previous: "" })
+    readonly property string loginSysDir: "/usr/local/share/macshell-greeter"
 
     ListModel { id: logModel }
     readonly property var logM: logModel
@@ -261,6 +266,25 @@ Scope {
         checkProc.command = sh(["--check"]);
         checkProc.running = true;
     }
+    // ── login screen (greetd + MacGreeter): the setup needs sudo, so it runs in a terminal ──
+    function runLoginStatus() {
+        if (loginProc.running) return;
+        loginProc.buf = "";
+        loginProc.command = sh(["--login-status"]);
+        loginProc.running = true;
+    }
+    function setupLogin() {
+        loginWait = true; loginWaitStop.restart();
+        openTerminal("bash " + q(script) + " --login-screen");
+    }
+    function removeLogin() {
+        loginWait = true; loginWaitStop.restart();
+        openTerminal("bash " + q(script) + " --remove-login-screen");
+    }
+    function previewLogin() { shellDetached("MACGREETER_PREVIEW=1 setsid qs -p " + q(loginSysDir) + " >/dev/null 2>&1 &"); }
+    readonly property string loginText: !login.installed ? "Not set up: your current login screen is used"
+        : !login.enabled ? "Installed, but greetd is not switched on: set it up again"
+        : "On: MacLock is shown at the next boot" + (login.synced ? "" : " · your wallpaper is not synced yet")
     function startShell() { shellDetached("setsid sh " + q(binDir + "/macshell-start") + " >/dev/null 2>&1 &"); }
     function stopShell() { shellDetached("pkill -f 'macshell-start'; qs kill -c MacShell"); }
     function restartShell() { shellDetached("qs kill -c MacShell >/dev/null 2>&1; sleep 1; setsid sh " + q(binDir + "/macshell-start") + " >/dev/null 2>&1 &"); }
@@ -274,15 +298,34 @@ Scope {
             root.busy = false;
             var k = root.runKind;
             if (k === "check") { root.parseCheck(root.raw, code); root.checking = false; }
+            if (k === "login-sync") {
+                root.onLine(code === 0 ? "✓ Finished" : "! Finished with exit code " + code);
+                root.notice = code === 0 ? "The login screen now shows your current wallpaper and picture." : "Something went wrong: see the output above.";
+                root.runLoginStatus();
+            }
             if (k === "install" || k === "update" || k === "rollback" || k === "uninstall") {
                 root.onLine(code === 0 ? "✓ Finished" : "! Finished with exit code " + code);
                 root.notice = code === 0 ? (k === "uninstall" ? "MacShell was removed. Your settings were kept." : "Done. Use Tools → Start MacShell to run it.") : "Something went wrong: see the output above.";
                 stateWatch.reload();
                 root.runQuietCheck();
                 if (k === "install" || k === "update") root.runPlan();
+                if (k === "install" && code === 0 && root.loginAfter) { root.loginAfter = false; root.setupLogin(); }
             }
         }
     }
+    Process {
+        id: loginProc
+        property string buf: ""
+        stdout: SplitParser { onRead: d => loginProc.buf += root.clean(d) + "\n" }
+        onExited: (code, status) => {
+            var lines = buf.split("\n");
+            for (var i = lines.length - 1; i >= 0; i--) {
+                if (lines[i].charAt(0) === "{") { try { root.login = JSON.parse(lines[i]); } catch (e) { } break; }
+            }
+        }
+    }
+    Timer { id: loginWaitStop; interval: 300000; onTriggered: root.loginWait = false }
+    Timer { interval: 4000; repeat: true; running: root.loginWait || win.panes[win.cur].id === "login"; onTriggered: root.runLoginStatus() }
     Process {
         id: planProc
         property string buf: ""
@@ -320,7 +363,7 @@ Scope {
             if (m && m[1]) root.installedVer = m[1];
         }
     }
-    Component.onCompleted: { console.log("[macinstaller] build", build); glassProc.running = true; runPlan(); runQuietCheck(); }
+    Component.onCompleted: { console.log("[macinstaller] build", build); glassProc.running = true; runPlan(); runQuietCheck(); runLoginStatus(); }
 
     // ───────────── reusable pieces (named like the ones in the shell's Settings) ─────────────
     component T: Text {
@@ -528,7 +571,8 @@ Scope {
 
         // sidebar sections: a gap is drawn between them
         readonly property var panes: [
-            { id: "install",   sec: 1, name: "Install",      glyph: "↓", c1: "#3D9BFF", c2: "#0A6CFF", keys: "install shell maclock options channel release main autostart keybinds glass low power" },
+            { id: "install",   sec: 1, name: "Install",      glyph: "↓", c1: "#3D9BFF", c2: "#0A6CFF", keys: "install shell maclock login screen options channel release main autostart keybinds glass low power" },
+            { id: "login",     sec: 1, name: "Login Screen",  glyph: "→", c1: "#A06BFF", c2: "#7A3FEA", keys: "login screen greeter greetd display manager sddm gdm lightdm boot password sign in maclock" },
             { id: "deps",      sec: 1, name: "Dependencies", glyph: "≡", c1: "#FFB340", c2: "#FF9500", keys: "packages pacman aur missing libraries fonts quickshell hyprland terminal" },
             { id: "updates",   sec: 2, name: "Updates",      glyph: "↻", c1: "#8E8E93", c2: "#636366", keys: "update check version latest rollback roll back" },
             { id: "doctor",    sec: 2, name: "Doctor",       glyph: "+", c1: "#4CD964", c2: "#28A745", keys: "diagnose problems fix check log environment services shaders" },
@@ -922,7 +966,7 @@ Scope {
                     x: 22; y: 58
                     width: flick.width - 44
                     sourceComponent: ({
-                        install: paneInstall, deps: paneDeps, updates: paneUpdates, doctor: paneDoctor,
+                        install: paneInstall, login: paneLogin, deps: paneDeps, updates: paneUpdates, doctor: paneDoctor,
                         tools: paneTools, uninstall: paneUninstall, about: paneAbout
                     })[win.panes[win.cur].id]
                     onLoaded: fadeIn.restart()
@@ -996,6 +1040,11 @@ Scope {
                         SSwitch { checked: root.optLock; onToggled: v => root.optLock = v }
                     }
                     SRow {
+                        title: "Login screen"
+                        subtitle: "Also use MacLock as your login screen (greetd). Needs MacLock; asks for your password in a terminal after installing"
+                        SSwitch { checked: root.optLogin && root.optLock; enabled: root.optLock; onToggled: v => root.optLogin = v }
+                    }
+                    SRow {
                         title: "Hyprland autostart and keybinds"
                         subtitle: "Adds the MacShell block to your Hyprland config"
                         SSwitch { checked: root.optAutostart; onToggled: v => root.optAutostart = v }
@@ -1019,12 +1068,51 @@ Scope {
                         main: true
                         text: root.busy && root.runKind === "install" ? "Installing…" : (root.shortInst !== "" ? "Reinstall MacShell" : "Install MacShell")
                         enabled: !root.busy
-                        onClicked: root.runMain("install", root.sh(root.installArgs()))
+                        onClicked: { root.loginAfter = root.optLogin && root.optLock; root.runMain("install", root.sh(root.installArgs())); }
                     }
                     T { anchors.verticalCenter: parent.verticalCenter; text: root.notice; color: root.pal.text2; font.pixelSize: 12 }
                 }
                 ProgressBar { running: root.busy && root.runKind === "install" }
                 LogCard { viewHeight: 220 }
+            }
+        }
+
+        // ── Login Screen ──
+        Component {
+            id: paneLogin
+            Column {
+                spacing: 10
+                SCard {
+                    SRow {
+                        title: "MacLock as the login screen"
+                        subtitle: root.loginText
+                        Row {
+                            spacing: 8
+                            SButton { visible: root.login.installed; text: "Remove…"; destructive: true; enabled: !root.busy; onClicked: root.removeLogin() }
+                            SButton { main: true; text: root.login.installed ? "Update…" : "Set Up…"; enabled: !root.busy; onClicked: root.setupLogin() }
+                        }
+                    }
+                    SRow {
+                        title: "Preview"
+                        subtitle: "Opens the login screen in a window. Any password works there; Ctrl+Shift+Q closes it"
+                        SButton { text: "Preview"; enabled: root.login.installed; onClicked: root.previewLogin() }
+                    }
+                    SRow {
+                        title: "Sync wallpaper and picture"
+                        subtitle: "Copies your wallpaper, picture, name and clock look for the login screen. MacShell also does this after every login"
+                        SButton { text: root.busy && root.runKind === "login-sync" ? "Syncing…" : "Sync Now"; enabled: !root.busy && root.login.installed; onClicked: root.runMain("login-sync", root.sh(["--login-sync"])) }
+                    }
+                    SRow {
+                        title: "Greetd service"
+                        subtitle: "Restarting greetd may interrupt your current session. The command runs in a terminal so sudo can prompt for your password."
+                        SButton { text: "Restart Greetd"; onClicked: root.openTerminal("sudo systemctl restart greetd") }
+                    }
+                }
+                SLabel { text: "Set Up opens a terminal (it needs your sudo password): it installs greetd, replaces your current login screen (SDDM, GDM, ...) and takes effect at the next boot." }
+                SLabel { text: "If the login screen does not show up, press Ctrl+Alt+F2, log in and run: macshell-install --remove-login-screen. That brings your old login screen back." + (root.login.previous !== "" ? "  Before: " + root.login.previous.replace(".service", "") + "." : "") }
+                ProgressBar { running: root.busy && root.runKind === "login-sync" }
+                T { visible: root.notice !== "" && root.runKind === "login-sync"; leftPadding: 4; text: root.notice; color: root.pal.text2; font.pixelSize: 12 }
+                LogCard { visible: root.logM.count > 0 && root.runKind === "login-sync"; viewHeight: 160 }
             }
         }
 
