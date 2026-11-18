@@ -238,5 +238,7 @@ Item {
         scale: w.s; transformOrigin: Item.TopLeft
         z: 3
         sourceComponent: w.content
+        Binding { target: body.item; property: "width"; value: body.width; when: body.item !== null }
+        Binding { target: body.item; property: "height"; value: body.height; when: body.item !== null }
     }
 }

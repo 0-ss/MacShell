@@ -179,12 +179,41 @@ Item {
                 editing: host.editing
             }
         }
+        Component {
+            id: cardVisual
+            CardWidget {
+                scaleF: host.widgetScale
+                style: wstyle
+                size: wsize
+                mode: wmode
+                fam: host.fontFamily
+                screenX: v.sx; screenY: v.sy
+                glassReady: host.glassState === "ready"
+                shaderUrl: "file://" + host.glassShaderOut
+                wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
+                wallVideo: host.liveWallVideo
+                wallPaused: host.liveWallPaused
+                screenW: v.sw
+                screenH: v.sh
+                glassOpacity: host.glassOpacity
+                glassBlur: host.glassBlur
+                glassLiquid: host.glassLiquid
+                glassRim: host.glassRim
+                borderTint: host.borderTint
+                glassGrain: host.glassGrain
+                darkGlass: host.darkGlass
+                editing: host.editing
+                content: (host && host.extra) ? host.extra.comp(v.wtype) : null
+                onGlassFailed: host.glassState = "failed"
+            }
+        }
         Loader {
             id: visual
             anchors.fill: parent
             sourceComponent: wtype === "calendar" ? calendarVisual
                            : (wtype === "clock" ? clockVisual
                            : (wtype === "player" ? playerVisual
-                           : (wtype === "image" ? imageVisual : weatherVisual)))
+                           : (wtype === "image" ? imageVisual
+                           : ((host && host.extra && host.extra.comp(wtype)) ? cardVisual : weatherVisual))))
         }
 }
