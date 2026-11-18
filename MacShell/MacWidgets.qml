@@ -55,8 +55,14 @@ Scope {
     property bool anyLiquid: false
     property int rev: 0                    // bumped on every change to the list, so Settings bindings can re-evaluate count()
 
+    ExtraWidgets {
+        id: extraWidgets
+        host: root
+    }
+    readonly property alias extra: extraWidgets
+
     readonly property var styleNames: ({ liquid: "Liquid Glass", normal: "Normal", light: "Light", dark: "Dark" })
-    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image" })
+    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image", reminders: "Reminders" })
     readonly property var sizeNames: ({ small: "Small", medium: "Medium", large: "Large" })
     function dims(size) {
         var b = size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]);
@@ -326,9 +332,10 @@ Scope {
             wmodel.clear();
             for (var i = 0; i < o.widgets.length; i++) {
                 var w = o.widgets[i];
-                if (!w || (w.type !== "weather" && w.type !== "calendar" && w.type !== "clock" && w.type !== "player" && w.type !== "image")) continue;
-                wmodel.append({ wid: String(w.id || ("w" + i)), wtype: w.type,
-                                wstyle: w.type === "image" ? "normal" : (w.type === "clock" || w.type === "player")
+                var t = w ? (w.type || w.wtype) : "";
+                if (!t || !root.typeNames[t]) continue;
+                wmodel.append({ wid: String(w.id || ("w" + i)), wtype: t,
+                                wstyle: t === "image" ? "normal" : (t === "clock" || t === "player")
                                     ? ((w.style === "light" || w.style === "dark") ? w.style : "liquid")
                                     : (w.style === "normal" ? "normal" : "liquid"),
                                 wsize: (w.size === "medium" || w.size === "large") ? w.size : "small",
@@ -372,12 +379,15 @@ Scope {
         running: root.player !== null && root.player.isPlaying && root.count("player") > 0
         onTriggered: { try { root.player.positionChanged(); } catch (err) { } }
     }
-    // screen rectangles of the Player widgets: they stay clickable while the rest of the layer is click-through
+    function isInteractive(type) {
+        return type === "player" || type === "reminders" || type === "notes";
+    }
+    // screen rectangles of interactive widgets (Player, Reminders): they stay clickable while the rest of the layer is click-through
     readonly property var playerRects: {
         var r = rev, out = [];
         for (var i = 0; i < wmodel.count; i++) {
             var m = wmodel.get(i);
-            if (m.wtype !== "player") continue;
+            if (!root.isInteractive(m.wtype)) continue;
             var d = dims(m.wsize);
             out.push([m.wx, m.wy, d[0], d[1]]);
         }
@@ -712,12 +722,15 @@ Scope {
 
             WlrLayershell.namespace: "macwidgets"
             WlrLayershell.layer: WlrLayer.Bottom
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            WlrLayershell.keyboardFocus: (root.extra && root.extra.typing) ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
-            // click-through unless editing; only the Player widgets (up to 4) take clicks, for their buttons
+            // click-through unless editing; interactive widgets (Player, Reminders) take clicks for their buttons
             mask: Region {
                 item: root.editing ? ui : null
-                regions: [ Region { item: hit0 }, Region { item: hit1 }, Region { item: hit2 }, Region { item: hit3 } ]
+                regions: [
+                    Region { item: hit0 }, Region { item: hit1 }, Region { item: hit2 }, Region { item: hit3 },
+                    Region { item: hit4 }, Region { item: hit5 }, Region { item: hit6 }, Region { item: hit7 }
+                ]
             }
 
             Item {
@@ -728,6 +741,10 @@ Scope {
                 Item { id: hit1; x: root.pr(1, 0); y: root.pr(1, 1); width: root.pr(1, 2); height: root.pr(1, 3) }
                 Item { id: hit2; x: root.pr(2, 0); y: root.pr(2, 1); width: root.pr(2, 2); height: root.pr(2, 3) }
                 Item { id: hit3; x: root.pr(3, 0); y: root.pr(3, 1); width: root.pr(3, 2); height: root.pr(3, 3) }
+                Item { id: hit4; x: root.pr(4, 0); y: root.pr(4, 1); width: root.pr(4, 2); height: root.pr(4, 3) }
+                Item { id: hit5; x: root.pr(5, 0); y: root.pr(5, 1); width: root.pr(5, 2); height: root.pr(5, 3) }
+                Item { id: hit6; x: root.pr(6, 0); y: root.pr(6, 1); width: root.pr(6, 2); height: root.pr(6, 3) }
+                Item { id: hit7; x: root.pr(7, 0); y: root.pr(7, 1); width: root.pr(7, 2); height: root.pr(7, 3) }
 
                 Rectangle {   // slight dim while editing
                     anchors.fill: parent
