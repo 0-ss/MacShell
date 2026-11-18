@@ -3643,7 +3643,7 @@ Scope {
         }
         if(s.length>0) out=appItems(q,4);
         var cv=conversion(s); if(cv) out.unshift(cv);
-        else { var expr=s.replace(/^=\s*/,""); var v=calcValue(expr); if(v!==null && (s.charAt(0)==="=" || /[+*/%xX×÷()]/.test(s))) out.unshift({title:String(Number(v.toPrecision(10))),sub:I18n.tr("Calculator · Return to copy"),glyph:"search",run:function(){Quickshell.execDetached(["wl-copy",String(v)]);}}); }
+        else { var expr=s.replace(/^=\s*/,""); var v=calcValue(expr); if(v!==null && (s.charAt(0)==="=" || /[+*/%xX×÷()-]/.test(s))) out.unshift({title:String(Number(v.toPrecision(10))),sub:I18n.tr("Calculator · Return to copy"),glyph:"search",run:function(){Quickshell.execDetached(["wl-copy",String(v)]);}}); }
         var wins=windowItems(q); for(var j=0;j<wins.length&&out.length<6;j++)out.push(wins[j]);
         var acts=actionItems(q); for(var k=0;k<acts.length&&out.length<6;k++)if(acts[k].title.toLowerCase().indexOf(s)===0)out.push(acts[k]);
         if(s.length>0 && out.length<7) out.push({title:I18n.tr("Search the web for “")+q.trim()+"”",sub:I18n.tr("Web Search · Return to open"),glyph:"search",run:function(){Quickshell.execDetached(["xdg-open","https://search.brave.com/search?q="+encodeURIComponent(q.trim())]);}});
