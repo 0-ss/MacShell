@@ -8965,7 +8965,7 @@ Scope {
                     onLoaded: { item.hostShown = Qt.binding(function () { return swWin.visible; });
                                 item.region = Qt.binding(function () { return Qt.rect(swPanel.x - 96, swPanel.y - 96, swPanel.width + 192, swPanel.height + 192); }); }
                 }
-                MouseArea { anchors.fill: parent; onPressed: root.swCancel() }      // click outside cancels
+                MouseArea { anchors.fill: parent; onPressed: root.swCommit() }      // a click anywhere switches to the selected app
 
                 Item {
                     id: swPanel
@@ -9066,7 +9066,7 @@ Scope {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 onPositionChanged: root.swIndex = swCell.index      // only on real mouse movement, so TAB keeps control
-                                onClicked: { root.swIndex = swCell.index; root.swCommit(); }
+                                onClicked: root.swCommit()
                             }
                         }
                     }
