@@ -215,7 +215,7 @@ ShellRoot {
             + "if [ \"$(nmcli radio wifi 2>/dev/null)\" = enabled ]; then s=$(nmcli -t -f ACTIVE,SIGNAL dev wifi 2>/dev/null | grep '^yes' | head -n1 | cut -d: -f2); "
             + "[ -n \"$s\" ] && printf '%s' \"$s\" || printf 0; else printf -- -1; fi; echo; "
             + "nmcli -t -f TYPE,STATE dev 2>/dev/null | grep -q '^ethernet:connected$' && echo eth || echo -; "
-            + "[ \"$(jq -r '.uiSounds' \"$HOME/.config/macbar/settings.json\" 2>/dev/null)\" != false ] && [ ! -f \"${XDG_RUNTIME_DIR:-/tmp}/macshell-gaming.state\" ] && echo snd || echo -; "
+            + "[ \"$(jq -r '.uiSounds' \"$HOME/.config/macbar/settings.json\" 2>/dev/null)\" != false ] && [ ! -f \"${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/macshell}/macshell-gaming.state\" ] && echo snd || echo -; "
             + "jq -r '.lockArtBackground' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.use24h' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.language // \"auto\"' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo auto; "
