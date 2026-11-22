@@ -11,7 +11,7 @@ Items are grouped by area. Each item includes a brief note on the current state 
 - [x] **Expose remaining `ExtraWidgets.qml` widgets** — `batteries`, `notes`, `photos`, `alarms`, and `stocks` from `MacShell/ExtraWidgets.qml` are now registered in `MacShell/MacWidgets.qml` and selectable in Settings.
 - [ ] **Wire built-in `WindowDecor.qml` & `MinimizeFx.qml` into `shell.qml`** — Both components exist in `MacShell/` (traffic-light titlebars and the native Genie minimize shader) but are not instantiated in `MacShell/shell.qml` yet (currently Genie requires the external `contrib/genie` + `hyprglass` setup).
 - [ ] **Render D-Bus notification action buttons & inline reply** — `MacShell/MacBar.qml` advertises `actionsSupported: true` on `NotificationServer`, but currently only invokes the `"default"` action on card click; named action buttons (Reply, Mark as Read, Snooze, etc.) are not rendered.
-- [ ] **Search System Settings panes in Spotlight** — Reuse the Settings pane index (`keys` metadata in `MacShell/MacDock.qml`) so typing e.g. `night shift`, `bluetooth`, or `wallpaper` in Spotlight jumps straight to that pane.
+- [x] **Search System Settings panes in Spotlight** — Spotlight now searches `settingsPanes` (`name` and `keys` from `MacShell/MacDock.qml`) and opens the matched Settings pane directly.
 
 ---
 

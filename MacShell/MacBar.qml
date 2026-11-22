@@ -4198,6 +4198,40 @@ Scope {
                        glyph: "", confirm: false, run: appRunner(r[i]) });
         return out;
     }
+    function settingsItems(q, limit) {
+        var s = (q || "").trim().toLowerCase();
+        if (s.length < 2) return [];
+        var dock = hub && hub.dock;
+        if (!dock || dock.settingsEnabled === false || !dock.settingsPanes) return [];
+        var panes = dock.settingsPanes, hits = [], i;
+        var norm = s.replace(/-/g, "");
+        if (norm.length < 2) return [];
+        for (i = 0; i < panes.length; i++) {
+            var p = panes[i], name = String(p.name || ""), trName = I18n.tr(name);
+            var nl = name.toLowerCase(), tl = trName.toLowerCase(), kl = String(p.keys || "").toLowerCase();
+            var sc = 0;
+            if (nl === s || tl === s || nl.replace(/-/g, "") === norm || tl.replace(/-/g, "") === norm) sc = 100;
+            else if (nl.indexOf(s) === 0 || tl.indexOf(s) === 0 || nl.replace(/-/g, "").indexOf(norm) === 0 || tl.replace(/-/g, "").indexOf(norm) === 0) sc = 80;
+            else if ((" " + nl).indexOf(" " + s) >= 0 || (" " + tl).indexOf(" " + s) >= 0) sc = 65;
+            else if (nl.indexOf(s) >= 0 || tl.indexOf(s) >= 0) sc = 50;
+            else if ((" " + kl).indexOf(" " + s) >= 0) sc = 40;
+            else if (s.length >= 3 && kl.indexOf(s) >= 0) sc = 25;
+            if (sc > 0) hits.push({ p: p, label: trName, s: sc });
+        }
+        hits.sort(function (a, b) { return b.s - a.s; });
+        var out = [], cap = limit || 3;
+        for (i = 0; i < hits.length && out.length < cap; i++) {
+            out.push({
+                title: hits[i].label,
+                sub: I18n.tr("System Settings"),
+                icon: "",
+                glyph: "gear",
+                confirm: false,
+                run: (function (id) { return function () { root.openSettings(id); }; })(hits[i].p.id)
+            });
+        }
+        return out;
+    }
     function actionItems(q) {
         var all = [
             { title: I18n.tr("Lock Screen"), glyph: "lock", run: function () { root.lockScreen(); } },
@@ -4298,7 +4332,16 @@ Scope {
         var cv=conversion(s); if(cv) out.unshift(cv);
         else { var expr=s.replace(/^=\s*/,""); var v=calcValue(expr); if(v!==null && (s.charAt(0)==="=" || /[+*/%xX×÷()-]/.test(s))) out.unshift({title:String(Number(v.toPrecision(10))),sub:I18n.tr("Calculator · Return to copy"),glyph:"search",run:function(){Quickshell.execDetached(["wl-copy",String(v)]);}}); }
         var wins=windowItems(q); for(var j=0;j<wins.length&&out.length<6;j++)out.push(wins[j]);
-        var acts=actionItems(q); for(var k=0;k<acts.length&&out.length<6;k++)if(acts[k].title.toLowerCase().indexOf(s)===0)out.push(acts[k]);
+        var acts=actionItems(q).filter(function(a){return a.title.toLowerCase().indexOf(s)===0;});
+        var prefs=settingsItems(q,3);
+        var actCap=6;
+        if(prefs.length>0){
+            actCap=5;
+            var fitActs=Math.min(acts.length,Math.max(0,6-out.length));
+            if(out.length+fitActs>5) out=out.slice(0,5-fitActs);
+        }
+        for(var k=0;k<acts.length&&out.length<actCap;k++)out.push(acts[k]);
+        for(var p=0;p<prefs.length&&out.length<6;p++)out.push(prefs[p]);
         if(s.length>0 && out.length<7) out.push({title:I18n.tr("Search the web for “")+q.trim()+"”",sub:I18n.tr("Web Search · Return to open"),glyph:"search",run:function(){Quickshell.execDetached(["xdg-open","https://search.brave.com/search?q="+encodeURIComponent(q.trim())]);}});
         return out.slice(0,8);
     }
