@@ -377,6 +377,7 @@ Scope {
     property string screenshotDir: ""         // where screenshots are saved ("" = the Desktop folder, so they show up as icons)
     property bool screenshotDesktop: true     // save screenshots on the Desktop (they show up as icons); off = use screenshotDir
     property bool screenshotSave: true        // save the PNG to screenshotDir
+    property bool screenshotSearchEnabled: false
     property bool screenshotClipboard: true   // also copy it to the clipboard
     property bool screenshotNotify: true      // "Screenshot saved" notification
     property int spotRequest: 0
@@ -410,7 +411,7 @@ Scope {
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "liveWallGlass", "glassDebug", "wallpaperPath", "use24h", "language", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch",
         "spotlightEnabled", "reduceMotion", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
-        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotDesktop", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccPos", "ccSizes", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
+        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotDesktop", "screenshotSave", "screenshotClipboard", "screenshotNotify", "screenshotSearchEnabled", "nightTemp", "ccControls", "ccPos", "ccSizes", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
         "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
         "notifDnd", "dnd", "nightOn", "keepAwake",
         "kbRepeatRate", "kbRepeatDelay", "mouseSens", "mouseNatural", "tpNatural", "tpTap", "tpDwt", "tpScroll"]
@@ -3001,6 +3002,11 @@ Scope {
         if (root.fileQuery.length > 0 && !fileSearchProc.running) { root.fileSearchFor=root.fileQuery; root.fileSearchPending=true; fileSearchProc.running=true; }
     } }
     function updateFileSearch(q) { fileQuery=q; fileHits=[]; fileSearchPending=true; fileDebounce.restart(); }
+    ScreenshotSearch {
+        id: screenshotSearch
+        enabled: root.screenshotSearchEnabled
+        folder: root.screenshotDir
+    }
     // recent files / folders for the Files button (assets/recent-files.sh)
     Process {
         id: recentProc
@@ -3628,8 +3634,27 @@ Scope {
         for (var i = 0; i < recentHits.length && out.length < 40; i++) out.push(pathItem(recentHits[i].path, recentHits[i].kind === "d", relTime(recentHits[i].t)));
         return out;
     }
+    function isScreenshotQuery(q) { return /^shot(?:\s|$)/i.test(q); }
+    function screenshotItems(q) {
+        var message;
+        if (!screenshotSearchEnabled) message = I18n.tr("Enable screenshot search in System Settings");
+        else if (q !== screenshotSearch.request) message = I18n.tr("Searching screenshots…");
+        else if (screenshotSearch.hits.length > 0) return screenshotSearch.hits.map(function (hit) {
+            var item = pathItem(hit.path, false, "");
+            if (hit.title) item.title = hit.title;
+            if (hit.description) item.sub = hit.description;
+            item.icon = "file://" + hit.path.split("/").map(function (part) { return encodeURIComponent(part); }).join("/");
+            return item;
+        });
+        else if (screenshotSearch.failed || screenshotSearch.indexFailed) message = I18n.tr("Screenshot index unavailable");
+        else if (screenshotSearch.pending) message = I18n.tr("Searching screenshots…");
+        else if (screenshotSearch.indexing) message = I18n.tr("Indexing screenshots…");
+        else message = I18n.tr("No matching screenshots");
+        return [{title: message, sub: I18n.tr("Screenshots"), glyph: "search"}];
+    }
     function homeItems(q) {
         var out = [], s = (q || "").trim().toLowerCase();
+        if (isScreenshotQuery(q)) return screenshotItems(q);
         if (/^(file|find)\s+/i.test(q || "")) {
             var fq=s.replace(/^(file|find)\s+/,"").trim();
             if (fq === "") {
@@ -5126,6 +5151,8 @@ Scope {
                                         : (spMode === "clip" ? root.clipFiltered(spQuery)
                                         : (spMode === "emoji" ? root.emojiItems(spQuery, emCat)
                                         : (spQuery.trim() === "" ? [] : root.homeItems(spQuery))))
+                onSpQueryChanged: if (spMode === "home") screenshotSearch.request = root.isScreenshotQuery(spQuery) ? spQuery : ""
+                onSpModeChanged: if (spMode !== "home") screenshotSearch.request = ""
 
                 function spSetMode(m) {
                     spMode = m; spQuery = ""; spHoverLabel = ""; spSel = 0; armed = ""; clipMenu = false;
@@ -5153,10 +5180,10 @@ Scope {
                 }
                 function spActivate(i) {
                     var it = spResults[i];
-                    if (!it) return;
+                    if (!it || !it.run) return;
                     if (it.confirm === true && armed !== it.title) { armed = it.title; return; }
                     pop = "";
-                    if (it.run) it.run();
+                    it.run();
                 }
                 function spEnter() {
                     if (spMode === "apps") {
@@ -10041,6 +10068,7 @@ Scope {
                                         width: rr.twoLine ? parent.width - 54 - 16
                                                : parent.width - 54 - 16 - Math.min(rowSub.implicitWidth, parent.width * 0.4) - 12
                                         elide: Text.ElideRight
+                                        textFormat: Text.PlainText
                                         text: rr.armedNow ? I18n.tr("Press Return again to confirm") : (rr.modelData ? rr.modelData.title : "")
                                         color: rr.sel ? "white" : panelPal.fg
                                         font.family: root.fontForWeight(Font.Normal, panelPal.fam); font.pixelSize: 14
@@ -10053,6 +10081,7 @@ Scope {
                                         anchors.verticalCenterOffset: rr.twoLine ? 9 : 0
                                         width: rr.twoLine ? parent.width - 54 - 16 : Math.min(implicitWidth, parent.width * 0.4)
                                         elide: rr.twoLine ? Text.ElideMiddle : Text.ElideRight
+                                        textFormat: Text.PlainText
                                         text: rr.modelData ? rr.modelData.sub : ""
                                         color: rr.sel ? Qt.rgba(1, 1, 1, 0.8) : panelPal.fg2
                                         font.family: root.fontForWeight(Font.Normal, panelPal.fam); font.pixelSize: rr.twoLine ? 11 : 12

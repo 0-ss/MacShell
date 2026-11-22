@@ -158,6 +158,7 @@ and more files...
 | Feature | Tool(s) |
 |---|---|
 | Screenshots (Print key) | `grim`, `wl-clipboard` (clipboard copy), `libnotify` (`notify-send`) |
+| Screenshot search (Spotlight) | `python3` with SQLite FTS5, `tesseract` with language data for text recognition, optional local vision server |
 | Clipboard history + Emoji (Spotlight) | `wl-clipboard`, `cliphist` (the shell starts the `wl-paste --watch cliphist store` watchers itself) |
 | Screen recording | `wf-recorder` |
 | Color picker | `hyprpicker` |
@@ -348,6 +349,22 @@ Also make sure **blur is enabled** in your Hyprland `decoration` settings, or th
 | `settings` | `open` (works even if both the bar and the Dock are disabled) |
 | `widgets` | `refresh` (re-fetch the weather), `edit true\|false` (move / remove desktop widgets) |
 | `glass` | `captures true\|false` (window previews on/off, same as Settings → Dock Behavior → *Live window capture*) |
+
+### Search screenshots in Spotlight
+
+In System Settings, under Screenshots, turn on **Search screenshots in Spotlight**. Open Spotlight and type `shot` to see recent captures. Try `shot reset vpn` for text or `shot #chart` for a tag. Press Return or click a result to open the original file.
+
+MacShell scans PNG and JPEG files up to 16 MiB directly in the configured screenshot folder, or `~/Pictures/Screenshots` if none is set. It also scans `Screenshot-*` images on the Desktop. It does not scan subfolders or clipboard-only captures, and it never moves or renames a file. The first pass runs in the background. Tesseract reads English and German if both language packs are installed. Without Tesseract, filename search still works.
+
+For image descriptions and tags, start a local OpenAI-compatible vision server. For example, with [llama.cpp](https://github.com/ggml-org/llama.cpp) and the model and projector from [Qwen2.5-VL-3B-Instruct-GGUF](https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF):
+
+```sh
+llama-server -m Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf \
+  --mmproj mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf \
+  --host 127.0.0.1 --port 18193 --alias macshell-screenshots -c 4096 -np 1
+```
+
+Set `MACSHELL_SCREENSHOT_VISION_PORT=18193` in the environment that starts MacShell, then start a new shell process. Only point this at a server that runs inference on your machine. MacShell sends screenshots only to `127.0.0.1`, does not download models, and does not need a server for text search. The local index stores recognized text, descriptions and tags under `${XDG_CACHE_HOME:-$HOME/.cache}/macbar/screenshot-search/`. To remove the index, turn off screenshot search before deleting that directory.
 
 ## MacLock
 

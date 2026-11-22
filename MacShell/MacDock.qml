@@ -1961,6 +1961,16 @@ Scope {
                     }
                     SRow {
                         t: pal
+                        title: I18n.tr("Search screenshots in Spotlight")
+                        subtitle: I18n.tr("Type shot followed by a search. Saved screenshots are indexed locally without moving them.")
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.screenshotSearchEnabled : false
+                            onToggled: v => { if (root.bar) root.bar.screenshotSearchEnabled = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
                         title: I18n.tr("Show a notification")
                         SSwitch {
                             t: pal
