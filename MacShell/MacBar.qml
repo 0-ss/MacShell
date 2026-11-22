@@ -2294,9 +2294,20 @@ Scope {
         property real nowMs: 0
         property bool showClose: false
         property bool showTime: false
+        property string actionsJson: "[]"
+        property bool hasReply: false
+        property string replyPlaceholder: ""
+        property bool replying: false
         signal closeClicked()
+        signal actionClicked(string actionId)
+        signal replyRequested(bool open)
+        signal replySubmitted(string text)
+        readonly property var actionList: {
+            try { var a = JSON.parse(actionsJson || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+        }
+        readonly property bool hasExtras: actionList.length > 0 || hasReply
         width: parent ? parent.width : 340
-        height: Math.max(74, textCol.height + 30)
+        height: hasExtras ? Math.max(74, extrasWrap.y + extrasWrap.height + 12) : Math.max(74, textCol.height + 30)
 
         readonly property string agoText: {
             var m = Math.floor((nb.nowMs - nb.stamp) / 60000);
@@ -2366,6 +2377,130 @@ Scope {
                 font.family: root.fontForWeight(Font.Normal, nb.t.fam); font.pixelSize: 13
                 wrapMode: Text.Wrap; maximumLineCount: 3; elide: Text.ElideRight
             }
+        }
+        Item {
+            id: extrasWrap
+            visible: nb.hasExtras
+            x: 70
+            y: Math.max(62, textCol.y + textCol.height + 8)
+            width: parent.width - 70 - 14
+            height: extrasCol.height
+            MouseArea { anchors.fill: parent }   // keep stray clicks between buttons from triggering the card's default action
+        Column {
+            id: extrasCol
+            width: parent.width
+            spacing: 6
+            Flow {
+                visible: nb.actionList.length > 0 || (nb.hasReply && !nb.replying)
+                width: parent.width
+                spacing: 6
+                Repeater {
+                    model: nb.actionList
+                    delegate: Rectangle {
+                        id: actBtn
+                        required property var modelData
+                        width: Math.min(extrasCol.width, actLbl.implicitWidth + 18)
+                        height: 24
+                        radius: 8
+                        color: actMa.containsMouse ? nb.t.btnHover : nb.t.btnOff
+                        Text {
+                            id: actLbl
+                            anchors.centerIn: parent
+                            width: Math.min(implicitWidth, parent.width - 14)
+                            elide: Text.ElideRight
+                            textFormat: Text.PlainText
+                            text: actBtn.modelData.text
+                            color: nb.t.fg
+                            font.family: root.fontForWeight(Font.Medium, nb.t.fam); font.pixelSize: 12; font.weight: Font.Medium
+                        }
+                        MouseArea {
+                            id: actMa
+                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: nb.actionClicked(actBtn.modelData.id)
+                        }
+                    }
+                }
+                Rectangle {
+                    visible: nb.hasReply && !nb.replying
+                    width: Math.min(extrasCol.width, repLbl.implicitWidth + 18)
+                    height: 24
+                    radius: 8
+                    color: repMa.containsMouse ? nb.t.btnHover : nb.t.btnOff
+                    Text {
+                        id: repLbl
+                        anchors.centerIn: parent
+                        text: I18n.tr("Reply")
+                        color: nb.t.fg
+                        font.family: root.fontForWeight(Font.Medium, nb.t.fam); font.pixelSize: 12; font.weight: Font.Medium
+                    }
+                    MouseArea {
+                        id: repMa
+                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: nb.replyRequested(true)
+                    }
+                }
+            }
+            Item {
+                visible: nb.hasReply && nb.replying
+                width: parent.width
+                height: 28
+                Rectangle {
+                    anchors.left: parent.left; anchors.right: sendBtn.left; anchors.rightMargin: 6
+                    height: parent.height; radius: 8
+                    color: nb.t.btnOff
+                    border.width: 1
+                    border.color: replyInput.activeFocus ? nb.t.accent : nb.t.sep
+                    Text {
+                        visible: replyInput.text === ""
+                        x: 8; width: parent.width - 16; anchors.verticalCenter: parent.verticalCenter
+                        elide: Text.ElideRight
+                        textFormat: Text.PlainText
+                        text: nb.replyPlaceholder !== "" ? nb.replyPlaceholder : I18n.tr("Reply\u2026")
+                        color: nb.t.fg2
+                        font.family: root.fontForWeight(Font.Normal, nb.t.fam); font.pixelSize: 12
+                    }
+                    TextInput {
+                        id: replyInput
+                        x: 8; width: parent.width - 16; anchors.verticalCenter: parent.verticalCenter
+                        clip: true; selectByMouse: true
+                        color: nb.t.fg; selectionColor: nb.t.accent; selectedTextColor: "white"
+                        font.family: root.fontForWeight(Font.Normal, nb.t.fam); font.pixelSize: 12
+                        onAccepted: {
+                            var txt = text.trim();
+                            if (txt !== "") { text = ""; nb.replySubmitted(txt); }
+                        }
+                        Keys.onEscapePressed: { text = ""; nb.replyRequested(false); }
+                    }
+                    Connections {
+                        target: nb
+                        function onReplyingChanged() {
+                            if (nb.replying) replyFocusT.restart();
+                            else replyInput.text = "";
+                        }
+                    }
+                    Timer { id: replyFocusT; interval: 30; onTriggered: if (nb.replying) replyInput.forceActiveFocus() }
+                }
+                Rectangle {
+                    id: sendBtn
+                    anchors.right: parent.right; width: sendLbl.implicitWidth + 16; height: parent.height; radius: 8
+                    color: replyInput.text.trim() !== "" ? nb.t.accent : nb.t.btnOff
+                    Text {
+                        id: sendLbl
+                        anchors.centerIn: parent
+                        text: I18n.tr("Send")
+                        color: replyInput.text.trim() !== "" ? "white" : nb.t.fg2
+                        font.family: root.fontForWeight(Font.Medium, nb.t.fam); font.pixelSize: 12; font.weight: Font.Medium
+                    }
+                    MouseArea {
+                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            var txt = replyInput.text.trim();
+                            if (txt !== "") { replyInput.text = ""; nb.replySubmitted(txt); }
+                        }
+                    }
+                }
+            }
+        }
         }
         Text {
             visible: nb.showTime && !nb.showClose
@@ -5090,6 +5225,8 @@ Scope {
     property real notifBlur: 14              // blur of the notification glass (smooth two-pass Gaussian, same method as the Blur slider)
     property int notifUnread: 0
     property int notifSeq: 0
+    property int notifReplyNid: -1
+    property string notifReplyScreen: ""
     property var notifRefs: ({})
     ListModel { id: notifHist }              // notification centre history, newest first
     ListModel { id: notifToasts }            // popups currently on screen, newest first
@@ -5103,9 +5240,42 @@ Scope {
             bodyMarkupSupported: false
             imageSupported: true
             actionsSupported: true
+            inlineReplySupported: true
             persistenceSupported: true
             onNotification: n => root.notifReceive(n)
         }
+    }
+    function notifExtractActions(n) {
+        var out = [], raw = (n && n.actions) ? n.actions : [];
+        for (var i = 0; i < raw.length; i++) {
+            var a = raw[i];
+            if (!a) continue;
+            var aid = String(a.identifier || ""), txt = String(a.text || "").trim();
+            if (aid === "" || aid === "default" || aid === "inline-reply" || txt === "") continue;
+            out.push({ id: aid, text: txt });
+        }
+        return out;
+    }
+    function notifStartReply(id, screenName) {
+        root.notifReplyNid = id;
+        root.notifReplyScreen = String(screenName || "");
+    }
+    function notifClearReply(id) {
+        if (id === undefined || root.notifReplyNid === id) {
+            root.notifReplyNid = -1;
+            root.notifReplyScreen = "";
+        }
+    }
+    function notifHandleClosed(id) {
+        notifToastRemove(id);
+        root.notifClearReply(id);
+        var j = notifIndex(notifHist, id);
+        if (j >= 0) {
+            notifHist.setProperty(j, "actionsJson", "[]");
+            notifHist.setProperty(j, "hasReply", false);
+            notifHist.setProperty(j, "replyPlaceholder", "");
+        }
+        delete root.notifRefs[id];
     }
     function notifIndex(model, id) {
         for (var i = 0; i < model.count; i++) if (model.get(i).nid === id) return i;
@@ -5132,30 +5302,45 @@ Scope {
         var rec = {
             nid: id, app: n.appName || "", summary: n.summary || "", body: n.body || "",
             icon: ic || "", urgency: urg, time: Date.now(),
-            timeout: n.expireTimeout > 0 ? Math.round(n.expireTimeout * 1000) : 0
+            timeout: n.expireTimeout > 0 ? Math.round(n.expireTimeout * 1000) : 0,
+            actionsJson: JSON.stringify(root.notifExtractActions(n)),
+            hasReply: Boolean(n.hasInlineReply),
+            replyPlaceholder: String(n.inlineReplyPlaceholder || "")
         };
         notifHist.insert(0, rec);
         while (notifHist.count > 60) {
             var old = notifHist.get(notifHist.count - 1).nid;
             notifHist.remove(notifHist.count - 1);
+            root.notifClearReply(old);
             delete root.notifRefs[old];
         }
         if ((!root.notifDnd || urg === 2) && !root.notifOpen) {
             // the screenshot has its own shutter sound
             if (root.isSystemNotif(n) && !(rec.app === "macbar" && rec.summary.indexOf("Screenshot") === 0)) root.playSound("glass", 0.7);
             notifToasts.insert(0, rec);
-            while (notifToasts.count > 4) notifToasts.remove(notifToasts.count - 1);
+            while (notifToasts.count > 4) {
+                var oldT = notifToasts.get(notifToasts.count - 1).nid;
+                notifToasts.remove(notifToasts.count - 1);
+                root.notifClearReply(oldT);
+            }
         }
         if (!root.notifOpen) root.notifUnread++;
-        try { n.closed.connect(function () { root.notifToastRemove(id); }); } catch (e) {}
+        try { n.closed.connect(function () { root.notifHandleClosed(id); }); } catch (e) {}
         // apps that update a notification in place (progress, now playing…): push the new text into the popup and
         // the history, the popup then blur-morphs to it
         function upd(role, val) {
-            var i = notifIndex(notifToasts, id); if (i >= 0) notifToasts.setProperty(i, role, val || "");
-            var j = notifIndex(notifHist, id); if (j >= 0) notifHist.setProperty(j, role, val || "");
+            var i = notifIndex(notifToasts, id); if (i >= 0) notifToasts.setProperty(i, role, val);
+            var j = notifIndex(notifHist, id); if (j >= 0) notifHist.setProperty(j, role, val);
         }
-        try { n.summaryChanged.connect(function () { upd("summary", n.summary); }); } catch (e) {}
-        try { n.bodyChanged.connect(function () { upd("body", n.body); }); } catch (e) {}
+        try { n.summaryChanged.connect(function () { upd("summary", n.summary || ""); }); } catch (e) {}
+        try { n.bodyChanged.connect(function () { upd("body", n.body || ""); }); } catch (e) {}
+        try { n.actionsChanged.connect(function () { upd("actionsJson", JSON.stringify(root.notifExtractActions(n))); }); } catch (e) {}
+        try { n.hasInlineReplyChanged.connect(function () {
+            var hr = Boolean(n.hasInlineReply);
+            upd("hasReply", hr);
+            if (!hr) root.notifClearReply(id);
+        }); } catch (e) {}
+        try { n.inlineReplyPlaceholderChanged.connect(function () { upd("replyPlaceholder", String(n.inlineReplyPlaceholder || "")); }); } catch (e) {}
     }
     // ── lock screen: the unread notifications, privacy-safe (app name, app icon, time — never the text) ──
     // written to ~/.cache/macshell/lock-notifs.json, which MacLock watches
@@ -5183,11 +5368,13 @@ Scope {
     function notifToastRemove(id) {
         var i = notifIndex(notifToasts, id);
         if (i >= 0) notifToasts.remove(i);
+        if (!root.notifOpen) root.notifClearReply(id);
     }
     function notifDelete(id) {
         notifToastRemove(id);
         var i = notifIndex(notifHist, id);
         if (i >= 0) notifHist.remove(i);
+        root.notifClearReply(id);
         var n = root.notifRefs[id];
         if (n) { try { n.dismiss(); } catch (e) {} delete root.notifRefs[id]; }
     }
@@ -5198,7 +5385,7 @@ Scope {
     property bool notifFlying: false          // cards are flying from the popups into the panel
     onNotifMergeFromChanged: { if (Object.keys(notifMergeFrom).length > 0) { notifFlying = true; flyEnd.restart(); } }
     Timer { id: flyEnd; interval: 900; onTriggered: root.notifFlying = false }
-    onNotifOpenChanged: if (!notifOpen) notifMergeFrom = ({})
+    onNotifOpenChanged: { root.notifClearReply(); if (!notifOpen) notifMergeFrom = ({}); }
     function notifClearAnimated() {
         if (notifHist.count === 0) return;
         notifClearing = true;
@@ -5214,6 +5401,7 @@ Scope {
             if (n) { try { n.dismiss(); } catch (e) {} }
         }
         notifHist.clear();
+        root.notifClearReply();
         root.notifRefs = ({});
         root.notifUnread = 0;
     }
@@ -5226,6 +5414,34 @@ Scope {
             } catch (e) {}
         }
         notifToastRemove(id);
+    }
+    function notifInvokeAction(id, actionId, removeToast) {
+        var n = root.notifRefs[id], invoked = false;
+        if (n && n.actions) {
+            try {
+                for (var i = 0; i < n.actions.length; i++) {
+                    if (String(n.actions[i].identifier) === String(actionId)) {
+                        n.actions[i].invoke();
+                        invoked = true;
+                        break;
+                    }
+                }
+            } catch (e) {}
+        }
+        root.notifClearReply(id);
+        if (removeToast !== false && (!n || n.resident !== true)) notifToastRemove(id);
+        return invoked;
+    }
+    function notifSendReply(id, text, removeToast) {
+        var trimmed = String(text || "").trim();
+        if (trimmed === "") return false;
+        var n = root.notifRefs[id], sent = false;
+        if (n && n.hasInlineReply && typeof n.sendInlineReply === "function") {
+            try { n.sendInlineReply(trimmed); sent = true; } catch (e) {}
+        }
+        root.notifClearReply(id);
+        if (removeToast !== false && (!n || n.resident !== true)) notifToastRemove(id);
+        return sent;
     }
 
     // ═════════════ WALLPAPER PICKER (CTRL + ALT + W) ═════════════
@@ -5734,7 +5950,11 @@ Scope {
 
             WlrLayershell.namespace: "macbar"
             WlrLayershell.layer: WlrLayer.Top
-            WlrLayershell.keyboardFocus: ((ui.pop === "wifi" || (ui.pop === "cc" && ui.ccPage === "wifi")) && ui.wifiPrompt !== "") ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+            WlrLayershell.keyboardFocus: (((ui.pop === "wifi" || (ui.pop === "cc" && ui.ccPage === "wifi")) && ui.wifiPrompt !== "")
+                                          || (root.notifReplyNid >= 0 && root.notifReplyScreen === perScreen.modelData.name && ui.pop === "notif"))
+                                         ? WlrKeyboardFocus.Exclusive
+                                         : ((root.notifReplyNid >= 0 && root.notifReplyScreen === perScreen.modelData.name && ui.toastScreen && ui.toastsShown && !root.notifOpen)
+                                            ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None)
 
             mask: Region { item: maskItem; Region { item: toastMask } }
 
@@ -9128,6 +9348,7 @@ Scope {
                     Behavior on y { NumberAnimation { duration: 770; easing.type: Easing.OutQuint } }
                     height: toastCol.height
                     visible: ui.toastsShown && root.notificationsEnabled
+                    onVisibleChanged: if (!visible && !root.notifOpen && root.notifReplyScreen === perScreen.modelData.name) root.notifClearReply()
                     Column {
                         id: toastCol
                         width: parent.width
@@ -9146,6 +9367,9 @@ Scope {
                                 required property int urgency
                                 required property real time
                                 required property int timeout
+                                required property string actionsJson
+                                required property bool hasReply
+                                required property string replyPlaceholder
                                 property bool shown: false
                                 property bool leaving: false
                                 readonly property int life: timeout > 0 ? timeout : (urgency === 2 ? 10000 : 6000)
@@ -9158,7 +9382,7 @@ Scope {
                                 height: tbody.height * (0.35 + 0.65 * tc) + (toastCol.spacing * (tc - 1))
                                 opacity: Math.min(1, tc * 2.2)
                                 Component.onCompleted: shown = true
-                                function dismiss() { if (leaving) return; leaving = true; goneTimer.restart(); }
+                                function dismiss() { if (leaving) return; leaving = true; root.notifClearReply(toast.nid); goneTimer.restart(); }
                                 // Notification Center opened: record this popup's spot and hand over instantly — the card in the
                                 // panel starts exactly here and flies into its slot (one object, no duplicate)
                                 property real mergeDy: 0
@@ -9181,7 +9405,7 @@ Scope {
                                 Timer { interval: 790; id: goneTimer; onTriggered: root.notifToastRemove(toast.nid) }
                                 Timer {
                                     interval: toast.life
-                                    running: toast.shown && !toast.leaving && !thov.hovered
+                                    running: toastArea.visible && toast.shown && !toast.leaving && !thov.hovered && root.notifReplyNid !== toast.nid
                                     onTriggered: toast.dismiss()
                                 }
                                 HoverHandler { id: thov }
@@ -9243,8 +9467,23 @@ Scope {
                                     width: toast.width
                                     app: toast.app; summary: toast.summary; body: toast.body; icon: toast.icon
                                     urgency: toast.urgency; stamp: toast.time; nowMs: clock.date.getTime()
+                                    actionsJson: toast.actionsJson
+                                    hasReply: toast.hasReply
+                                    replyPlaceholder: toast.replyPlaceholder
+                                    replying: root.notifReplyNid === toast.nid && !root.notifOpen && root.notifReplyScreen === perScreen.modelData.name
                                     showClose: thov.hovered
                                     onCloseClicked: toast.dismiss()
+                                    onActionClicked: actionId => {
+                                        var res = root.notifRefs[toast.nid] && root.notifRefs[toast.nid].resident === true;
+                                        root.notifInvokeAction(toast.nid, actionId, false);
+                                        if (!res) toast.dismiss();
+                                    }
+                                    onReplyRequested: open => { if (open) root.notifStartReply(toast.nid, perScreen.modelData.name); else root.notifClearReply(toast.nid); }
+                                    onReplySubmitted: txt => {
+                                        var res = root.notifRefs[toast.nid] && root.notifRefs[toast.nid].resident === true;
+                                        root.notifSendReply(toast.nid, txt, false);
+                                        if (!res) toast.dismiss();
+                                    }
                                 }
                                 }
                                 }
@@ -9425,6 +9664,9 @@ Scope {
                                     required property string icon
                                     required property int urgency
                                     required property real time
+                                    required property string actionsJson
+                                    required property bool hasReply
+                                    required property string replyPlaceholder
                                     width: ncol.width
                                     // entrance: grows into the list (cards below glide down), slides in from above, comes into focus
                                     property real inT: 0
@@ -9491,6 +9733,9 @@ Scope {
                                     readonly property string icon: hcd.icon
                                     readonly property int urgency: hcd.urgency
                                     readonly property real time: hcd.time
+                                    readonly property string actionsJson: hcd.actionsJson
+                                    readonly property bool hasReply: hcd.hasReply
+                                    readonly property string replyPlaceholder: hcd.replyPlaceholder
                                     width: hcd.width
                                     height: hbody.height
                                     radius: 18
@@ -9507,9 +9752,22 @@ Scope {
                                         width: parent.width
                                         app: hc.app; summary: hc.summary; body: hc.body; icon: hc.icon
                                         urgency: hc.urgency; stamp: hc.time; nowMs: clock.date.getTime()
+                                        actionsJson: hc.actionsJson
+                                        hasReply: hc.hasReply
+                                        replyPlaceholder: hc.replyPlaceholder
+                                        replying: root.notifReplyNid === hc.nid && root.notifOpen && root.notifReplyScreen === perScreen.modelData.name
                                         showTime: true
                                         showClose: hhov.hovered
                                         onCloseClicked: hcd.dissolve(1)          // dust away, then removed
+                                        onActionClicked: actionId => {
+                                            var res = root.notifRefs[hc.nid] && root.notifRefs[hc.nid].resident === true;
+                                            root.notifInvokeAction(hc.nid, actionId);
+                                            if (!res) ui.pop = "";
+                                        }
+                                        onReplyRequested: open => { if (open) root.notifStartReply(hc.nid, perScreen.modelData.name); else root.notifClearReply(hc.nid); }
+                                        onReplySubmitted: txt => {
+                                            root.notifSendReply(hc.nid, txt);
+                                        }
                                     }
                                 }
                                 }
