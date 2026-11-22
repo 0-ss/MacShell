@@ -81,7 +81,10 @@ Scope {
     Process {
         id: monListProc
         command: ["hyprctl", "-j", "monitors"]
-        stdout: StdioCollector { onStreamFinished: { try { root.monList = JSON.parse(text); } catch (e) {} } }
+        stdout: StdioCollector { onStreamFinished: {
+            try { root.monList = JSON.parse(text); } catch (e) {}
+            if (root.savedModesPending) { root.savedModesPending = false; root.applySavedModes(true); }
+        } }
     }
     function modeOf(m) { return m.width + "x" + m.height + "@" + Number(m.refreshRate).toFixed(2); }
     function applyMode(out, mode) {
@@ -90,6 +93,15 @@ Scope {
         var pos = m ? (m.x + "x" + m.y) : "auto", sc = m ? m.scale : 1;
         Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = \"" + out + "\", mode = \"" + mode + "\", position = \"" + pos + "\", scale = " + sc + " })"]);
         monRefreshSoon.restart();
+    }
+    // saved entry: legacy "WxH@Hz" string or { mode, position, scale }; missing position/scale come from the live monitor, else auto / 1
+    function normalizeModeEntry(entry, liveMon) {
+        var e = typeof entry === "string" ? { mode: entry } : (entry || {});
+        if (typeof e.mode !== "string" || !/^[A-Za-z0-9.@]+$/.test(e.mode)) return null;
+        var pos = typeof e.position === "string" && /^(auto|-?[0-9]+x-?[0-9]+)$/.test(e.position) ? e.position
+                : (liveMon ? liveMon.x + "x" + liveMon.y : "auto");
+        var sc = typeof e.scale === "number" && e.scale > 0 ? e.scale : (liveMon && liveMon.scale > 0 ? liveMon.scale : 1);
+        return { mode: e.mode, position: pos, scale: sc };
     }
     Timer { id: monRefreshSoon; interval: 700; onTriggered: root.refreshMons() }
     // change a monitor's mode; it reverts by itself after 15 s unless kept
@@ -112,7 +124,9 @@ Scope {
     function keepMode() {
         revertTimer.stop();
         var d = displays, mm = {}; for (var k in d.modes) mm[k] = d.modes[k];
-        mm[pendingOut] = pendingMode;
+        var lm = null;
+        for (var i = 0; i < monList.length; i++) if (monList[i].name === pendingOut) lm = monList[i];
+        mm[pendingOut] = { mode: pendingMode, position: lm ? (lm.x + "x" + lm.y) : "auto", scale: lm && lm.scale > 0 ? lm.scale : 1 };
         displays = { primary: d.primary || "", modes: mm };
         saveDisplays();
         pendingOut = ""; pendingMode = "";
@@ -122,9 +136,18 @@ Scope {
         if (pendingOut !== "" && pendingPrev !== "") applyMode(pendingOut, pendingPrev);
         pendingOut = ""; pendingMode = "";
     }
-    function applySavedModes() {
+    property bool savedModesPending: false
+    function applySavedModes(retried) {
         var mm = displays.modes || {};
-        for (var k in mm) Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = \"" + k + "\", mode = \"" + mm[k] + "\", position = \"auto\", scale = 1 })"]);
+        // live positions/scales are needed for legacy entries: wait for the first monitor list (once)
+        if (!retried && Object.keys(mm).length > 0 && monList.length === 0) { savedModesPending = true; refreshMons(); return; }
+        for (var k in mm) {
+            var lm = null;
+            for (var i = 0; i < monList.length; i++) if (monList[i].name === k) lm = monList[i];
+            var e = normalizeModeEntry(mm[k], lm);
+            if (!e || !/^[A-Za-z0-9._-]+$/.test(k)) continue;
+            Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = \"" + k + "\", mode = \"" + e.mode + "\", position = \"" + e.position + "\", scale = " + e.scale + " })"]);
+        }
         if (displays.primary) root.monitorPrimary = displays.primary;
         refreshMons();
     }
@@ -3406,6 +3429,8 @@ Scope {
                 id: lockPane
                 spacing: 10
                 property string slot: "top"
+                // merge mediaSlot into settings.json (keeps canvasMode etc.); atomic via mktemp + mv; jq-less fallback overwrites
+                readonly property string slotCmd: "f=\"$HOME/.config/maclock/settings.json\"; mkdir -p \"${f%/*}\" && if command -v jq >/dev/null 2>&1; then t=$(mktemp \"$f.XXXXXX\") && { { jq --arg s \"$1\" '(if type==\"object\" then . else {} end) | .mediaSlot=$s' \"$f\" > \"$t\" 2>/dev/null && [ -s \"$t\" ]; } || jq -n --arg s \"$1\" '{mediaSlot:$s}' > \"$t\"; } && mv -f \"$t\" \"$f\"; else printf '{\"mediaSlot\": \"%s\"}\\n' \"$1\" > \"$f\"; fi"
                 property bool syncing: false
                 property string syncNotice: ""
                 property string syncOutput: ""
@@ -3434,7 +3459,7 @@ Scope {
                             current: lockPane.slot === "bottom" ? 1 : 0
                             onPicked: i => {
                                 lockPane.slot = i === 1 ? "bottom" : "top";
-                                Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/maclock\" && printf '{\\n  \"mediaSlot\": \"%s\"\\n}\\n' \"$1\" > \"$HOME/.config/maclock/settings.json\"", "sh", lockPane.slot]);
+                                Quickshell.execDetached(["sh", "-c", lockPane.slotCmd, "sh", lockPane.slot]);
                             }
                         }
                     }
