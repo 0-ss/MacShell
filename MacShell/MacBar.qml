@@ -282,35 +282,10 @@ Scope {
         }
         onRunningChanged: if (!running && root.tonePending) { var r = root.tonePending; root.tonePending = null; root.runPanelTone(r); }
     }
-    // ── bar text colour: measure what is behind the bar strip (wallpaper + windows + the bar's own glass) ──
-    function measureBar() {
-        return;     // the bar is always dark now: nothing to measure behind it
-        var sc = Quickshell.screens && Quickshell.screens.length ? Quickshell.screens[0] : null;
-        if (!sc) return;
-        barToneProc.command = ["sh", toneScript, "0.25", String(Math.round(sc.x)), String(Math.round(sc.y)), String(Math.max(8, Math.round(sc.width))), String(Math.max(8, Math.round(barH)))];
-        barToneProc.running = true;
-    }
-    Timer { id: barToneT; interval: 350; onTriggered: root.measureBar() }          // debounce: after a resize / wallpaper / window change settles
-    Timer { interval: 1200; repeat: true; running: root.autoContrast && root.barEnabled && !root.gaming; onTriggered: root.measureBar() }
     Connections {
         target: root
-        function onBarHeightChanged() { barToneT.restart(); }
-        function onDarkModeChanged() { root.panelTone = 0; barToneT.restart(); }
-        function onBarEnabledChanged() { if (root.barEnabled) barToneT.restart(); }
-        function onWallpaperAccentChanged() { barToneT.restart(); }
-        function onGlassClientsChanged() { barToneT.restart(); }
-        function onAutoContrastChanged() { if (root.autoContrast) barToneT.restart(); else { root.barTone = 0; root.panelTone = 0; } }
-    }
-    Process {
-        id: barToneProc
-        stdout: StdioCollector {
-            onStreamFinished: {
-                var p = text.trim().split(/\s+/);
-                var v = parseFloat(p[0]), sd = parseFloat(p[1]);
-                if (isNaN(v)) return;
-                root.barTone = root.pickTone(root.barTone, v, isNaN(sd) ? 0 : sd, false);
-            }
-        }
+        function onDarkModeChanged() { root.panelTone = 0; }
+        function onAutoContrastChanged() { if (!root.autoContrast) { root.barTone = 0; root.panelTone = 0; } }
     }
     property bool lockArtBackground: true     // lock screen: blurred album art as the background while the cover is enlarged
     // lock screen clock (Settings → Lock Screen → Clock); MacLock reads these when it starts
@@ -3019,14 +2994,26 @@ Scope {
         refreshDiscord();
         refreshEarbuds();
     }
+    function shouldPollDiscord(popOpen, hasDiscordStreams, hasDiscordToplevel, prevRunning) {
+        return !!(popOpen || hasDiscordStreams || hasDiscordToplevel || prevRunning);
+    }
+    function shouldPollEarbuds(popOpen, btOn, btConnected, prevConnected) {
+        return !!(popOpen || (btOn && btConnected > 0) || prevConnected);
+    }
     Timer {
-        interval: root.popCount > 0 ? 2500 : 7000
+        interval: root.popCount > 0 ? 3000 : 15000
         repeat: true
         running: root.barEnabled && root.showAudioHub && !root.gaming
         triggeredOnStart: true
         onTriggered: {
-            root.refreshDiscord();
-            root.refreshEarbuds();
+            var popOpen = root.popCount > 0, ts = Hyprland.toplevels.values, hasTl = false;
+            for (var i = 0; i < ts.length && !hasTl; i++) {
+                var t = ts[i], o = t.lastIpcObject || {};
+                hasTl = /vesktop|discord|equibop|legcord|webcord|armcord/i.test(String(t.appId || "") + " " + String(o["class"] || ""));
+            }
+            var hasStreams = root.discordInNodes.length > 0 || root.discordOutNodes.length > 0;
+            if (root.shouldPollDiscord(popOpen, hasStreams, hasTl, !!root.discordState.running)) root.refreshDiscord();
+            if (root.shouldPollEarbuds(popOpen, root.btOn, root.btConnected, !!root.earbudsState.connected)) root.refreshEarbuds();
         }
     }
 

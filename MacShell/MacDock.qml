@@ -5019,9 +5019,17 @@ Scope {
             }
         }
     }
+    // titles and screencast announcements move nothing on screen (shell.qml filters the same events)
+    function shouldRefreshDockForEvent(name) {
+        return name !== "windowtitle" && name !== "windowtitlev2"
+            && name !== "activewindow" && name !== "screencast" && name !== "screencastv2";
+    }
     Connections {
         target: Hyprland
-        function onRawEvent(event) { busyDebounce.restart(); tickDebounce.restart(); }
+        function onRawEvent(event) {
+            if (!root.shouldRefreshDockForEvent(event.name)) return;
+            busyDebounce.restart(); tickDebounce.restart();
+        }
     }
     Timer { id: busyDebounce; interval: 120; onTriggered: root.refreshBusy() }
 
