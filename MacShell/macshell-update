@@ -20,16 +20,8 @@ state_get() { [ -f "$STATE_FILE" ] && sed -n "s/^$1=//p" "$STATE_FILE" | head -n
 
 REPO="${MACSHELL_REPO:-$(state_get repo)}"; REPO="${REPO:-0-ss/MacShell}"
 BRANCH="${MACSHELL_BRANCH:-$(state_get branch)}"; BRANCH="${BRANCH:-main}"
-DEST="$(state_get dest)"; DEST="${DEST:-$CONFIG_HOME/quickshell/MacShell}"
+DEST="${MACSHELL_DEST:-$(state_get dest)}"; DEST="${DEST:-$CONFIG_HOME/quickshell/MacShell}"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Version of the code that is actually running: the VERSION file shipped next to this script (e.g. "0.3.7").
-# The state file (written by install.sh) is only the fallback, so a stale/missing state can no longer cause a false "update".
-LOCAL_VERSION=""
-[ -f "$SELF_DIR/VERSION" ] && LOCAL_VERSION="$(head -n1 "$SELF_DIR/VERSION" | tr -d '[:space:]')"
-INSTALLED="$LOCAL_VERSION"
-[ -z "$INSTALLED" ] && INSTALLED="$(state_get installed)"
-INSTALLED="${INSTALLED:-unknown}"
-
 JSON=0 YES=0 FORCE=0 REF=""
 
 gh_api() { curl -fsSL --max-time 15 ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} -H "Accept: $1" "$2"; }
@@ -44,8 +36,26 @@ is_ver() { [[ "$(norm "$1")" =~ ^[0-9]+(\.[0-9]+)*([-+.][0-9A-Za-z.-]+)?$ ]]; }
 # returns 0 if $1 is the same as or newer than $2 (numeric dotted compare)
 ver_ge() { [ "$(printf '%s\n%s\n' "$(norm "$2")" "$(norm "$1")" | sort -V | tail -n1)" = "$(norm "$1")" ]; }
 branch_version() {
-    gh_api text/plain "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
+    local p v
+    for p in MacShell/VERSION VERSION; do
+        v=$(gh_api text/plain "https://raw.githubusercontent.com/$REPO/$BRANCH/$p" 2>/dev/null | head -n1 | tr -d '[:space:]')
+        is_ver "$v" && { printf '%s' "$v"; return 0; }
+    done
+    return 1
 }
+
+# Version of the code that is actually running: the VERSION file in the install dir (or next to this script
+# when run from the repo). The state file (written by install.sh) is only the fallback, so a stale/missing
+# state can no longer cause a false "update".
+INSTALLED=""
+for f in "$DEST/VERSION" "$SELF_DIR/VERSION"; do
+    [ -f "$f" ] && v="$(head -n1 "$f" | tr -d '[:space:]')" && is_ver "$v" && { INSTALLED="$v"; break; }
+done
+if [ -z "$INSTALLED" ]; then
+    v="$(state_get installed_version)"; is_ver "$v" && INSTALLED="$v"
+fi
+[ -z "$INSTALLED" ] && INSTALLED="$(state_get installed)"
+INSTALLED="${INSTALLED:-unknown}"
 
 LATEST="" LATEST_TYPE=""
 fetch_latest() {
