@@ -3694,42 +3694,40 @@ Scope {
     // Hyprland 0.55+ is configured and driven in Lua: `hyprctl dispatch` takes a Lua expression (the old "killactive" style strings fail).
     function hlx(expr) { Quickshell.execDetached(["hyprctl", "dispatch", expr]); }
     function disp(expr) { return function () { root.hlx(expr); }; }
-    // Menu shortcuts are sent to the focused window with Hyprland's sendshortcut (no extra tool needed).
-    // If some app ignores them, set this to true to type them with wtype instead.
+    // Menu shortcuts go to the focused window via Hyprland's Lua send_shortcut; wtype is the fallback.
+    function buildKeyCommand(mods, k, rawAddr) {
+        var kNorm = String(k);
+        if (!/^[A-Za-z0-9_]+$/.test(kNorm)) return null;
+        var addr = String(rawAddr || "");
+        if (/^[0-9a-fA-F]+$/.test(addr)) addr = "0x" + addr;
+        if (!/^0x[0-9a-fA-F]+$/.test(addr)) addr = "";
+        var wtypeMap = { "ctrl": "ctrl", "control": "ctrl", "shift": "shift", "alt": "alt", "super": "logo", "win": "logo", "cmd": "logo" };
+        var hyprMap = { "control": "CTRL", "win": "SUPER", "cmd": "SUPER" };
+        var wtypeMods = [], hyprList = [];
+        for (var i = 0; i < mods.length; i++) {
+            var m = String(mods[i]).toLowerCase();
+            if (!/^[a-z]+$/.test(m)) return null;
+            wtypeMods.push(wtypeMap[m] || m);
+            hyprList.push(hyprMap[m] || m.toUpperCase());
+        }
+        var hyprMods = hyprList.join(" ");
+        var wtypeArgs = [];
+        for (var a = 0; a < wtypeMods.length; a++) wtypeArgs.push("-M", wtypeMods[a]);
+        wtypeArgs.push("-k", kNorm);
+        for (var b = wtypeMods.length - 1; b >= 0; b--) wtypeArgs.push("-m", wtypeMods[b]);
+        return {
+            luaExpr: 'hl.dsp.send_shortcut({ mods = "' + hyprMods + '", key = "' + kNorm + '"' + (addr !== "" ? ', window = "address:' + addr + '"' : "") + ' })',
+            legacyArg: (hyprMods !== "" ? hyprMods + ", " : "") + kNorm + ", " + (addr !== "" ? "address:" + addr : "activewindow"),
+            focusLua: addr !== "" ? 'hl.dsp.focus({ window = "address:' + addr + '" })' : "",
+            wtypeArgs: wtypeArgs
+        };
+    }
     function keys(mods, k) {
         return function () {
-            var targetAddr = root.activeWin ? (root.activeWin.address || "") : "";
-            var modMap = {
-                "ctrl": "ctrl", "control": "ctrl",
-                "shift": "shift",
-                "alt": "alt",
-                "super": "logo", "win": "logo", "cmd": "logo"
-            };
-            var wtypeMods = mods.map(function(m) { return modMap[m.toLowerCase()] || m.toLowerCase(); });
-            var hyprMods = mods.map(function(m) { return m.toUpperCase(); }).join(" ");
-            var luaMods = mods.map(function(m) { return m.toUpperCase(); }).join(" + ");
-
-            var kNorm = k;
-            var wtypeK = k;
-            if (k === "comma") { kNorm = "comma"; wtypeK = "comma"; }
-            else if (k === "equal") { kNorm = "equal"; wtypeK = "equal"; }
-            else if (k === "minus") { kNorm = "minus"; wtypeK = "minus"; }
-            else if (k === "period") { kNorm = "period"; wtypeK = "period"; }
-
-            var wtypeCmd = "wtype";
-            for (var i = 0; i < wtypeMods.length; i++) wtypeCmd += " -M " + wtypeMods[i];
-            wtypeCmd += " -k " + wtypeK;
-            for (var j = wtypeMods.length - 1; j >= 0; j--) wtypeCmd += " -m " + wtypeMods[j];
-
-            var focusCmd = targetAddr !== "" ? "hyprctl dispatch focuswindow address:" + targetAddr + " >/dev/null 2>&1; sleep 0.04; " : "sleep 0.03; ";
-            var sendArg = targetAddr !== "" ? (hyprMods !== "" ? hyprMods + ", " : "") + kNorm + ", address:" + targetAddr
-                                           : (hyprMods !== "" ? hyprMods + ", " : "") + kNorm + ", activewindow";
-
-            var fullScript = focusCmd + 'if command -v wtype >/dev/null 2>&1; then ' + wtypeCmd + '; '
-                           + 'elif command -v ydotool >/dev/null 2>&1; then ydotool key ' + (mods.length ? mods.join("+") + "+" : "") + kNorm + '; '
-                           + 'else hyprctl dispatch sendshortcut "' + sendArg + '" 2>/dev/null || hyprctl dispatch sendshortcut "' + (hyprMods ? hyprMods + ", " : "") + kNorm + ', activewindow" 2>/dev/null || true; fi';
-
-            Quickshell.execDetached(["sh", "-c", fullScript]);
+            var c = root.buildKeyCommand(mods, k, root.activeWin ? root.activeWin.address : "");
+            if (!c) return;
+            // Lua dispatch first, legacy sendshortcut next, then focus + wtype; arguments are positional so nothing is interpolated into the shell.
+            Quickshell.execDetached(["sh", "-c", 'hyprctl dispatch "$1" >/dev/null 2>&1 || hyprctl dispatch sendshortcut "$2" >/dev/null 2>&1 || { [ -n "$3" ] && hyprctl dispatch "$3" >/dev/null 2>&1; sleep 0.04; shift 3; command -v wtype >/dev/null 2>&1 && exec wtype "$@"; }', "sh", c.luaExpr, c.legacyArg, c.focusLua].concat(c.wtypeArgs));
         };
     }
     function mchk(label, shortcut, checked, run) { return { kind: "item", label: label, shortcut: shortcut || "", run: run, checked: checked === true }; }
