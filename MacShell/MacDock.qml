@@ -205,11 +205,11 @@ Scope {
     property bool showLabels: true       // hover tooltips
     property bool showIndicators: true   // dots under running apps
     property bool iconTile: true   // rounded tile with the icon's dominant color and a light edge behind each icon. could be turned off if somebody prefer the old look.
-    readonly property real iconRim: 1.0   // strength of the edge light. fixed value.
-    readonly property real iconEdge: 2.0   // how soft the icon edge is. fixed value.
-    readonly property real iconScale: 1.0   // how big the icon is inside its cell. fixed at 1.
-    readonly property string iconShape: "rounded"   // only rounded here.
-    readonly property real iconCorner: 0.245   // corner radius as a fraction of the icon width. 0.245 is probably close to the usual icon corner.
+    property real iconRim: 1.0   // strength of edge light on dock icons
+    property real iconEdge: 2.0   // softness of the icon edge
+    property real iconScale: 1.0   // how big the icon is inside its cell
+    property string iconShape: "rounded"   // rounded or squircle
+    property real iconCorner: 0.245   // corner radius of rounded shape, as fraction of icon width
     readonly property real iconPower: iconShape === "squircle" ? 5.0 : 2.0
     readonly property vector4d iconRadii: Qt.vector4d(iconCorner, iconCorner, iconCorner, iconCorner)
     property bool bounceOnLaunch: true
@@ -2066,7 +2066,24 @@ Scope {
                                     smooth: true
                                     mipmap: true
                                 }
+                                IconTile {
+                                    anchors.fill: parent
+                                    visible: root.iconTile
+                                    source: pimg.source.toString()
+                                    iconScale: root.iconScale
+                                    corner: root.iconCorner
+                                    power: root.iconPower
+                                    edge: root.iconEdge
+                                    rim: root.iconRim
+                                    tint: root.iconTint
+                                    tintStrength: root.iconTintStrength
+                                    tintColor: root.iconTintColor
+                                    transformOrigin: Item.Bottom
+                                    scale: root.magnificationEnabled ? 1 + (root.magnification - 1) * pi.f : 1
+                                    Behavior on scale { NumberAnimation { duration: 120 } }
+                                }
                                 MultiEffect {
+                                    visible: !root.iconTile
                                     anchors.fill: pimg
                                     source: pimg
                                     saturation: root.iconTint ? -0.75 * root.iconTintStrength : 0.0
@@ -2119,6 +2136,128 @@ Scope {
                             leftLabel: I18n.tr("Min"); rightLabel: I18n.tr("Max")
                             resetValue: 1.7
                             onMoved: v => root.magnification = v
+                        }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Unified icon grid")
+                        subtitle: I18n.tr("Sizes every icon to the same grid")
+                        SSwitch { t: pal; checked: root.iconTile; onToggled: v => root.iconTile = v }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Shape")
+                        opacity: root.iconTile ? 1 : 0.45
+                        SSegmented {
+                            t: pal
+                            enabled: root.iconTile
+                            property var ids: ["rounded", "squircle"]
+                            model: [I18n.tr("Rounded"), I18n.tr("Squircle")]
+                            segWidth: 80
+                            current: ids.indexOf(root.iconShape)
+                            onPicked: i => root.iconShape = ids[i]
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: root.iconShape === "rounded"
+                        title: I18n.tr("Shape roundness")
+                        opacity: root.iconTile ? 1 : 0.45
+                        SSlider {
+                            t: pal
+                            enabled: root.iconTile
+                            from: 0; to: 0.5; stepSize: 0.005
+                            value: root.iconCorner
+                            leftLabel: I18n.tr("Square"); rightLabel: I18n.tr("Circle")
+                            resetValue: 0.245
+                            onMoved: v => root.iconCorner = v
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Icon fill")
+                        subtitle: I18n.tr("How much of its cell each icon fills")
+                        SSlider {
+                            t: pal
+                            from: 0.5; to: 1.2; stepSize: 0.01
+                            value: root.iconScale
+                            leftLabel: I18n.tr("Less"); rightLabel: I18n.tr("More")
+                            resetValue: 1
+                            onMoved: v => root.iconScale = v
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Edge light")
+                        subtitle: I18n.tr("A thin light along the edge of every icon")
+                        opacity: root.iconTile ? 1 : 0.45
+                        SSlider {
+                            t: pal
+                            enabled: root.iconTile
+                            from: 0; to: 2; stepSize: 0.05
+                            value: root.iconRim
+                            leftLabel: I18n.tr("Off"); rightLabel: I18n.tr("Strong")
+                            resetValue: 1
+                            onMoved: v => root.iconRim = v
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Edge smoothness")
+                        subtitle: I18n.tr("How softly the edge of every icon fades")
+                        opacity: root.iconTile ? 1 : 0.45
+                        SSlider {
+                            t: pal
+                            enabled: root.iconTile
+                            from: 0.5; to: 3; stepSize: 0.1
+                            value: root.iconEdge
+                            leftLabel: I18n.tr("Sharp"); rightLabel: I18n.tr("Soft")
+                            resetValue: 2
+                            onMoved: v => root.iconEdge = v
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Icon spacing")
+                        SSlider {
+                            t: pal
+                            from: 0; to: 20; stepSize: 1
+                            value: root.spacing
+                            leftLabel: I18n.tr("Tight"); rightLabel: I18n.tr("Loose")
+                            resetValue: 6
+                            onMoved: v => root.spacing = Math.round(v)
+                        }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Distance from screen edge")
+                        SSlider {
+                            t: pal
+                            from: 0; to: 40; stepSize: 1
+                            value: root.margin
+                            leftLabel: I18n.tr("Flush"); rightLabel: I18n.tr("Floating")
+                            resetValue: 6
+                            onMoved: v => root.margin = Math.round(v)
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Corner radius")
+                        SSlider {
+                            t: pal
+                            from: 0; to: 32; stepSize: 1
+                            value: root.cornerRadius
+                            leftLabel: I18n.tr("Square"); rightLabel: I18n.tr("Round")
+                            resetValue: 18
+                            onMoved: v => root.cornerRadius = Math.round(v)
                         }
                     }
                 }
@@ -2185,56 +2324,6 @@ Scope {
                             leftLabel: I18n.tr("Subtle"); rightLabel: I18n.tr("Full")
                             resetValue: 1.0
                             onMoved: v => root.iconTintStrength = Math.round(v * 100) / 100
-                        }
-                    }
-                }
-
-                SCard {
-                    t: pal
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Unified icon grid")
-                        subtitle: I18n.tr("Sizes every icon to the same grid")
-                        SSwitch { t: pal; checked: root.iconTile; onToggled: v => root.iconTile = v }
-                    }
-                }
-
-                SCard {
-                    t: pal
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Icon spacing")
-                        SSlider {
-                            t: pal
-                            from: 0; to: 20; stepSize: 1
-                            value: root.spacing
-                            leftLabel: I18n.tr("Tight"); rightLabel: I18n.tr("Loose")
-                            resetValue: 6
-                            onMoved: v => root.spacing = Math.round(v)
-                        }
-                    }
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Distance from screen edge")
-                        SSlider {
-                            t: pal
-                            from: 0; to: 40; stepSize: 1
-                            value: root.margin
-                            leftLabel: I18n.tr("Flush"); rightLabel: I18n.tr("Floating")
-                            resetValue: 6
-                            onMoved: v => root.margin = Math.round(v)
-                        }
-                    }
-                    SRow {
-                        t: pal
-                        title: I18n.tr("Corner radius")
-                        SSlider {
-                            t: pal
-                            from: 0; to: 32; stepSize: 1
-                            value: root.cornerRadius
-                            leftLabel: I18n.tr("Square"); rightLabel: I18n.tr("Round")
-                            resetValue: 18
-                            onMoved: v => root.cornerRadius = Math.round(v)
                         }
                     }
                 }
@@ -4297,13 +4386,13 @@ Scope {
         darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Open Runde";
         iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
-        showTrash = true; showLabels = true; showIndicators = true; iconTile = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
+        showTrash = true; showLabels = true; showIndicators = true; iconTile = true; iconRim = 1.0; iconEdge = 2.0; iconScale = 1.0; iconShape = "rounded"; iconCorner = 0.245; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, settingsEnabled, desktopIcons, desktopIconSize, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, appearanceMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
-        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength, iconTile].join("|")
+        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength, iconTile, iconRim, iconEdge, iconScale, iconShape, iconCorner].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
     onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
@@ -4318,7 +4407,7 @@ Scope {
             glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid, glassBlur: glassBlur,
             accent: String(accent), fontFamily: fontFamily,
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
-            showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators, iconTile: iconTile,
+            showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators, iconTile: iconTile, iconRim: iconRim, iconEdge: iconEdge, iconScale: iconScale, iconShape: iconShape, iconCorner: iconCorner,
             bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture, glassLive: glassLive,
             iconTint: iconTint, iconTintColor: iconTintColor, iconTintStrength: iconTintStrength
         };
@@ -4329,7 +4418,7 @@ Scope {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "settingsEnabled", "desktopIcons", "desktopIconSize", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "appearanceMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
-                    "showTrash", "showLabels", "showIndicators", "iconTile", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
+                    "showTrash", "showLabels", "showIndicators", "iconTile", "iconRim", "iconEdge", "iconScale", "iconShape", "iconCorner", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
             try { root[keys[i]] = o[keys[i]]; } catch (err) { }
@@ -6071,6 +6160,7 @@ Scope {
                                 property real power: root.iconPower
                                 property real box: 1.0
                                 property real soft: root.iconEdge
+                                property real fillCorner: 0.0
                                 property vector4d radii: root.iconRadii
                                 fragmentShader: Qt.resolvedUrl("iconclip.frag.qsb")
                             }

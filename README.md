@@ -111,7 +111,7 @@ The two are installed as **separate** Quickshell configs (neither lives inside t
 | `WidgetVisual.qml` | Draws one widget; shared by the desktop layer and the Liquid Glass backdrop, so menus refract the widgets too. |
 | `WeatherWidget.qml`, `WeatherIcon.qml`, `WeatherHourCol.qml`, `CalendarWidget.qml`, `ClockWidget.qml`, `PlayerWidget.qml`, `PlayerArt.qml`, `PlayerBtn.qml`, `PlayerGlyph.qml`, `ImageWidget.qml`, `MarqueeText.qml` | The widgets and their helpers (`ImageWidget.qml` shows a picture of your choice). |
 | `SPopUp.qml`, `Dissolve.qml`, `MorphText.qml`, `MorphGlyph.qml`, `WGlyph.qml`, `ClockGlyph.qml`, `Wheel.qml` | Shared UI pieces and effects. |
-| `IconClass.qml`, `iconclip.frag`, `iconrim.frag` | The Dock's unified icon grid: icon classification and the shape and edge shaders. |
+| `IconClass.qml`, `IconTile.qml`, `iconclip.frag`, `iconrim.frag` | The Dock's unified icon grid: icon classification, the shared tile and the shape and edge shaders. |
 | `liquidglass.frag` (+ `contourglow`, `tintcard`, `dust`, `burn`, `fade`) | Shaders. Prebuilt `.frag.qsb` files ship next to them; `liquidglass.frag` is recompiled with `qsb` on first run. |
 | `EmojiData.js` | Emoji fallback data for Spotlight (from [gemoji](https://github.com/github/gemoji), MIT). |
 | `macshell-update` | Update tool (installed to `~/.local/bin`, see [Updating](#updating)). The installer also writes `macshell-start`, the script the Hyprland autostart runs. |
