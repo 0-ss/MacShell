@@ -1962,11 +1962,22 @@ Scope {
                     SRow {
                         t: pal
                         title: I18n.tr("Search screenshots in Spotlight")
-                        subtitle: I18n.tr("Type shot followed by a search. Saved screenshots are indexed locally without moving them.")
+                        subtitle: I18n.tr("Type shot followed by a search. Saved screenshots are indexed locally.")
                         SSwitch {
                             t: pal
                             checked: root.bar ? root.bar.screenshotSearchEnabled : false
                             onToggled: v => { if (root.bar) root.bar.screenshotSearchEnabled = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: root.bar ? root.bar.screenshotSearchEnabled : false
+                        title: I18n.tr("Auto-rename new screenshots")
+                        subtitle: I18n.tr("Add a short title to new captures when a local vision model is available. Existing filenames stay unchanged.")
+                        SSwitch {
+                            t: pal
+                            checked: root.bar ? root.bar.screenshotAutoRename : true
+                            onToggled: v => { if (root.bar) root.bar.screenshotAutoRename = v; }
                         }
                     }
                     SRow {

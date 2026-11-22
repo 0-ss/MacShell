@@ -1,3 +1,5 @@
+import base64
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
 from pathlib import Path
@@ -5,6 +7,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 
@@ -39,6 +43,76 @@ class ScreenshotSearchTest(unittest.TestCase):
         subprocess.run(["magick", "-size", "1000x240", "xc:white", "-font", "DejaVu-Sans",
                         "-pointsize", "52", "-fill", "black", "-gravity", "center",
                         "-annotate", "+0+0", text, str(path)], check=True)
+
+    def serve_vision(self, replies, received):
+        class VisionHandler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.assert_request()
+                payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                image = payload["messages"][0]["content"][1]["image_url"]["url"]
+                received.append(base64.b64decode(image.split(",", 1)[1]))
+                code, content = next(replies)
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"choices": [{"message": {
+                    "content": json.dumps(content)}}]}).encode())
+
+            def assert_request(self):
+                if self.path != "/v1/chat/completions":
+                    raise ValueError(self.path)
+
+            def log_message(self, format, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), VisionHandler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return str(server.server_port)
+
+    def test_oversized_capture_cannot_block_the_next_image(self):
+        good = self.folder / "diagram.png"
+        large = self.folder / "large.png"
+        self.write_text_capture(good, "Safe capture")
+        subprocess.run(["magick", "-size", "5120x2880", "xc:steelblue", str(large)], check=True)
+        received = []
+        port = self.serve_vision(iter([(400, {}), (200, {"title": "Queued compass",
+            "description": "A diagram", "tags": ["compass"]})]), received)
+        self.run_tool("index", port=port)
+        self.assertEqual(self.paths("#compass"), [good])
+        self.assertEqual(len(received), 2)
+        dimensions = subprocess.check_output(["magick", "identify", "-format", "%w,%h", "-"],
+                                             input=received[0]).decode()
+        self.assertLessEqual(max(map(int, dimensions.split(","))), 1440)
+
+    def test_new_capture_gets_a_unique_title_without_touching_existing_files(self):
+        old = self.desktop / "Screenshot-2026-11-22_16-10-00.png"
+        new = self.desktop / "Screenshot-2026-11-22_16-20-00.png"
+        occupied = self.desktop / "Screenshot-2026-11-22_16-20-00 -- clear-dashboard.png"
+        self.write_text_capture(old, "Old capture")
+        self.write_text_capture(occupied, "Existing filename")
+        original_occupied = occupied.read_bytes()
+        self.write_text_capture(new, "New capture")
+        before = time.time_ns() // 1_000_000
+        for path, offset in ((old, -2000), (new, 2000)):
+            stamp = (before + offset) * 1_000_000
+            os.utime(path, ns=(stamp, stamp))
+        original_image = new.read_bytes()
+        label = {"title": "../Clear Dashboard 9274", "description": "A dashboard", "tags": ["dashboard"]}
+        received = []
+        port = self.serve_vision(iter([(200, label)] * 3), received)
+        self.run_tool("index", "--rename-since-ms", str(before), port=port)
+        renamed = self.desktop / "Screenshot-2026-11-22_16-20-00 -- clear-dashboard-2.png"
+        self.assertFalse(new.exists())
+        self.assertTrue(old.is_file())
+        self.assertEqual(occupied.read_bytes(), original_occupied)
+        self.assertEqual(renamed.read_bytes(), original_image)
+        self.assertIn(renamed, self.paths("#dashboard"))
+        self.run_tool("index", "--rename-since-ms", str(before), port=port)
+        self.assertIn(renamed, self.paths("#dashboard"))
+        self.assertEqual(len(received), 3)
 
     @unittest.skipUnless(shutil.which("tesseract"), "requires Tesseract and English language data")
     def test_finds_text_in_original_and_reindexes_changed_file(self):

@@ -158,7 +158,7 @@ and more files...
 | Feature | Tool(s) |
 |---|---|
 | Screenshots (Print key) | `grim`, `wl-clipboard` (clipboard copy), `libnotify` (`notify-send`) |
-| Screenshot search (Spotlight) | `python3` with SQLite FTS5, `tesseract` with language data for text recognition, optional local vision server |
+| Screenshot search (Spotlight) | `python3` with SQLite FTS5, `tesseract` with language data for text recognition, optional local vision server and `magick` (ImageMagick) |
 | Clipboard history + Emoji (Spotlight) | `wl-clipboard`, `cliphist` (the shell starts the `wl-paste --watch cliphist store` watchers itself) |
 | Screen recording | `wf-recorder` |
 | Color picker | `hyprpicker` |
@@ -354,7 +354,11 @@ Also make sure **blur is enabled** in your Hyprland `decoration` settings, or th
 
 In System Settings, under Screenshots, turn on **Search screenshots in Spotlight**. Open Spotlight and type `shot` to see recent captures. Try `shot reset vpn` for text or `shot #chart` for a tag. Press Return or click a result to open the original file.
 
-MacShell scans PNG and JPEG files up to 16 MiB directly in the configured screenshot folder, or `~/Pictures/Screenshots` if none is set. It also scans `Screenshot-*` images on the Desktop. It does not scan subfolders or clipboard-only captures, and it never moves or renames a file. The first pass runs in the background. Tesseract reads English and German if both language packs are installed. Without Tesseract, filename search still works.
+MacShell scans PNG and JPEG files up to 16 MiB directly in the configured screenshot folder, or `~/Pictures/Screenshots` if none is set. It also scans `Screenshot-*` images on the Desktop. It does not scan subfolders or clipboard-only captures. The first pass runs in the background. Tesseract reads English and German if both language packs are installed. Without Tesseract, filename search still works.
+
+With a local vision model, **Auto-rename new screenshots** is on by default when screenshot search is enabled. New captures with MacShell's timestamped filename get a short title, such as `Screenshot-2026-11-22_16-20-00 -- clear-dashboard.png`. Existing files keep their names. MacShell never overwrites a file while renaming it. Turn off auto-rename under Screenshots to keep the original names for future captures. A capture keeps its original name if the model cannot describe it.
+
+If `magick` is installed, MacShell scales images down before sending them to the local vision server. Text recognition still uses the original file. An image the server rejects does not stop the rest of the queue.
 
 For image descriptions and tags, start a local OpenAI-compatible vision server. For example, with [llama.cpp](https://github.com/ggml-org/llama.cpp) and the model and projector from [Qwen2.5-VL-3B-Instruct-GGUF](https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF):
 

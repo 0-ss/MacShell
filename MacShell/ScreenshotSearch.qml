@@ -7,6 +7,7 @@ Scope {
 
     property bool enabled: false
     property string folder: ""
+    property real renameSinceMs: 0
     property string request: ""
     property var hits: []
     property bool pending: false
@@ -36,6 +37,7 @@ Scope {
             indexFailed = false;
         }
     }
+    onRenameSinceMsChanged: if (renameSinceMs === 0) indexer.running = false
 
     Timer {
         interval: 20000
@@ -46,7 +48,8 @@ Scope {
     }
     Process {
         id: indexer
-        command: ["python3", root.script, "index", "--folder=" + root.folder]
+        command: ["python3", root.script, "index", "--folder=" + root.folder,
+                  "--rename-since-ms=" + root.renameSinceMs.toFixed(0)]
         onExited: (code, status) => {
             if (!root.enabled) return;
             root.indexFailed = code !== 0;

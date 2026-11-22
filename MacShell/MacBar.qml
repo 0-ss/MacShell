@@ -378,6 +378,8 @@ Scope {
     property bool screenshotDesktop: true     // save screenshots on the Desktop (they show up as icons); off = use screenshotDir
     property bool screenshotSave: true        // save the PNG to screenshotDir
     property bool screenshotSearchEnabled: false
+    property bool screenshotAutoRename: true
+    property real screenshotRenameSince: 0
     property bool screenshotClipboard: true   // also copy it to the clipboard
     property bool screenshotNotify: true      // "Screenshot saved" notification
     property int spotRequest: 0
@@ -411,7 +413,7 @@ Scope {
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "liveWallGlass", "glassDebug", "wallpaperPath", "use24h", "language", "showDate",
         "showSeconds", "showBatteryPercent", "showTray", "showSearch",
         "spotlightEnabled", "reduceMotion", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
-        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotDesktop", "screenshotSave", "screenshotClipboard", "screenshotNotify", "screenshotSearchEnabled", "nightTemp", "ccControls", "ccPos", "ccSizes", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
+        "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotDesktop", "screenshotSave", "screenshotClipboard", "screenshotNotify", "screenshotSearchEnabled", "screenshotAutoRename", "screenshotRenameSince", "nightTemp", "ccControls", "ccPos", "ccSizes", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
         "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
         "notifDnd", "dnd", "nightOn", "keepAwake",
         "kbRepeatRate", "kbRepeatDelay", "mouseSens", "mouseNatural", "tpNatural", "tpTap", "tpDwt", "tpScroll"]
@@ -3004,9 +3006,17 @@ Scope {
     function updateFileSearch(q) { fileQuery=q; fileHits=[]; fileSearchPending=true; fileDebounce.restart(); }
     ScreenshotSearch {
         id: screenshotSearch
-        enabled: root.screenshotSearchEnabled
+        enabled: root.settingsReady && root.screenshotSearchEnabled
         folder: root.screenshotDir
+        renameSinceMs: root.screenshotAutoRename ? root.screenshotRenameSince : 0
     }
+    function updateScreenshotRenameSince() {
+        if (!settingsReady) return;
+        if (!screenshotSearchEnabled || !screenshotAutoRename) screenshotRenameSince = 0;
+        else if (screenshotRenameSince === 0) screenshotRenameSince = Date.now();
+    }
+    onScreenshotAutoRenameChanged: updateScreenshotRenameSince()
+    onScreenshotSearchEnabledChanged: updateScreenshotRenameSince()
     // recent files / folders for the Files button (assets/recent-files.sh)
     Process {
         id: recentProc
@@ -3229,7 +3239,7 @@ Scope {
         if (clipHistory && barEnabled && settingsReady) clipProbe.running = true;
         else { clipWatchText.running = false; clipWatchImg.running = false; }
     }
-    onSettingsReadyChanged: { clipStart(); emojiEnsure(); }
+    onSettingsReadyChanged: { clipStart(); emojiEnsure(); updateScreenshotRenameSince(); }
     onClipHistoryChanged: clipStart()
     Process {
         id: clipProbe
