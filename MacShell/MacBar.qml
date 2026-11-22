@@ -4264,6 +4264,7 @@ Scope {
             if (hit.title) item.title = hit.title;
             if (hit.description) item.sub = hit.description;
             item.icon = "file://" + hit.path.split("/").map(function (part) { return encodeURIComponent(part); }).join("/");
+            item.preview = item.icon;           // hovering the row shows the screenshot larger (shotPeek)
             return item;
         });
         else if (screenshotSearch.failed || screenshotSearch.indexFailed) message = I18n.tr("Screenshot index unavailable");
@@ -12653,6 +12654,87 @@ Scope {
                     onPressed: ui.pop = ""
                 }
 
+                // Hover preview of a screenshot result, as in Blink: resting the pointer on a row for 350 ms shows the image
+                // larger beside the results, on the side with more room. After a keystroke it stays hidden until the pointer
+                // really moves, so rows rebuilt under a resting pointer do not pop it up while typing.
+                Item {
+                    id: shotPeek
+                    z: 40
+                    property Item owner: null
+                    property string want: ""
+                    property string src: ""
+                    property bool parking: false             // next pointer event only records where the pointer rests
+                    property point parked: Qt.point(0, 0)
+                    property bool hasParked: false
+                    property rect anchorR: Qt.rect(0, 0, 0, 0)
+                    readonly property int edge: 16
+                    function hover(row, p) {
+                        if (parking) { parking = false; hasParked = true; parked = p; return; }
+                        if (hasParked) {
+                            if (Math.hypot(p.x - parked.x, p.y - parked.y) < 5) return;
+                            hasParked = false;
+                        }
+                        var url = row.modelData && row.modelData.preview ? String(row.modelData.preview) : "";
+                        if (url === "") { dismiss(); return; }
+                        if (owner === row && want === url) return;
+                        dismiss();
+                        owner = row; want = url;
+                        peekDelay.restart();
+                    }
+                    function leave(row) { if (owner === row) dismiss(); }
+                    function park() { parking = true; hasParked = false; dismiss(); }
+                    function dismiss() { peekDelay.stop(); owner = null; want = ""; src = ""; }
+                    onOwnerChanged: if (!owner && src !== "") dismiss()      // its row was rebuilt or removed
+                    Timer {
+                        id: peekDelay
+                        interval: 350
+                        onTriggered: {
+                            var o = shotPeek.owner;
+                            if (!o) return;
+                            var r = o.mapToItem(spotRoot, 0, 0, o.width, o.height);
+                            var pr = resPanel.mapToItem(spotRoot, 0, 0, resPanel.width, resPanel.height);
+                            shotPeek.anchorR = Qt.rect(pr.x, r.y, pr.width, r.height);
+                            shotPeek.src = shotPeek.want;
+                        }
+                    }
+                    Connections {
+                        target: ui
+                        function onSpQueryChanged() { shotPeek.park(); }
+                        function onPopChanged() { shotPeek.dismiss(); }
+                        function onSpModeChanged() { shotPeek.dismiss(); }
+                    }
+                    readonly property real sideR: spotRoot.width - edge - (anchorR.x + anchorR.width + 12)
+                    readonly property real sideL: anchorR.x - 12 - edge
+                    readonly property bool onRight: sideR + 40 >= sideL      // right unless the left has clearly more room
+                    readonly property real maxW: Math.min(960, Math.max(sideL, sideR))
+                    readonly property real maxH: Math.min(720, spotRoot.height - 2 * edge)
+                    readonly property real k: peekImg.implicitWidth > 0 && peekImg.implicitHeight > 0
+                        ? Math.min((maxW - 16) / peekImg.implicitWidth, (maxH - 16) / peekImg.implicitHeight, 1) : 0
+                    width: Math.round(peekImg.implicitWidth * k + 16)
+                    height: Math.round(peekImg.implicitHeight * k + 16)
+                    x: onRight ? anchorR.x + anchorR.width + 12 : anchorR.x - width - 12
+                    y: Math.max(edge, Math.min(spotRoot.height - edge - height, anchorR.y + anchorR.height / 2 - height / 2))
+                    readonly property bool shown: src !== "" && peekImg.status === Image.Ready && maxW > 40 && maxH > 40
+                    opacity: 0
+                    visible: opacity > 0
+                    // fades in, disappears at once (as Blink's panel does)
+                    onShownChanged: { if (shown) peekFade.restart(); else { peekFade.stop(); opacity = 0; } }
+                    NumberAnimation { id: peekFade; target: shotPeek; property: "opacity"; from: 0; to: 1; duration: root.reduceMotion ? 0 : 120; easing.type: Easing.OutCubic }
+                    Rectangle {
+                        anchors.fill: parent; radius: 14
+                        color: root.panelDarkMode ? Qt.rgba(0.16, 0.16, 0.18, 0.94) : Qt.rgba(0.97, 0.97, 0.98, 0.96)
+                        border.width: 1; border.color: root.panelDarkMode ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.12)
+                    }
+                    Image {
+                        id: peekImg
+                        anchors.fill: parent; anchors.margins: 8
+                        source: shotPeek.src
+                        sourceSize: Qt.size(1920, 1920)          // decoded at most this large, aspect kept
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true; smooth: true; mipmap: true
+                    }
+                }
+
                 // Backdrop capture + blur for Spotlight's glass. Deliberately NOT inside `spot`: as children they inherited
                 // spot's opacity while it faded, so the glass refracted a half-transparent backdrop and turned into a milky
                 // blob mid-fade (the fade looked broken). Out here they always produce the real backdrop.
@@ -12943,6 +13025,7 @@ Scope {
                             boundsBehavior: Flickable.StopAtBounds
                             interactive: contentHeight > height
                             flickableDirection: Flickable.VerticalFlick
+                            onContentYChanged: shotPeek.dismiss()      // the preview would point at a row that moved
                             Behavior on contentY { enabled: !resFlick.moving && !resFlick.dragging; NumberAnimation { duration: root.reduceMotion ? 0 : 120; easing.type: Easing.OutCubic } }
                             Rectangle {
                                 y: resPanel.selIdx * 46
@@ -13031,6 +13114,8 @@ Scope {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         onEntered: { if (ui.spSel !== rr.index) { ui.spHover = true; ui.spSel = rr.index; } }
+                                        onPositionChanged: (mouse) => shotPeek.hover(rr, mapToItem(spotRoot, mouse.x, mouse.y))
+                                        onExited: shotPeek.leave(rr)
                                         onClicked: ui.spActivate(rr.index)
                                     }
                                 }
