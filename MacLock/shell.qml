@@ -32,7 +32,7 @@ ShellRoot {
     IpcHandler {
         target: "lockscreen"
         function state(): string {
-            if (lock.wasSecure) return lock.secure ? "busy" : "stopping";
+            if (sessionLock.wasSecure) return sessionLock.secure ? "busy" : "stopping";
             return root.lockRequested ? "busy" : "ready";
         }
         function lock(): void { root.requestLock(); }
@@ -241,7 +241,7 @@ ShellRoot {
 
     // ═════════════ the real lock ═════════════
     WlSessionLock {
-        id: lock
+        id: sessionLock
         locked: root.lockRequested && !root.preview
         // If this instance ever stops holding the lock without unlocking itself (another locker took over, the
         // compositor ended it, …), quit: a leftover instance keeps maclock.sh's one-locker guard and every later
