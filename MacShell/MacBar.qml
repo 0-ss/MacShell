@@ -2577,36 +2577,26 @@ Scope {
     }
 
     function refreshBt() { if (!btProc.running) btProc.running = true; }
-    // One line per known device: D:<mac> <paired 0|1> <connected 0|1> <battery %> <name>   (tab separated).
-    // Every device is asked with "bluetoothctl info", because the "devices Paired|Connected" filters only exist in
-    // newer BlueZ versions: older ones ignore the argument and print every device (so everything looked connected).
+    // One D-Bus call returns the adapter and every known device. "bluetoothctl" needs one start per device, and
+    // bluetoothd writes two journal lines for each start (it registers an advertisement monitor).
     Process {
         id: btProc
-        command: ["sh", "-c",
-            "p=$(timeout 4 bluetoothctl show 2>/dev/null </dev/null | grep -i 'Powered:' | head -n1); echo \"P:$p\"; "
-            + "timeout 4 bluetoothctl devices 2>/dev/null </dev/null | while read -r _ mac name; do "
-            + "[ -n \"$mac\" ] || continue; "
-            + "i=$(timeout 3 bluetoothctl info \"$mac\" 2>/dev/null </dev/null); "
-            + "pr=$(printf '%s\\n' \"$i\" | grep -Ec 'Paired: yes|Bonded: yes'); "
-            + "c=$(printf '%s\\n' \"$i\" | grep -c 'Connected: yes'); "
-            + "b=$(printf '%s\\n' \"$i\" | sed -n 's/.*Battery Percentage: 0x[0-9a-fA-F]* (\\([0-9]*\\)).*/\\1/p' | head -n1); "
-            + "printf 'D:%s\\t%s\\t%s\\t%s\\t%s\\n' \"$mac\" \"$pr\" \"$c\" \"$b\" \"$name\"; "
-            + "done"
-        ]
+        command: ["busctl", "--system", "--auto-start=no", "--timeout=4", "--json=short", "call",
+                  "org.bluez", "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"]
         stdout: StdioCollector {
             onStreamFinished: {
-                var lines = text.split("\n"), on = false, devList = [], connCount = 0, firstConnName = "", i;
-                for (i = 0; i < lines.length; i++) {
-                    var l = lines[i].replace(/\r$/, "");
-                    if (!l) continue;
-                    if (l.indexOf("P:") === 0) { on = l.toLowerCase().indexOf("yes") >= 0; continue; }
-                    if (l.indexOf("D:") !== 0) continue;
-                    var f = l.substring(2).split("\t");
-                    if (f.length < 5 || !f[0]) continue;
-                    var mac = f[0], isPair = f[1] === "1", isConn = f[2] === "1", name = (f[4] || "").trim() || mac;
+                var objs = {}, on = false, devList = [], connCount = 0, firstConnName = "", path;
+                try { objs = JSON.parse(text).data[0] || {}; } catch (e) {}   // no output while bluetoothd is stopped
+                function prop(iface, key) { return iface && iface[key] ? iface[key].data : undefined; }
+                for (path in objs) {
+                    if (prop(objs[path]["org.bluez.Adapter1"], "Powered")) on = true;
+                    var dev = objs[path]["org.bluez.Device1"], mac = prop(dev, "Address");
+                    if (!mac) continue;
+                    var isPair = !!(prop(dev, "Paired") || prop(dev, "Bonded")), isConn = !!prop(dev, "Connected");
+                    var name = (prop(dev, "Alias") || "").trim() || mac, bat = prop(objs[path]["org.bluez.Battery1"], "Percentage");
                     // BlueZ names an unnamed device after its address with dashes: show those last
                     if (isConn) { connCount++; if (!firstConnName) firstConnName = name; }
-                    devList.push({ mac: mac, name: name, connected: isConn, paired: isPair, bat: f[3] || "", icon: root.btIconFor(name) });
+                    devList.push({ mac: mac, name: name, connected: isConn, paired: isPair, bat: bat === undefined ? "" : String(bat), icon: root.btIconFor(name) });
                 }
                 root.btOn = on;
                 devList.sort(function (a, b) {
