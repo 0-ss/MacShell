@@ -243,6 +243,7 @@ Item {
                 darkGlass: host.darkGlass
                 editing: host.editing
                 content: (host && host.extra) ? host.extra.comp(v.wtype) : null
+                fullBleed: v.wtype === "photos"
                 onGlassFailed: host.glassState = "failed"
             }
         }

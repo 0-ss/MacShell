@@ -62,7 +62,11 @@ Scope {
     readonly property alias extra: extraWidgets
 
     readonly property var styleNames: ({ liquid: "Liquid Glass", normal: "Normal", light: "Light", dark: "Dark" })
-    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image", gif: "GIF", sysmon: "System Monitor", reminders: "Reminders" })
+    readonly property var typeNames: ({
+        weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player",
+        image: "Image", gif: "GIF", sysmon: "System Monitor", reminders: "Reminders",
+        batteries: "Batteries", notes: "Notes", photos: "Photos", alarms: "Alarms", stocks: "Stocks"
+    })
     readonly property var sizeNames: ({ small: "Small", medium: "Medium", large: "Large" })
     function dims(size) {
         var b = size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]);
@@ -414,7 +418,7 @@ Scope {
         onTriggered: { try { root.player.positionChanged(); } catch (err) { } }
     }
     function isInteractive(type) {
-        return type === "player" || type === "reminders" || type === "gif";
+        return type === "player" || type === "reminders" || type === "gif" || type === "notes" || type === "photos" || type === "alarms";
     }
     // screen rectangles of interactive widgets (Player, Reminders): they stay clickable while the rest of the layer is click-through
     readonly property var playerRects: {

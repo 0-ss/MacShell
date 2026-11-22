@@ -703,7 +703,7 @@ Scope {
             { id: "dock",       sec: 3, name: "Desktop & Dock",  glyph: "dock",     c1: "#2C2C2E", c2: "#1C1C1E", keys: "size icon magnification zoom spacing margin distance corner radius round square edge hide auto labels indicators bounce trash monitor preview app switcher alt tab" },
             { id: "menubar",    sec: 3, name: "Menu Bar",        glyph: "menubar",  c1: "#3D9BFF", c2: "#0A6CFF", keys: "panel bar height clock date seconds 24 hour battery tray search spotlight week monday style liquid bluetooth screenshots" },
             { id: "controlcenter", sec: 3, name: "Control Center", wg: "cc",       c1: "#8E8E93", c2: "#636366", keys: "modules tiles controls" },
-            { id: "widgets",    sec: 3, name: "Widgets",         glyph: "widgets",  c1: "#FF9F0A", c2: "#FF7A00", keys: "desktop widgets weather clock calendar player image photo add remove arrange edit size temperature fahrenheit celsius city location" },
+            { id: "widgets",    sec: 3, name: "Widgets",         glyph: "widgets",  c1: "#FF9F0A", c2: "#FF7A00", keys: "desktop widgets weather clock calendar player image photo gif sysmon reminders batteries notes photos alarms stocks add remove arrange edit size temperature fahrenheit celsius city location" },
             // 4 · Notifications & Sound
             { id: "notifications", sec: 4, name: "Notifications", wg: "bell",      c1: "#FF5E57", c2: "#E8342A", keys: "alerts banners popups do not disturb screenshot" },
             { id: "sound",      sec: 4, name: "Sound",           wg: "speaker",    c1: "#FF5E7E", c2: "#E8344F", keys: "volume output input microphone speakers headphones effects ui sounds" },
@@ -2961,8 +2961,13 @@ Scope {
                             { type: "player",   name: I18n.tr("Player"),   hint: I18n.tr("Now Playing with controls and lyrics"), styles: [["liquid", I18n.tr("Liquid Glass")], ["light", I18n.tr("Light")], ["dark", I18n.tr("Dark")]] },
                             { type: "image",    name: I18n.tr("Image"),    hint: I18n.tr("Your own picture (you choose the file)"), styles: [["normal", I18n.tr("Photo")]] },
                             { type: "gif",      name: I18n.tr("GIF"),      hint: I18n.tr("Animated GIF or WebP loop"), styles: [["normal", I18n.tr("Loop")]] },
-                            { type: "sysmon",   name: I18n.tr("System Monitor"), hint: I18n.tr("Live CPU, RAM, Disk, Thermal and Network"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
-                            { type: "reminders", name: I18n.tr("Reminders"), hint: I18n.tr("To-do list and checklist"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] }
+                            { type: "sysmon",    name: I18n.tr("System Monitor"), hint: I18n.tr("Live CPU, RAM, Disk, Thermal and Network"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "reminders", name: I18n.tr("Reminders"),      hint: I18n.tr("To-do list and checklist"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "batteries", name: I18n.tr("Batteries"),      hint: I18n.tr("Laptop and Bluetooth device battery levels"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "notes",     name: I18n.tr("Notes"),          hint: I18n.tr("Quick notes from ~/.config/macwidgets/notes.md"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "photos",    name: I18n.tr("Photos"),         hint: I18n.tr("Featured pictures from ~/Pictures"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "alarms",    name: I18n.tr("Alarms"),         hint: I18n.tr("Alarms, active timer and stopwatch"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "stocks",    name: I18n.tr("Stocks"),         hint: I18n.tr("Watchlist quotes and sparklines"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] }
                         ]
                         delegate: Item {
                             id: addRow

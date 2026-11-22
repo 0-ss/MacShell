@@ -17,6 +17,7 @@ Item {
     property real screenX: x
     property real screenY: y
     property Component content: null    // ExtraWidgets.comp(type)
+    property bool fullBleed: false
 
     // ── liquid glass inputs (the Appearance sliders) ──
     property bool glassReady: false     // liquidglass.frag.qsb compiled
@@ -233,8 +234,8 @@ Item {
         id: body
         // what the contents read: the size they are drawn at, and the text colours for this card
         readonly property var ctx: ({ size: w.isSmall ? "s" : (w.isMedium ? "m" : "l"), fg: w.fg, fg2: w.fgSub, mono: false, dark: w.dark })
-        x: 16 * w.s; y: 14 * w.s
-        width: (w.width / w.s - 32) ; height: (w.height / w.s - 28)
+        x: w.fullBleed ? 0 : 16 * w.s; y: w.fullBleed ? 0 : 14 * w.s
+        width: w.width / w.s - (w.fullBleed ? 0 : 32); height: w.height / w.s - (w.fullBleed ? 0 : 28)
         scale: w.s; transformOrigin: Item.TopLeft
         z: 3
         sourceComponent: w.content

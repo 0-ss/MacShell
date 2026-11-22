@@ -253,13 +253,13 @@ Item {
             function ringColor(b) { return ctx && ctx.mono ? ctx.fg : (b.pct <= 20 && !b.charging ? "#FF453A" : "#30D158"); }
             // small: up to four rings
             Grid {
-                visible: !parent.med
+                visible: !parent.med && list.length > 0
                 anchors.centerIn: parent
                 // one battery is a single column, otherwise the empty second column throws the ring off centre
                 columns: Math.min(2, Math.max(1, Math.min(4, list.length)))
                 spacing: 14
                 Repeater {
-                    model: Math.max(1, Math.min(4, list.length))
+                    model: Math.min(4, list.length)
                     delegate: Item {
                         required property int index
                         readonly property var b: list[index]
@@ -288,7 +288,7 @@ Item {
             }
             // medium: list rows
             Column {
-                visible: parent.med
+                visible: parent.med && list.length > 0
                 anchors.fill: parent
                 spacing: 8
                 Repeater {
@@ -306,6 +306,16 @@ Item {
                         Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: (b.charging ? "⚡" : "") + b.pct + "%"; color: ctx ? ctx.fg : "white"; font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 13; font.weight: Font.DemiBold }
                     }
                 }
+            }
+            Text {
+                visible: list.length === 0
+                anchors.centerIn: parent
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: I18n.tr("No batteries detected")
+                color: ctx ? ctx.fg2 : "white"
+                font.family: root.fam; font.pixelSize: 13
             }
         }
     }
@@ -336,22 +346,25 @@ Item {
         Item {
             readonly property var ctx: parent ? parent.ctx : null
             // full bleed: the photo fills the widget (the Loader for photos has no margins)
-            Item { id: pMask; anchors.fill: parent; visible: false; layer.enabled: true; Rectangle { anchors.fill: parent; radius: 22; color: "black" } }
-            Image {
-                id: pImg
+            Item { id: pMask; anchors.fill: parent; visible: false; layer.enabled: true; Rectangle { anchors.fill: parent; radius: 28; color: "black" } }
+            Item {
                 anchors.fill: parent
-                source: root.photo !== "" ? "file://" + root.photo : ""
-                fillMode: Image.PreserveAspectCrop; asynchronous: true; smooth: true
-                sourceSize: Qt.size(720, 720)
-                opacity: status === Image.Ready ? 1 : 0
-                Behavior on opacity { NumberAnimation { duration: 700 } }
                 layer.enabled: true
                 layer.effect: MultiEffect { maskEnabled: true; maskSource: pMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
-            }
-            Rectangle {
-                anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-                height: 54; radius: 22
-                gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.55) } }
+                Image {
+                    id: pImg
+                    anchors.fill: parent
+                    source: root.host ? root.host.fileUrl(root.photo) : ""
+                    fillMode: Image.PreserveAspectCrop; asynchronous: true; smooth: true
+                    sourceSize: Qt.size(720, 720)
+                    opacity: status === Image.Ready ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 700 } }
+                }
+                Rectangle {
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+                    height: 54
+                    gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.55) } }
+                }
             }
             Text {
                 x: 14; anchors.bottom: parent.bottom; anchors.bottomMargin: 12
@@ -796,7 +809,7 @@ Item {
                             checked: arow.modelData.on
                             accent: ctx && ctx.mono ? ca.fg : "#30D158"
                             offColor: Qt.rgba(0.5, 0.5, 0.5, 0.35)
-                            material: root.bar ? root.bar.material : "liquid"
+                            material: (root.bar && root.bar.material) ? root.bar.material : "liquid"
                             onToggled: v => { if (ca.ck) ca.ck.setAlarmOn(arow.modelData.id, v); }
                         }
                     }
