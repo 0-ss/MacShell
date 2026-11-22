@@ -12,7 +12,7 @@ for f in $py_files; do
 done
 
 # Shell scripts, split by shebang.
-sh_files="install.sh MacShell/macshell-update MacShell/assets/*.sh MacGreeter/*.sh MacGreeter/macshell-greeter* MacLock/*.sh hypr-macshell/scripts/*.sh"
+sh_files="install.sh MacShell/macshell-update MacShell/assets/*.sh MacGreeter/*.sh MacGreeter/macshell-greeter* MacLock/*.sh hypr-macshell/scripts/*.sh scripts/check.sh scripts/sync-shared.sh"
 
 step "shell syntax"
 for f in $sh_files; do
@@ -30,6 +30,9 @@ else
     echo "skipped: shellcheck not installed"
 fi
 
+step "shared-file sync"
+run bash scripts/sync-shared.sh --check
+
 step "qmllint (errors only)"
 qmllint=/usr/lib/qt6/bin/qmllint
 [ -x "$qmllint" ] || qmllint=$(command -v qmllint)
@@ -41,6 +44,11 @@ if [ -n "$qmllint" ]; then
         MacShell/*.qml MacLock/*.qml MacGreeter/*.qml MacInstaller/*.qml 2>&1)
     if printf '%s\n' "$out" | grep -q '^Error:'; then
         printf '%s\n' "$out" | grep -A3 '^Error:'
+        fail=1
+    fi
+    # Plan 002 fixed the only id-shadows-member; keep it locked out.
+    if printf '%s\n' "$out" | grep -q '\[id-shadows-member\]'; then
+        printf '%s\n' "$out" | grep -B2 -A3 '\[id-shadows-member\]'
         fail=1
     fi
 else

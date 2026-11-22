@@ -1,4 +1,8 @@
 import importlib.util
+import json
+import os
+import tempfile
+from unittest import mock
 import pathlib
 import unittest
 
@@ -21,6 +25,25 @@ HTML = """
 <footer>Footer junk</footer>
 </body></html>
 """
+
+
+class WriteCacheAtomicTests(unittest.TestCase):
+    def test_writes_valid_json_and_leaves_no_temp_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "genius_x.json")
+            genius.write_cache_atomic(target, {"plain": "ä", "lines": []})
+            self.assertEqual(json.load(open(target, encoding="utf-8")), {"plain": "ä", "lines": []})
+            self.assertEqual(os.listdir(d), ["genius_x.json"])
+
+    def test_failure_removes_temp_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "genius_x.json")
+            with self.assertRaises(TypeError):
+                genius.write_cache_atomic(target, {"bad": object()})
+            self.assertEqual(os.listdir(d), [])
+            with mock.patch.object(genius.os, "replace", side_effect=OSError), self.assertRaises(OSError):
+                genius.write_cache_atomic(target, {"ok": 1})
+            self.assertEqual(os.listdir(d), [])
 
 
 class GeniusTests(unittest.TestCase):

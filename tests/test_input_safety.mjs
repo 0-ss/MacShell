@@ -1,6 +1,9 @@
 // Input-boundary checks for MacBar.qml / Desktop.qml / MacDock.qml.   node tests/test_input_safety.mjs
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, chmodSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const read = f => readFileSync(new URL(`../MacShell/${f}`, import.meta.url), "utf8");
 const [bar, dock, desktop] = ["MacBar.qml", "MacDock.qml", "Desktop.qml"].map(read);
@@ -45,4 +48,26 @@ for (const badName of ["", ".", "..", "../secret", "a/b", "foo\0bar"]) assert.eq
 // `read -p` is a Bash extension; plain sh (dash) rejects it
 for (const [name, qml] of [["MacBar.qml", bar], ["MacDock.qml", dock]])
     assert.ok(!/read\s+(-r\s+)?-p/.test(qml), `${name} still uses read -p`);
+
+// Wi-Fi password: reaches nmcli only via stdin (--ask), never argv or its environment.
+{
+    const at = bar.indexOf("readonly property string connScript:");
+    assert.ok(at >= 0, "connScript not found");
+    const exprEnd = bar.indexOf("'fi'", at) + 4;
+    const connScript = new Function(`return ${bar.slice(bar.indexOf(":", at) + 1, exprEnd)}`)();
+    const dir = mkdtempSync(join(tmpdir(), "wifi-"));
+    writeFileSync(join(dir, "nmcli"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\nenv > "${dir}/env"\nif [ -t 0 ]; then : > "${dir}/stdin"; else cat > "${dir}/stdin"; fi\n`);
+    chmodSync(join(dir, "nmcli"), 0o755);
+    const run = env => {
+        spawnSync("sh", ["-c", connScript, "sh", "MyWifi"], { env: { ...process.env, ...env, PATH: `${dir}:${process.env.PATH}` }, input: "" });
+        return { argv: readFileSync(join(dir, "argv"), "utf8").trim().split("\n"), env: readFileSync(join(dir, "env"), "utf8"), stdin: readFileSync(join(dir, "stdin"), "utf8") };
+    };
+    const withPw = run({ MACBAR_WIFI_PW: "SuperSecret#123" });
+    assert.deepEqual(withPw.argv, ["--wait", "25", "--ask", "dev", "wifi", "connect", "MyWifi"]);
+    assert.ok(!withPw.argv.includes("password") && !withPw.argv.includes("SuperSecret#123"));
+    assert.ok(!withPw.env.includes("MACBAR_WIFI_PW"));
+    assert.equal(withPw.stdin, "SuperSecret#123\n");
+    const open = run({ MACBAR_WIFI_PW: "" });
+    assert.deepEqual(open.argv, ["--wait", "25", "dev", "wifi", "connect", "MyWifi"]);
+}
 console.log("input safety ok");

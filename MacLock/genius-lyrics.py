@@ -91,6 +91,18 @@ def cache_key_for(artist, title):
     raw = f"{artist.strip().casefold()}\0{title.strip().casefold()}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
+def write_cache_atomic(cache_file, result):
+    """Write the cache through a temp file; the temp file never outlives a failed write."""
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=os.path.dirname(cache_file) or ".", prefix=".genius-", delete=False) as f:
+            tmp_path = f.name
+            json.dump(result, f, ensure_ascii=False)
+        os.replace(tmp_path, cache_file)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
 def fetch_genius_lyrics(artist, title, cache_dir):
     os.makedirs(cache_dir, exist_ok=True)
     cache_key = cache_key_for(artist, title)
@@ -157,9 +169,7 @@ def fetch_genius_lyrics(artist, title, cache_dir):
                 "lines": lines_data,
                 "source": "genius"
             }
-            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=cache_dir, prefix=".genius-", delete=False) as f:
-                json.dump(result, f, ensure_ascii=False)
-            os.replace(f.name, cache_file)
+            write_cache_atomic(cache_file, result)
             return result
     except Exception as e:
         pass

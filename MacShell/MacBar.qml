@@ -3123,15 +3123,22 @@ Scope {
         if (wifiConnProc.running) return;
         wifiError = "";
         wifiBusy = ssid;
-        var cmd = ["nmcli", "--wait", "25", "dev", "wifi", "connect", ssid];
-        if (pw && pw !== "") { cmd.push("password"); cmd.push(pw); }
-        wifiConnProc.command = cmd;
+        // The password travels via the environment and nmcli's stdin (--ask), never via argv where `ps` shows it.
+        wifiConnProc.environment = (pw && pw !== "") ? { MACBAR_WIFI_PW: pw } : ({});
+        wifiConnProc.command = ["sh", "-c", wifiConnProc.connScript, "sh", ssid];
         wifiConnProc.running = true;
     }
     Process {
         id: wifiConnProc
+        readonly property string connScript: 'if [ -n "${MACBAR_WIFI_PW:-}" ]; then\n'
+            + '  pw="$MACBAR_WIFI_PW"; unset MACBAR_WIFI_PW\n'
+            + '  printf \'%s\\n\' "$pw" | nmcli --wait 25 --ask dev wifi connect "$1"\n'
+            + 'else\n'
+            + '  exec nmcli --wait 25 dev wifi connect "$1"\n'
+            + 'fi'
         stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") root.wifiError = root.nmErr(text) }
         onExited: (code, status) => {
+            wifiConnProc.environment = ({});
             root.wifiBusy = "";
             if (code !== 0 && root.wifiError === "") root.wifiError = "Couldn't join the network.";
             if (code === 0) root.wifiError = "";
@@ -3714,7 +3721,7 @@ Scope {
             var c = root.buildKeyCommand(mods, k, root.activeWin ? root.activeWin.address : "");
             if (!c) return;
             // Lua dispatch first, legacy sendshortcut next, then focus + wtype; arguments are positional so nothing is interpolated into the shell.
-            Quickshell.execDetached(["sh", "-c", 'hyprctl dispatch "$1" >/dev/null 2>&1 || hyprctl dispatch sendshortcut "$2" >/dev/null 2>&1 || { [ -n "$3" ] && hyprctl dispatch "$3" >/dev/null 2>&1; sleep 0.04; shift 3; command -v wtype >/dev/null 2>&1 && exec wtype "$@"; }', "sh", c.luaExpr, c.legacyArg, c.focusLua].concat(c.wtypeArgs));
+            Quickshell.execDetached(["sh", "-c", '[ "$(hyprctl dispatch "$1" 2>/dev/null)" = "ok" ] || [ "$(hyprctl dispatch sendshortcut "$2" 2>/dev/null)" = "ok" ] || { [ -n "$3" ] && hyprctl dispatch "$3" >/dev/null 2>&1; sleep 0.04; shift 3; command -v wtype >/dev/null 2>&1 && exec wtype "$@"; }', "sh", c.luaExpr, c.legacyArg, c.focusLua].concat(c.wtypeArgs));
         };
     }
     function mchk(label, shortcut, checked, run) { return { kind: "item", label: label, shortcut: shortcut || "", run: run, checked: checked === true }; }
