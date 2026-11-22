@@ -55,8 +55,14 @@ Scope {
     property bool anyLiquid: false
     property int rev: 0                    // bumped on every change to the list, so Settings bindings can re-evaluate count()
 
+    ExtraWidgets {
+        id: extraWidgets
+        host: root
+    }
+    readonly property alias extra: extraWidgets
+
     readonly property var styleNames: ({ liquid: "Liquid Glass", normal: "Normal", light: "Light", dark: "Dark" })
-    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image" })
+    readonly property var typeNames: ({ weather: "Weather", calendar: "Calendar", clock: "Clock", player: "Player", image: "Image", gif: "GIF", sysmon: "System Monitor", reminders: "Reminders" })
     readonly property var sizeNames: ({ small: "Small", medium: "Medium", large: "Large" })
     function dims(size) {
         var b = size === "large" ? [375, 385] : (size === "medium" ? [395, 185] : [185, 185]);
@@ -265,7 +271,7 @@ Scope {
     property string pickTargetSize: "small"
     property string pickError: ""
     function pickImage(id, size) {
-        if (imgPick.running) return;
+        if (imgPick.running || gifPick.running) return;
         pickTargetId = id || "";
         pickTargetSize = size || "small";
         pickError = "";
@@ -298,6 +304,40 @@ Scope {
             }
         }
     }
+    function pickGif(id, size) {
+        if (imgPick.running || gifPick.running) return;
+        pickTargetId = id || "";
+        pickTargetSize = size || "small";
+        pickError = "";
+        gifPick.running = true;
+    }
+    Process {
+        id: gifPick
+        command: ["sh", "-c",
+            "f=''; "
+            + "if command -v zenity >/dev/null 2>&1; then f=$(zenity --file-selection --title='Choose a GIF animation' --file-filter='GIF / WebP Animation | *.gif *.webp' 2>/dev/null); "
+            + "elif command -v kdialog >/dev/null 2>&1; then f=$(kdialog --getopenfilename \"$HOME/Pictures\" 'image/gif image/webp' 2>/dev/null); "
+            + "elif command -v yad >/dev/null 2>&1; then f=$(yad --file --title='Choose a GIF' 2>/dev/null); "
+            + "else echo 'ERR:no file chooser (install zenity, kdialog or yad)'; exit 0; fi; "
+            + "[ -n \"$f\" ] && [ -f \"$f\" ] || exit 0; "
+            + "d=\"$1/images\"; mkdir -p \"$d\" || { echo 'ERR:cannot create the images folder'; exit 0; }; "
+            + "n=\"$(date +%s)-$(printf '%s' \"$(basename \"$f\")\" | tr -c 'A-Za-z0-9._-' '_')\"; "
+            + "cp -f \"$f\" \"$d/$n\" && echo \"OK:$d/$n\" || echo 'ERR:could not copy the GIF'",
+            "sh", root.configDir]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var t = text.trim();
+                if (t.indexOf("OK:") === 0) {
+                    var p = t.substring(3);
+                    if (root.pickTargetId === "") { if (!root.addWidget("gif", "normal", root.pickTargetSize, p)) root.pickError = "No free space on the desktop for another widget."; }
+                    else root.setSource(root.pickTargetId, p);
+                } else if (t.indexOf("ERR:") === 0) {
+                    root.pickError = t.substring(4);
+                    console.log("[macwidgets] gif:", root.pickError);
+                }
+            }
+        }
+    }
 
     // ───────────── persistence ─────────────
     function scheduleSave() { if (ready) saveTimer.restart(); }
@@ -326,9 +366,10 @@ Scope {
             wmodel.clear();
             for (var i = 0; i < o.widgets.length; i++) {
                 var w = o.widgets[i];
-                if (!w || (w.type !== "weather" && w.type !== "calendar" && w.type !== "clock" && w.type !== "player" && w.type !== "image")) continue;
-                wmodel.append({ wid: String(w.id || ("w" + i)), wtype: w.type,
-                                wstyle: w.type === "image" ? "normal" : (w.type === "clock" || w.type === "player")
+                var t = w ? (w.type || w.wtype) : "";
+                if (!t || !Object.prototype.hasOwnProperty.call(root.typeNames, t)) continue;
+                wmodel.append({ wid: String(w.id || ("w" + i)), wtype: t,
+                                wstyle: (t === "image" || t === "gif") ? "normal" : (t === "clock" || t === "player")
                                     ? ((w.style === "light" || w.style === "dark") ? w.style : "liquid")
                                     : (w.style === "normal" ? "normal" : "liquid"),
                                 wsize: (w.size === "medium" || w.size === "large") ? w.size : "small",
@@ -372,12 +413,15 @@ Scope {
         running: root.player !== null && root.player.isPlaying && root.count("player") > 0
         onTriggered: { try { root.player.positionChanged(); } catch (err) { } }
     }
-    // screen rectangles of the Player widgets: they stay clickable while the rest of the layer is click-through
+    function isInteractive(type) {
+        return type === "player" || type === "reminders" || type === "gif";
+    }
+    // screen rectangles of interactive widgets (Player, Reminders): they stay clickable while the rest of the layer is click-through
     readonly property var playerRects: {
         var r = rev, out = [];
         for (var i = 0; i < wmodel.count; i++) {
             var m = wmodel.get(i);
-            if (m.wtype !== "player") continue;
+            if (!root.isInteractive(m.wtype)) continue;
             var d = dims(m.wsize);
             out.push([m.wx, m.wy, d[0], d[1]]);
         }
@@ -395,6 +439,7 @@ Scope {
     property string lrcArtist: ""
     property string lrcAlbum: ""
     property string lrcDur: ""
+    readonly property string lyricsScript: decodeURIComponent(Qt.resolvedUrl("lyrics_fetcher.py").toString().replace(/^file:\/\//, ""))
     readonly property string trackKey: player ? (player.trackTitle + "|" + player.trackArtist + "|" + player.trackAlbum + "|"
                                                   + Math.round(player.lengthSupported ? player.length : 0)) : ""
     onTrackKeyChanged: {
@@ -419,7 +464,7 @@ Scope {
             var line = lines[i], re = /\[(\d+):(\d+(?:\.\d+)?)\]/g, times = [], m;
             while ((m = re.exec(line)) !== null) times.push(parseInt(m[1]) * 60 + parseFloat(m[2]));
             if (times.length === 0) continue;
-            var text = line.replace(/\[[^\]]*\]/g, "").trim();
+            var text = line.replace(/\[[^\]]*\]/g, "").replace(/<[^>]*>/g, "").trim();
             for (var j = 0; j < times.length; j++) out.push({ t: times[j], text: text });
         }
         out.sort(function (a, b) { return a.t - b.t; });
@@ -427,22 +472,29 @@ Scope {
     }
     function applyLyrics(raw) {
         var o = null;
-        try { o = JSON.parse(raw); } catch (err) { }
+        try {
+            var s = String(raw).trim();
+            var b1 = s.indexOf("{"), b2 = s.lastIndexOf("}");
+            if (b1 >= 0 && b2 > b1) o = JSON.parse(s.substring(b1, b2 + 1));
+            else o = JSON.parse(s);
+        } catch (err) { }
         if (Array.isArray(o)) {                           // search fallback: prefer a result with synced lyrics
             var pick = null;
             for (var i = 0; i < o.length; i++) {
-                if (o[i].syncedLyrics) { pick = o[i]; break; }
-                if (!pick && o[i].plainLyrics) pick = o[i];
+                if (o[i].syncedLyrics || o[i].synced) { pick = o[i]; break; }
+                if (!pick && (o[i].plainLyrics || o[i].plain)) pick = o[i];
             }
             o = pick;
         }
-        if (!o || o.instrumental) { lyricsLines = []; lyricsSynced = false; lyricsState = "none"; return; }
-        if (o.syncedLyrics) {
-            var l = parseLrc(o.syncedLyrics);
+        if (!o || o.instrumental || o.error) { lyricsLines = []; lyricsSynced = false; lyricsState = "none"; return; }
+        var syncedText = o.synced || o.syncedLyrics;
+        if (syncedText) {
+            var l = parseLrc(syncedText);
             if (l.length > 0) { lyricsLines = l; lyricsSynced = true; lyricsState = "ok"; return; }
         }
-        if (o.plainLyrics) {
-            var ps = String(o.plainLyrics).split(/\r?\n/), pl = [];
+        var plainText = o.plain || o.plainLyrics;
+        if (plainText) {
+            var ps = String(plainText).split(/\r?\n/), pl = [];
             for (var k = 0; k < ps.length; k++) if (ps[k].trim() !== "") pl.push({ t: -1, text: ps[k].trim() });
             if (pl.length > 0) { lyricsLines = pl; lyricsSynced = false; lyricsState = "ok"; return; }
         }
@@ -456,11 +508,14 @@ Scope {
             + "--data-urlencode \"album_name=$3\" -d \"duration=$4\" 2>/dev/null "
             + "|| curl -fsS --max-time 8 -A \"$UA\" -G https://lrclib.net/api/search --data-urlencode \"q=$2 $1\" 2>/dev/null || true); "
             + "if printf '%s' \"$r\" | jq -e 'if type == \"array\" then any(.[]; (.syncedLyrics // \"\") != \"\") else (.syncedLyrics // \"\") != \"\" end' >/dev/null 2>&1; then printf '%s' \"$r\"; exit 0; fi; "
+            + "py=\"${XDG_DATA_HOME:-$HOME/.local/share}/macshell/lyrics-venv/bin/python\"; [ -x \"$py\" ] || py=python3; "
+            + "sync=$(timeout 12s \"$py\" \"$5\" \"$1\" \"$2\" 2>/dev/null); "
+            + "if [ -n \"$sync\" ]; then printf '%s' \"$sync\"; exit 0; fi; "
             + "g=$(python3 \"$HOME/.config/quickshell/MacShell/genius-lyrics.py\" \"$2\" \"$1\" \"$HOME/.cache/macshell/lyrics\" 2>/dev/null || true); "
             + "gp=$(printf '%s' \"$g\" | jq -r '.plain // empty' 2>/dev/null); "
             + "if [ -n \"$gp\" ]; then jq -nc --arg p \"$gp\" '{plainLyrics:$p}'; "
             + "elif [ -n \"$r\" ]; then printf '%s' \"$r\"; else printf '{}'; fi",
-            "sh", root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur]
+            "sh", root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur, root.lyricsScript]
         stdout: StdioCollector {
             onStreamFinished: {
                 if (root.lyricsReqKey !== root.trackKey) {            // the song changed while we were asking
@@ -712,12 +767,15 @@ Scope {
 
             WlrLayershell.namespace: "macwidgets"
             WlrLayershell.layer: WlrLayer.Bottom
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            WlrLayershell.keyboardFocus: (root.extra && root.extra.typing) ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
-            // click-through unless editing; only the Player widgets (up to 4) take clicks, for their buttons
+            // click-through unless editing; interactive widgets (Player, Reminders) take clicks for their buttons
             mask: Region {
                 item: root.editing ? ui : null
-                regions: [ Region { item: hit0 }, Region { item: hit1 }, Region { item: hit2 }, Region { item: hit3 } ]
+                regions: [
+                    Region { item: hit0 }, Region { item: hit1 }, Region { item: hit2 }, Region { item: hit3 },
+                    Region { item: hit4 }, Region { item: hit5 }, Region { item: hit6 }, Region { item: hit7 }
+                ]
             }
 
             Item {
@@ -728,6 +786,10 @@ Scope {
                 Item { id: hit1; x: root.pr(1, 0); y: root.pr(1, 1); width: root.pr(1, 2); height: root.pr(1, 3) }
                 Item { id: hit2; x: root.pr(2, 0); y: root.pr(2, 1); width: root.pr(2, 2); height: root.pr(2, 3) }
                 Item { id: hit3; x: root.pr(3, 0); y: root.pr(3, 1); width: root.pr(3, 2); height: root.pr(3, 3) }
+                Item { id: hit4; x: root.pr(4, 0); y: root.pr(4, 1); width: root.pr(4, 2); height: root.pr(4, 3) }
+                Item { id: hit5; x: root.pr(5, 0); y: root.pr(5, 1); width: root.pr(5, 2); height: root.pr(5, 3) }
+                Item { id: hit6; x: root.pr(6, 0); y: root.pr(6, 1); width: root.pr(6, 2); height: root.pr(6, 3) }
+                Item { id: hit7; x: root.pr(7, 0); y: root.pr(7, 1); width: root.pr(7, 2); height: root.pr(7, 3) }
 
                 Rectangle {   // slight dim while editing
                     anchors.fill: parent
@@ -826,16 +888,16 @@ Scope {
                                 ww.dragDX = 0; ww.dragDY = 0;
                             }
                         }
-                        Rectangle {   // image widget: choose another picture
-                            visible: root.editing && ww.wtype === "image"
+                        Rectangle {   // image or gif widget: choose another picture
+                            visible: root.editing && (ww.wtype === "image" || ww.wtype === "gif")
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.bottom: parent.bottom; anchors.bottomMargin: 10
                             width: chooseText.width + 22; height: 26; radius: 13
                             color: chooseMa.pressed ? "#D8D8DC" : "#F2F2F5"
                             border.width: 1
                             border.color: Qt.rgba(0, 0, 0, 0.18)
-                            Text { id: chooseText; anchors.centerIn: parent; text: I18n.tr("Choose Image\u2026"); color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
-                            MouseArea { id: chooseMa; anchors.fill: parent; onClicked: root.pickImage(ww.wid, "small") }
+                            Text { id: chooseText; anchors.centerIn: parent; text: ww.wtype === "gif" ? "Choose GIF\u2026" : I18n.tr("Choose Image\u2026"); color: "#3A3A3C"; font.family: root.fontFamily; font.pixelSize: 12 }
+                            MouseArea { id: chooseMa; anchors.fill: parent; onClicked: ww.wtype === "gif" ? root.pickGif(ww.wid, "small") : root.pickImage(ww.wid, "small") }
                         }
                         // resize knob (bottom-right corner): drag it to step through Small / Medium / Large
                         ResizeKnob {
@@ -882,7 +944,7 @@ Scope {
 
     IpcHandler {
         target: "widgets"
-        function refresh(): void { root.refresh(); }
-        function edit(on: bool): void { root.editing = on; }
+        function refresh() { root.refresh(); }
+        function edit(on: bool) { root.editing = on; }
     }
 }

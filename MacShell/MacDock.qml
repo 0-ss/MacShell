@@ -204,6 +204,16 @@ Scope {
     property bool magnificationEnabled: true
     property bool showLabels: true       // hover tooltips
     property bool showIndicators: true   // dots under running apps
+    property bool showRunningApps: true   // icons for running apps that aren't pinned. might want it off for pinned-only Dock.
+    onShowRunningAppsChanged: rebuild()
+    property bool iconTile: true   // rounded tile with the icon's dominant color and a light edge behind each icon. could be turned off if somebody prefer the old look.
+    readonly property real iconRim: 1.0   // strength of the edge light. fixed value.
+    readonly property real iconEdge: 2.0   // how soft the icon edge is. fixed value.
+    readonly property real iconScale: 1.0   // how big the icon is inside its cell. fixed at 1.
+    readonly property string iconShape: "rounded"   // only rounded here.
+    readonly property real iconCorner: 0.245   // corner radius as a fraction of the icon width. 0.245 is probably close to the usual icon corner.
+    readonly property real iconPower: iconShape === "squircle" ? 5.0 : 2.0
+    readonly property vector4d iconRadii: Qt.vector4d(iconCorner, iconCorner, iconCorner, iconCorner)
     property bool bounceOnLaunch: true
     property bool showThumbs: true       // open windows get a live preview cell next to the Trash
     property bool windowCapture: true    // live window capture for those previews (off: the cells show the app icon, nothing is captured). Liquid Glass is not affected
@@ -1799,6 +1809,11 @@ Scope {
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appleMenu") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appleMenu", v); } }
                     }
                     SRow {
+                        t: pal; title: I18n.tr("Audio & Comms Hub")
+                        subtitle: I18n.tr("Wireless earbuds, noise control, equalizer, 360\u00b0 audio, and Discord voice controls")
+                        SSwitch { t: pal; checked: root.bar ? root.bar.showAudioHub : true; onToggled: v => { if (root.bar) root.bar.showAudioHub = v; } }
+                    }
+                    SRow {
                         t: pal; title: I18n.tr("Application menus")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("appMenus") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("appMenus", v); } }
                     }
@@ -1807,8 +1822,16 @@ Scope {
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("workspaces") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("workspaces", v); } }
                     }
                     SRow {
+                        t: pal; title: I18n.tr("System Monitor")
+                        SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("cpuRam") : false; onToggled: v => { if (root.bar) root.bar.setBarWidget("cpuRam", v); } }
+                    }
+                    SRow {
                         t: pal; title: I18n.tr("System tray")
                         SSwitch { t: pal; checked: root.bar ? root.bar.showTray : true; onToggled: v => { if (root.bar) root.bar.showTray = v; } }
+                    }
+                    SRow {
+                        t: pal; title: I18n.tr("Collapse the system tray behind an arrow")
+                        SSwitch { t: pal; checked: root.bar ? root.bar.trayCollapse : false; onToggled: v => { if (root.bar) root.bar.trayCollapse = v; } }
                     }
                     SRow {
                         t: pal; title: I18n.tr("Volume")
@@ -2206,6 +2229,16 @@ Scope {
                     t: pal
                     SRow {
                         t: pal
+                        title: I18n.tr("Unified icon grid")
+                        subtitle: I18n.tr("Sizes every icon to the same grid")
+                        SSwitch { t: pal; checked: root.iconTile; onToggled: v => root.iconTile = v }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
                         title: I18n.tr("Icon spacing")
                         SSlider {
                             t: pal
@@ -2481,6 +2514,11 @@ Scope {
                         t: pal
                         title: I18n.tr("Show indicators for open applications")
                         SSwitch { t: pal; checked: root.showIndicators; onToggled: v => root.showIndicators = v }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Show open applications that are not in the Dock")
+                        SSwitch { t: pal; checked: root.showRunningApps; onToggled: v => root.showRunningApps = v }
                     }
                     SRow {
                         t: pal
@@ -2921,7 +2959,10 @@ Scope {
                             { type: "calendar", name: I18n.tr("Calendar"), hint: I18n.tr("Today's date and the month"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
                             { type: "clock",    name: I18n.tr("Clock"),    hint: I18n.tr("Analog clock face"), styles: [["liquid", I18n.tr("Liquid Glass")], ["light", I18n.tr("Light")], ["dark", I18n.tr("Dark")]] },
                             { type: "player",   name: I18n.tr("Player"),   hint: I18n.tr("Now Playing with controls and lyrics"), styles: [["liquid", I18n.tr("Liquid Glass")], ["light", I18n.tr("Light")], ["dark", I18n.tr("Dark")]] },
-                            { type: "image",    name: I18n.tr("Image"),    hint: I18n.tr("Your own picture (you choose the file)"), styles: [["normal", I18n.tr("Photo")]] }
+                            { type: "image",    name: I18n.tr("Image"),    hint: I18n.tr("Your own picture (you choose the file)"), styles: [["normal", I18n.tr("Photo")]] },
+                            { type: "gif",      name: I18n.tr("GIF"),      hint: I18n.tr("Animated GIF or WebP loop"), styles: [["normal", I18n.tr("Loop")]] },
+                            { type: "sysmon",   name: I18n.tr("System Monitor"), hint: I18n.tr("Live CPU, RAM, Disk, Thermal and Network"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] },
+                            { type: "reminders", name: I18n.tr("Reminders"), hint: I18n.tr("To-do list and checklist"), styles: [["liquid", I18n.tr("Liquid Glass")], ["normal", I18n.tr("Normal")]] }
                         ]
                         delegate: Item {
                             id: addRow
@@ -2992,6 +3033,7 @@ Scope {
                                         if (!wgPane.wdg) return;
                                         var sz = addRow.sizeKeys[addRow.sizeIdx];
                                         if (addRow.modelData.type === "image") wgPane.wdg.pickImage("", sz);
+                                        else if (addRow.modelData.type === "gif") wgPane.wdg.pickGif("", sz);
                                         else wgPane.wdg.addWidget(addRow.modelData.type, addRow.modelData.styles[addRow.styleIdx][0], sz);
                                     }
                                 }
@@ -4300,13 +4342,13 @@ Scope {
         darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Open Runde";
         iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
-        showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
+        showTrash = true; showLabels = true; showIndicators = true; showRunningApps = true; iconTile = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, settingsEnabled, desktopIcons, desktopIconSize, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, appearanceMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
-        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength].join("|")
+        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength, showRunningApps, iconTile].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
     onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
@@ -4321,7 +4363,7 @@ Scope {
             glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid, glassBlur: glassBlur,
             accent: String(accent), fontFamily: fontFamily,
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
-            showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators,
+            showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators, showRunningApps: showRunningApps, iconTile: iconTile,
             bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture, glassLive: glassLive,
             iconTint: iconTint, iconTintColor: iconTintColor, iconTintStrength: iconTintStrength
         };
@@ -4332,7 +4374,7 @@ Scope {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "settingsEnabled", "desktopIcons", "desktopIconSize", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "appearanceMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
-                    "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
+                    "showTrash", "showLabels", "showIndicators", "showRunningApps", "iconTile", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
             try { root[keys[i]] = o[keys[i]]; } catch (err) { }
@@ -4511,8 +4553,29 @@ Scope {
         return out;
     }
 
+    // Optional genie minimize (see contrib/genie): when ~/.local/bin/macshell-genie exists, Dock clicks go through it, because
+    // a window minimized with the genie sits on a hidden special workspace where Hyprland ignores activate().
+    // Without the helper nothing changes.
+    readonly property string genieHelper: Quickshell.env("HOME") + "/.local/bin/macshell-genie"
+    readonly property string genieRuntime: Quickshell.env("XDG_RUNTIME_DIR") || Quickshell.env("HOME") + "/.cache"
+    FileView { id: genieProbe; path: root.genieHelper; printErrors: false }
+    function genieAddr(tl) {
+        var v = Hyprland.toplevels.values;
+        for (var i = 0; i < v.length; i++) if (v[i].wayland === tl) return "0x" + String(v[i].address).replace(/^0x/, "");
+        return "";
+    }
+    function genieDock(chosen, all) {
+        if (!genieProbe.loaded) return false;
+        var a = genieAddr(chosen);
+        if (!a) return false;
+        var args = [genieHelper, "dock", a];
+        for (var i = 0; i < all.length; i++) { var b = genieAddr(all[i]); if (b) args.push(b); }
+        Quickshell.execDetached(args);
+        return true;
+    }
+
     function activate(item, forceNew) {
-        if (item.kind === "win") { if (item.tl) item.tl.activate(); return; }
+        if (item.kind === "win") { if (item.tl && !genieDock(item.tl, [item.tl])) item.tl.activate(); return; }
         if (item.special === "apps") { if (bar) bar.spotOpen("apps"); return; }
         if (item.special === "trash") {
             // the file manager first (Dolphin understands trash:/ natively); xdg-open only as the last resort
@@ -4526,7 +4589,8 @@ Scope {
         if (wins.length > 0 && !forceNew) {
             var idx = -1;
             for (var i = 0; i < wins.length; i++) if (wins[i].activated) idx = i;
-            wins[(idx + 1) % wins.length].activate();
+            var chosen = wins[(idx + 1) % wins.length];
+            if (!genieDock(chosen, wins)) chosen.activate();
             return;
         }
         if (item.entry || item.key) {
@@ -4693,7 +4757,7 @@ Scope {
         }
 
         var extras = [];
-        for (var r = 0; r < runOrder.length; r++) if (!seen[runOrder[r].key]) extras.push(runOrder[r]);
+        for (var r = 0; r < runOrder.length; r++) if (!seen[runOrder[r].key] && root.showRunningApps) extras.push(runOrder[r]);
         if (extras.length > 0 && list.length > 0) list.push({ kind: "sep", key: "sep:run" });
         for (var x = 0; x < extras.length; x++) {
             var e2 = lookup(extras[x].appId);
@@ -5141,8 +5205,36 @@ Scope {
                     }
                     return null;
                 }
-                Component.onCompleted: { var m = root.trashProbes; m[win.modelData.name] = ui; root.trashProbes = m; }
+                Component.onCompleted: { var m = root.trashProbes; m[win.modelData.name] = ui; root.trashProbes = m; genieRectsTimer.restart(); }
                 Component.onDestruction: { var m = root.trashProbes; delete m[win.modelData.name]; root.trashProbes = m; }
+
+                // Optional genie minimize (see contrib/genie): where each app icon sits on screen (global logical px), so the
+                // genie can aim at the app's own icon on the window's monitor.
+                // Only written when the helper is installed.
+                FileView {
+                    id: genieRectsFile
+                    path: root.genieRuntime + "/macshell-dock-rects-" + win.modelData.name.replace(/[^a-zA-Z0-9_.-]/g, "_") + ".json"
+                    printErrors: false
+                    atomicWrites: true
+                }
+                Timer { id: genieRectsTimer; interval: 300; onTriggered: ui.genieWriteRects() }
+                Connections { target: row; function onWidthChanged() { genieRectsTimer.restart(); } function onXChanged() { genieRectsTimer.restart(); } }
+                Connections { target: root; function onItemsChanged() { genieRectsTimer.restart(); } }
+                function genieWriteRects() {
+                    if (!genieProbe.loaded) return;
+                    var map = {};
+                    var top = win.modelData.y + win.modelData.height - win.height;
+                    for (var i = 0; i < rep.count; i++) {
+                        var c = rep.itemAt(i);
+                        if (!c || c.isSep || c.modelData.kind !== "app") continue;
+                        var icon = c.iconImg;
+                        var p = icon.mapToItem(null, 0, 0);
+                        var r = [Math.round(win.modelData.x + p.x), Math.round(top + p.y), Math.round(icon.width), Math.round(icon.height)];
+                        if (c.modelData.key) map[String(c.modelData.key).toLowerCase()] = r;
+                        if (c.modelData.appId) map[String(c.modelData.appId).toLowerCase()] = r;
+                    }
+                    genieRectsFile.setText(JSON.stringify(map));
+                }
 
                 // pointer x, followed EXACTLY (no animation). This used to ease over 55 ms, restarted on every pointer event: moving
                 // the mouse quickly left the magnification a few frames behind the pointer, worse with many icons
@@ -5981,11 +6073,13 @@ Scope {
                                     // icon art drawn at ~99%: the dock and the cells keep their size. Whole pixels only: at rest this was
                                     // 51.48 px wide and centred on a fractional x, so the GPU re-sampled the icon texture (blurry) until the
                                     // magnification made it big enough that the blur was no longer noticeable
-                                    width: Math.max(1, Math.round(root.iconSize * 0.99 * cell.s * cell.appear))
+                                    readonly property real full: Math.max(1, Math.round(root.iconSize * 0.99 * cell.s * cell.appear))
+                                    width: cell.useThumb ? full : Math.max(1, Math.round(full * root.iconScale))
                                     height: width
+                                    readonly property real tile: width - 2 * Math.round(width * 0.0975) + 2
                                     x: Math.round((parent.width - width) / 2)
                                     anchors.bottom: parent.bottom
-                                    anchors.bottomMargin: Math.round(lift + armLift)
+                                    anchors.bottomMargin: Math.round(lift + armLift) + Math.round((full - width) / 2)
                                     source: cell.isSep ? "" : root.cellIconSrc(cell.modelData)
                                     sourceSize: Qt.size(Math.ceil(root.iconSize * root.magnification * 1.25),
                                                         Math.ceil(root.iconSize * root.magnification * 1.25))
@@ -5995,25 +6089,126 @@ Scope {
                                     asynchronous: true
                                 }
                                 MultiEffect {
+                                    id: iconFx
                                     visible: !cell.isSep && !cell.thumbReady
-                                    source: img
-                                    anchors.fill: img
-                                    rotation: img.wob
-                                    transformOrigin: Item.Bottom
-                                    shadowEnabled: true
-                                    shadowColor: "black"
-                                    shadowOpacity: 0.32
-                                    shadowBlur: 0.55
-                                    shadowVerticalOffset: 3
-                                    // icon tint: desaturate, then colourise (no shader build needed)
+                                    z: 1
+                                    maskSource: tileMask
+                                    maskThresholdMin: 0.5
+                                    maskSpreadAtMin: 1.0
+                                        source: img
+                                        anchors.fill: img
+                                        rotation: img.wob
+                                        shadowEnabled: false
+                                        shadowColor: "black"
+                                        shadowOpacity: 0.32
+                                        shadowBlur: 0.55
+                                        shadowVerticalOffset: 3
+                                        // icon tint: desaturate, then colourise (no shader build needed)
+                                        saturation: root.iconTint ? -0.75 * root.iconTintStrength : 0.0
+                                        colorization: root.iconTint ? 1.0 * root.iconTintStrength : 0.0
+                                        brightness: (ma.pressed ? -0.3 : 0.0) + (root.iconTint ? 0.14 * root.iconTintStrength : 0.0)
+                                        contrast: root.iconTint ? 0.04 * root.iconTintStrength : 0.0
+                                        colorizationColor: root.iconTintColor
+                                }
+
+                                IconClass {
+                                    id: domCanvas
+                                    icon: root.iconTile && !cell.isSep && !cell.thumbReady ? img : null
+                                    corner: root.iconCorner
+                                    power: root.iconPower
+                                }
+                                Item {
+                                    id: tileMask
+                                    width: img.width
+                                    height: img.height
+                                    visible: false
+                                    layer.enabled: true
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: width * 0.245
+                                        color: "black"
+                                    }
+                                }
+                                Rectangle {
+                                    id: tileFill
+                                    width: img.tile
+                                    height: width
+                                    color: domCanvas.dom
+                                    visible: false
+                                    layer.enabled: true
+                                }
+                                MultiEffect {
+                                    id: fillFx
+                                    source: tileFill
+                                    width: tileFill.width
+                                    height: width
                                     saturation: root.iconTint ? -0.75 * root.iconTintStrength : 0.0
                                     colorization: root.iconTint ? 1.0 * root.iconTintStrength : 0.0
                                     brightness: (ma.pressed ? -0.3 : 0.0) + (root.iconTint ? 0.14 * root.iconTintStrength : 0.0)
                                     contrast: root.iconTint ? 0.04 * root.iconTintStrength : 0.0
                                     colorizationColor: root.iconTintColor
                                 }
-
-                                // ── window thumbnail (same box as the icon, so magnification just works) ──
+                                ShaderEffectSource {
+                                    id: fillTex
+                                    sourceItem: fillFx
+                                    hideSource: true
+                                    live: true
+                                    visible: false
+                                }
+                                ShaderEffect {
+                                    visible: root.iconTile && !cell.isSep && !cell.thumbReady
+                                    anchors.centerIn: img
+                                    width: tileFill.width
+                                    height: width
+                                    z: 0
+                                    property variant source: fillTex
+                                    property vector2d itemSize: Qt.vector2d(width, height)
+                                    property real power: root.iconPower
+                                    property real box: 1.0
+                                    property real fillCorner: 0
+                                    property real soft: root.iconEdge
+                                    property vector4d radii: root.iconRadii
+                                    fragmentShader: Qt.resolvedUrl("iconclip.frag.qsb")
+                                }
+                                ShaderEffect {
+                                    visible: !cell.isSep && !cell.thumbReady
+                                    anchors.centerIn: img
+                                    width: img.tile
+                                    height: width
+                                    z: 2
+                                    property vector2d itemSize: Qt.vector2d(width, height)
+                                    property real power: root.iconPower
+                                    property vector4d radii: root.iconRadii
+                                    property real strength: root.iconRim
+                                    property real soft: root.iconEdge
+                                    fragmentShader: Qt.resolvedUrl("iconrim.frag.qsb")
+                                    opacity: root.iconTile ? 1 : 0
+                                }
+                                ShaderEffectSource {
+                                    id: iconTex
+                                    sourceItem: iconFx
+                                    hideSource: root.iconTile
+                                    live: true
+                                    smooth: true
+                                    mipmap: true
+                                    visible: false
+                                }
+                                ShaderEffect {
+                                    visible: root.iconTile && !cell.isSep && !cell.thumbReady
+                                    anchors.fill: img
+                                    z: 1
+                                    scale: ((domCanvas.proper || domCanvas.square) ? img.tile / img.width : 0.66 * domCanvas.fit) / norm
+                                    property variant source: iconTex
+                                    property vector2d itemSize: Qt.vector2d(width, height)
+                                    property real power: root.iconPower
+                                    property real norm: domCanvas.art >= 0.8 ? domCanvas.art : (domCanvas.proper ? 0.88 : 1.0)
+                                    property real box: (domCanvas.proper || domCanvas.square) ? norm : 2.0
+                                    property real soft: root.iconEdge
+                                    property real fillCorner: domCanvas.proper ? 1.0 : 0.0
+                                    property vector4d radii: root.iconRadii
+                                    fragmentShader: Qt.resolvedUrl("iconclip.frag.qsb")
+                                }
+                            // ── window thumbnail (same box as the icon, so magnification just works) ──
                                 Item {
                                     id: th
                                     anchors.fill: img

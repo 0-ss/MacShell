@@ -91,40 +91,9 @@ Item {
             visible: opacity > 0.003
             Rectangle { anchors.fill: parent; color: "#0c0c10" }
 
-            // Animated Canvas Video (Spotify supported music)
-            Loader {
-                id: canvasLoader
-                anchors.fill: parent
-                active: ls.canvasVideo !== "" && ls.artT > 0.01
-                sourceComponent: Item {
-                    anchors.fill: parent
-                    MediaPlayer {
-                        id: canvasMp
-                        source: "file://" + ls.canvasVideo
-                        loops: MediaPlayer.Infinite
-                        videoOutput: canvasVo
-                        Component.onCompleted: play()
-                    }
-                    VideoOutput {
-                        id: canvasVo
-                        anchors.fill: parent
-                        fillMode: VideoOutput.PreserveAspectCrop
-                    }
-                }
-            }
-            MultiEffect {
-                anchors.fill: parent
-                source: canvasLoader.active ? canvasLoader : null
-                visible: canvasLoader.active
-                scale: 1.15
-                blurEnabled: true; blurMax: 48; blur: 0.55
-                saturation: 0.35
-                brightness: -0.15
-            }
-
             // old and new album, each blurred; the new one fades in over the old one during a hand-over
             Repeater {
-                model: canvasLoader.active ? 0 : 2
+                model: 2
                 delegate: MultiEffect {
                     required property int index
                     readonly property Item img: index === 0 ? ls.coverOld : ls.coverNew
@@ -139,6 +108,35 @@ Item {
                     opacity: index === 1 ? ls.bgProg : (ls.bgProg < 1 ? 1 : 0)
                     visible: img.status === Image.Ready && opacity > 0.003
                     z: index
+                }
+            }
+        }
+        // ── Fullscreen Animated Canvas Background ──
+        Loader {
+            id: canvasBgLoader
+            anchors.fill: parent
+            active: ls.st.artBg && ls.canvasVideo !== "" && ls.artT > 0.005
+            opacity: item && item.playing ? artBg.opacity : 0
+            Behavior on opacity { NumberAnimation { duration: 550; easing.type: Easing.OutCubic } }
+            sourceComponent: Item {
+                readonly property bool playing: bgMp.hasVideo && bgMp.playbackState === MediaPlayer.PlayingState
+                MediaPlayer {
+                    id: bgMp
+                    source: ls.canvasVideo !== "" ? ls.localFileUrl(ls.canvasVideo) : ""
+                    loops: MediaPlayer.Infinite
+                    videoOutput: bgVo
+                    audioOutput: null
+                    autoPlay: true
+                }
+                VideoOutput {
+                    id: bgVo
+                    anchors.fill: parent
+                    fillMode: VideoOutput.PreserveAspectCrop
+                }
+                // Cinematic dark overlay so clock and text stay perfectly readable
+                Rectangle {
+                    anchors.fill: parent
+                    color: Qt.rgba(0, 0, 0, 0.20)
                 }
             }
         }
@@ -160,13 +158,13 @@ Item {
         sourceItem: scene
         // with a video wallpaper the scene changes every frame: the glass copy refreshes at 12 fps instead
         // (blur + every glass shader re-running 30-60x a second was the main GPU cost on the lock screen)
-        live: !wallVideo.active && !canvasLoader.active
+        live: !wallVideo.active && !canvasBgLoader.active
         visible: false
         textureSize: Qt.size(Math.max(1, Math.round(ls.width / 2)), Math.max(1, Math.round(ls.height / 2)))
     }
     Timer {
         interval: 83; repeat: true
-        running: (wallVideo.active || canvasLoader.active) && ls.shown && !ls.leaving
+        running: (wallVideo.active || canvasBgLoader.active) && ls.shown && !ls.leaving
         onTriggered: sceneTex.scheduleUpdate()
     }
     MultiEffect {
@@ -632,7 +630,9 @@ Item {
     // ═════════════ COVER HAND-OVER ═════════════
     // Two picture slots. A new cover loads into the back slot; once it's there (or after 1.5 s) the bubble's cover
     // "burns" over to it (burn.frag) and the blurred album background cross-fades, both in step.
-    readonly property string coverUrl: media.pl && media.pl.trackArtUrl ? media.pl.trackArtUrl : ""
+    property string localCoverUrl: ""
+    readonly property string trackArtUrl: media.pl ? (media.pl.trackArtUrl || "") : ""
+    readonly property string coverUrl: localCoverUrl || trackArtUrl
     property int coverIdx: 0
     property real coverProg: 1
     property real coverSeed: 0
@@ -847,8 +847,10 @@ Item {
             // the cover leaves the glass bubble: it is drawn on the screen itself, above the bubble
             parent: ls
             z: media.z + 1
-            visible: media.visible
-            opacity: media.opacity
+            readonly property bool hideCenterArt: canvasBgLoader.opacity > 0.5 && ls.canvasSource === "applemusic"
+            visible: media.visible && opacity > 0.001
+            opacity: media.opacity * (hideCenterArt ? (1 - ls.artT) : 1)
+            Behavior on opacity { NumberAnimation { duration: 400; easing.type: Easing.OutQuint } }
             readonly property real r: (11 * ls.u) + ((28 * ls.u) - (11 * ls.u)) * ls.artT
             x: (media.x + 16 * ls.u) + ((media.x) - (media.x + 16 * ls.u)) * ls.artT
             y: (media.y + 16 * ls.u) + ((media.y - media.bigArt - 24 * ls.u) - (media.y + 16 * ls.u)) * ls.artT
@@ -1085,6 +1087,51 @@ Item {
         }
     }
 
+    // ═════════════ CANVAS VIDEO (Animated Album / Spotify Canvas / Apple Music Motion) ═════════════
+    property string canvasVideo: ""
+    property string canvasSource: ""
+    property string canvasRequestKey: ""
+    readonly property string canvasMode: ls.st && ls.st.artBg && ls.st.canvasMode !== undefined ? ls.st.canvasMode : "off"
+    readonly property string canvasKey: JSON.stringify([trackKey, trackArtUrl, spotifyTrackId, canvasMode])
+    readonly property string canvasScript: decodeURIComponent(Qt.resolvedUrl("canvas_fetcher.py").toString().replace(/^file:\/\//, ""))
+    function localFileUrl(path) {
+        return "file://" + encodeURI(path).replace(/#/g, "%23").replace(/\?/g, "%3F");
+    }
+    function clearCanvas() {
+        canvasVideo = "";
+        canvasSource = "";
+    }
+    onCanvasKeyChanged: canvasFetchDelay.restart()
+    onTrackArtUrlChanged: { localCoverUrl = ""; clearCanvas(); }
+    onCanvasModeChanged: clearCanvas()
+    Timer { id: canvasFetchDelay; interval: 350; onTriggered: ls.fetchCanvas() }
+    function fetchCanvas() {
+        if (!isPrimary || leaving || !media.pl || !media.pl.trackTitle || canvasProc.running) return;
+        if (["both", "applemusic", "spotify"].indexOf(canvasMode) < 0) return;
+        canvasRequestKey = canvasKey;
+        var spotify = (media.pl.identity || "").toLowerCase().indexOf("spotify") >= 0;
+        canvasProc.command = ["python3", canvasScript, "--mode", canvasMode, "--",
+            media.pl.trackTitle, media.pl.trackArtist || "", media.pl.trackAlbum || "", trackArtUrl,
+            spotifyTrackId, spotify ? "yes" : "no"];
+        canvasProc.running = true;
+    }
+    Process {
+        id: canvasProc
+        onExited: if (ls.canvasRequestKey !== ls.canvasKey) canvasFetchDelay.restart()
+        stdout: SplitParser {
+            onRead: line => {
+                if (ls.canvasRequestKey !== ls.canvasKey) return;
+                var data;
+                try { data = JSON.parse(line); } catch (e) { return; }
+                if (data.localArt) ls.localCoverUrl = ls.localFileUrl(data.localArt);
+                if (data.videoPath !== undefined) {
+                    ls.canvasVideo = data.videoPath;
+                    ls.canvasSource = data.source;
+                }
+            }
+        }
+    }
+
     // ═════════════ LYRICS (Apple Music style) ═════════════
     // estimated playback position: MPRIS is polled twice a second, the lyrics need it smooth
     property real posBase: 0
@@ -1097,8 +1144,6 @@ Item {
         onTriggered: ls.estPos = ls.posBase + (ls.posPlaying ? (Date.now() - ls.posAt) / 1000 : 0)
     }
 
-    // Spotify Canvas: short looping video artwork for supported tracks
-    property string canvasVideo: ""
     readonly property string spotifyTrackId: {
         if (!media.pl) return "";
         // MPRIS trackId is often a generic D-Bus object path; do not let it mask the Spotify URL.
@@ -1111,42 +1156,28 @@ Item {
         }
         return "";
     }
-    onTrackKeyChanged: { lyrFetchDelay.restart(); canvasDelay.restart(); }
-    Timer {
-        id: canvasDelay; interval: 500
-        onTriggered: {
-            ls.canvasVideo = "";
-            if (media.pl && (ls.spotifyTrackId !== "" || (media.pl.identity || "").toLowerCase().indexOf("spotify") >= 0)) {
-                canvasProc.running = false;
-                var arg = ls.spotifyTrackId !== "" ? ls.spotifyTrackId : ((media.pl.trackArtist || "") + " " + (media.pl.trackTitle || ""));
-                canvasProc.command = ["python3", Quickshell.env("HOME") + "/.config/quickshell/MacLock/spotify-canvas.py", arg];
-                canvasProc.running = true;
-            }
-        }
-    }
-    Process {
-        id: canvasProc
-        stdout: StdioCollector {
-            onStreamFinished: {
-                var p = (text || "").trim();
-                if (p.length > 0) ls.canvasVideo = p;
-            }
-        }
-    }
-
     // lyrics for the current track: NetEase, LRCLIB, and Genius, cached in ~/.cache/maclock/lyrics
     property var lyrLines: []              // [{ t: seconds (-1 = unsynced), text }]
     property string lyrStatus: "idle"      // idle | loading | synced | plain | none
-    readonly property string trackKey: media.pl ? (media.pl.trackArtist || "") + "\u0001" + (media.pl.trackTitle || "") : ""
+    readonly property string trackKey: media.pl ? JSON.stringify([media.pl.trackArtist, media.pl.trackTitle, media.pl.trackAlbum]) : ""
+    onTrackKeyChanged: {
+        if (trackKey === "" || canvasSource === "spotify" || trackArtUrl === "") clearCanvas();
+        lyrRetry.stop();
+        lyrLines = [];
+        lyrFetchDelay.restart();
+    }
     Timer { id: lyrFetchDelay; interval: 400; onTriggered: { ls.lyrTries = 0; ls.fetchLyrics(); } }
     property int lyrTries: 0
     Timer { id: lyrRetry; interval: 12000; onTriggered: ls.fetchLyrics() }
+    readonly property string lyricsScript: decodeURIComponent(Qt.resolvedUrl("lyrics_fetcher.py").toString().replace(/^file:\/\//, ""))
+    property string lyricRequestKey: ""
     function fetchLyrics() {
+        if (lyrProc.running) return;
         if (!ls.isPrimary || !media.pl || !(media.pl.trackTitle || "")) { lyrLines = []; lyrStatus = "idle"; return; }
         lyrLines = []; lyrStatus = "loading";
         var len = media.pl.lengthSupported ? Math.round(media.pl.length) : 0;
-        lyrProc.running = false;
-        lyrProc.command = ["sh", "-c", ls.lyrScript, "sh", media.pl.trackArtist || "", media.pl.trackTitle || "", media.pl.trackAlbum || "", len > 0 ? String(len) : ""];
+        lyricRequestKey = trackKey;
+        lyrProc.command = ["sh", "-c", ls.lyrScript, "sh", media.pl.trackArtist || "", media.pl.trackTitle || "", media.pl.trackAlbum || "", len > 0 ? String(len) : "0", ls.lyricsScript];
         lyrProc.running = true;
     }
     readonly property string lyrScript: [
@@ -1172,7 +1203,12 @@ Item {
         '[ -z "$r" ] && lsearch --data-urlencode "track_name=$t" --data-urlencode "artist_name=$a"',
         '[ -z "$r" ] && [ "$bare" != "$t" ] && lsearch --data-urlencode "track_name=$bare" --data-urlencode "artist_name=$a"',
         '[ -z "$r" ] && lsearch --data-urlencode "q=$a $bare"',
-        'rm -f "$tmp"',
+        '[ ! -e "$tmp" ] || rm "$tmp"',
+        // Use additional synchronized providers before falling back to plain text.
+        'if [ -z "$r" ] || [ "$(printf "%s" "$r" | jq -r ".syncedLyrics // empty" 2>/dev/null)" = "" ]; then',
+        '  py="${XDG_DATA_HOME:-$HOME/.local/share}/macshell/lyrics-venv/bin/python"; [ -x "$py" ] || py=python3',
+        '  sync=$(timeout 12s "$py" "$5" "$t" "$a" 2>/dev/null); if [ -n "$sync" ]; then r="$sync"; fi',
+        'fi',
         // ── 3. Genius: token-free, rich lyrics source
         'if [ -z "$r" ] || [ "$(printf "%s" "$r" | jq -r ".syncedLyrics // empty" 2>/dev/null)" = "" ]; then',
         '  g=$(python3 "$HOME/.config/quickshell/MacLock/genius-lyrics.py" "$a" "$bare" "$c" 2>/dev/null || true)',
@@ -1190,22 +1226,33 @@ Item {
         id: lyrProc
         stdout: StdioCollector {
             onStreamFinished: {
+                if (ls.lyricRequestKey !== ls.trackKey) {
+                    lyrFetchDelay.restart();
+                    return;
+                }
                 var o = {};
-                try { o = JSON.parse(text || "{}"); } catch (e) { o = {}; }
+                try {
+                    var s = String(text || "{}").trim();
+                    var b1 = s.indexOf("{"), b2 = s.lastIndexOf("}");
+                    if (b1 >= 0 && b2 > b1) o = JSON.parse(s.substring(b1, b2 + 1));
+                    else o = JSON.parse(s);
+                } catch (e) { o = {}; }
                 var out = [], i, m;
-                if (o.synced) {
-                    var ls2 = o.synced.split("\n");
+                var syncedText = o.synced || o.syncedLyrics;
+                var plainText = o.plain || o.plainLyrics;
+                if (syncedText) {
+                    var ls2 = syncedText.split("\n");
                     for (i = 0; i < ls2.length; i++) {
                         var line = ls2[i], tags = [], re = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
                         while ((m = re.exec(line)) !== null) tags.push(parseInt(m[1]) * 60 + parseFloat(m[2]));
-                        var txt = line.replace(/\[[^\]]*\]/g, "").trim();
+                        var txt = line.replace(/\[[^\]]*\]/g, "").replace(/<[^>]*>/g, "").trim();
                         if (/^(制作人|作词|作曲|编曲|混音|母带|制作|和声|吉他|贝斯|鼓|录音|监制|出品|发行|OP|SP|Producer|Lyricist|Composer|Lyrics|Composed|Written)\s*[:：]/i.test(txt)) continue;
                         for (var j = 0; j < tags.length; j++) out.push({ t: tags[j], text: txt });
                     }
                     out.sort(function (a, b) { return a.t - b.t; });
                     ls.lyrLines = out; ls.lyrStatus = out.length > 0 ? "synced" : "none";
-                } else if (o.plain) {
-                    var pl = o.plain.split("\n");
+                } else if (plainText) {
+                    var pl = plainText.split("\n");
                     for (i = 0; i < pl.length; i++) out.push({ t: -1, text: pl[i].trim() });
                     ls.lyrLines = out; ls.lyrStatus = "plain";
                 } else if (o.retry) {
@@ -1289,33 +1336,83 @@ Item {
                         id: ln
                         required property var modelData
                         required property int index
-                        readonly property int rel: ls.lyrCur < 0 ? 0 : index - ls.lyrCur
                         readonly property bool cur: ls.lyrStatus === "synced" && index === ls.lyrCur
+                        readonly property int rel: ls.lyrCur < 0 ? 0 : index - ls.lyrCur
+                        readonly property bool hovered: hov.hovered
                         readonly property bool gap: (modelData.text || "") === ""
+                        readonly property var words: !gap ? modelData.text.trim().split(/\s+/) : []
+                        readonly property real lineStart: modelData.t
+                        readonly property real lineEnd: (index + 1 < ls.lyrLines.length && ls.lyrLines[index + 1].t > lineStart)
+                                                        ? ls.lyrLines[index + 1].t
+                                                        : (lineStart + Math.max(2.8, words.length * 0.45))
+                        readonly property real lineDur: Math.max(0.6, lineEnd - lineStart)
+
                         width: lyrCol.width
-                        height: gap ? 34 * ls.u : lt.implicitHeight
+                        height: gap ? 34 * ls.u : (flowWrap.implicitHeight + 12 * ls.u)
                         // Apple Music's wave: every line follows the scroll on its own spring, lines further down a little later
                         transform: Translate {
                             id: lnTr
                             y: -lyr.target
                             Behavior on y { NumberAnimation { duration: 500 + Math.max(0, Math.min(8, ln.rel)) * 20; easing.type: Easing.OutQuint } }
                         }
-                        opacity: ls.lyrStatus !== "synced" ? 0.9 : (cur ? 1 : (Math.abs(rel) === 1 ? 0.42 : 0.26))
+                        opacity: ls.lyrStatus !== "synced" ? 0.9 : (ln.cur ? 1 : (hovered ? 0.85 : (Math.abs(rel) === 1 ? 0.42 : 0.22)))
                         Behavior on opacity { NumberAnimation { duration: 380 } }
-                        Text {
-                            id: lt
+
+                        Item {
+                            id: lineWrap
                             visible: !ln.gap
                             width: parent.width
-                            text: ln.modelData.text
-                            wrapMode: Text.WordWrap
-                            color: "white"
-                            font.family: ls.fam; font.pixelSize: 31 * ls.u; font.weight: Font.Bold
-                            lineHeight: 1.08
+                            height: flowWrap.implicitHeight
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: ln.cur ? 8 * ls.u : 0
+                            scale: ln.cur || ls.lyrStatus !== "synced" ? 1.0 : (ln.hovered ? 0.98 : 0.94)
                             transformOrigin: Item.Left
-                            scale: ln.cur || ls.lyrStatus !== "synced" ? 1 : 0.965
+                            Behavior on x { NumberAnimation { duration: 450; easing.type: Easing.OutBack } }
                             Behavior on scale { NumberAnimation { duration: 420; easing.type: Easing.OutQuint } }
+
+                            Flow {
+                                id: flowWrap
+                                width: parent.width
+                                spacing: 8 * ls.u
+
+                                Repeater {
+                                    model: ln.words
+                                    delegate: Text {
+                                        id: wTxt
+                                        required property var modelData
+                                        required property int index
+
+                                        readonly property real wFrac: ln.words.length > 0 ? (index / ln.words.length) : 0
+                                        readonly property real wStart: ln.lineStart + wFrac * ln.lineDur
+                                        readonly property real wDur: ln.words.length > 0 ? (ln.lineDur / ln.words.length) : 0.4
+                                        readonly property real rawProg: ln.cur ? ((ls.estPos - wStart) / Math.max(0.18, wDur)) : (ln.index < ls.lyrCur ? 1.0 : 0.0)
+                                        readonly property real prog: Math.max(0.0, Math.min(1.0, rawProg))
+                                        readonly property bool activeNow: ln.cur && prog > 0.05 && prog < 0.96
+
+                                        text: modelData
+                                        font.family: ls.fam
+                                        font.pixelSize: (ln.cur ? 33 : 30) * ls.u
+                                        font.weight: ln.cur ? (prog > 0.1 ? Font.Bold : Font.DemiBold) : Font.DemiBold
+
+                                        color: (ls.lyrStatus !== "synced" || !ln.cur) ? "white" : (prog > 0.05 ? "#FFFFFF" : Qt.rgba(1, 1, 1, 0.42))
+                                        opacity: {
+                                            if (ls.lyrStatus !== "synced") return 0.9;
+                                            if (!ln.cur) return ln.hovered ? 0.90 : 1.0;
+                                            return 0.42 + 0.58 * prog;
+                                        }
+
+                                        scale: activeNow ? 1.06 : 1.0
+                                        transformOrigin: Item.Left
+                                        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+                                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutQuad } }
+                                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutQuad } }
+                                    }
+                                }
+                            }
+
                             // lines away from the current one go soft, like Apple Music (only near lines get a blur layer)
-                            layer.enabled: ls.lyrStatus === "synced" && !ln.cur && Math.abs(ln.rel) <= 6
+                            layer.enabled: ls.lyrStatus === "synced" && !ln.cur && !ln.hovered && Math.abs(ln.rel) <= 6 && height > 0
+                            layer.sourceRect: Qt.rect(-12, -8, width + 24, height + 16)
                             layer.effect: MultiEffect { blurEnabled: true; blurMax: 16; blur: Math.min(0.55, 0.14 * Math.abs(ln.rel)) }
                         }
                         // instrumental break: three breathing dots
@@ -1351,7 +1448,7 @@ Item {
                                 lyr.manual = 0; ls.st.poke();
                             }
                         }
-                        HoverHandler { enabled: ln.inBand && ls.lyrStatus === "synced"; cursorShape: Qt.PointingHandCursor }
+                        HoverHandler { id: hov; enabled: ln.inBand && ls.lyrStatus === "synced"; cursorShape: Qt.PointingHandCursor }
                     }
                 }
             }

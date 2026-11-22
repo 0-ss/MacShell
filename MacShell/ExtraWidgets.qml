@@ -5,6 +5,7 @@
 import QtQuick
 import QtQuick.Effects
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Services.UPower
 import "I18n.js" as I18n
@@ -20,6 +21,22 @@ Item {
     readonly property bool editing: host ? host.editing : false
     readonly property color accent: hub && hub.dock ? hub.dock.accent : "#0A84FF"
     readonly property string cfgDir: host ? host.configDir : Quickshell.env("HOME") + "/.config/macwidgets"
+    Process { command: ["mkdir", "-p", root.cfgDir]; running: true }
+    property bool typing: false
+    signal cancelTypingRequested()
+    function cancelTyping() {
+        typing = false;
+        cancelTypingRequested();
+    }
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            var n = event.name;
+            if (n === "workspacev2" || n === "activewindowv2" || n === "activespecialv2") {
+                if (root.typing) root.cancelTyping();
+            }
+        }
+    }
     readonly property bool asleep: false
     property var stockSymbols: ["AAPL", "NVDA", "^GSPC", "BTC-USD"]
     // data is only fetched for widgets that are on the desktop
@@ -49,8 +66,8 @@ Item {
     // notes + reminders (plain files you can edit anywhere)
     FileView { id: notesFile; path: root.cfgDir + "/notes.md"; watchChanges: true; printErrors: false; onFileChanged: reload()
                onLoadFailed: setText("# Notes\n\nWrite anything here — it shows up on the desktop.\nOpen this file from the Notes widget.\n") }
-    FileView { id: remFile; path: root.cfgDir + "/reminders.md"; watchChanges: true; printErrors: false; onFileChanged: reload()
-               onLoadFailed: setText("- [ ] Try the new widgets\n- [x] Install MacShell\n- [ ] Click a circle to tick it off\n") }
+    FileView { id: remFile; path: root.cfgDir + "/reminders.md"; atomicWrites: true; blockWrites: true; watchChanges: true; printErrors: false; onFileChanged: reload()
+               onLoadFailed: { setText("- [ ] Try the new widgets\n- [x] Install MacShell\n- [ ] Click a circle to tick it off\n"); reload(); } }
     readonly property string notesText: notesFile.loaded ? notesFile.text() : ""
     readonly property var reminders: {
         var t = remFile.loaded ? remFile.text() : "", out = [], l = t.split("\n");
@@ -85,10 +102,13 @@ Item {
     onRemindersChanged: syncReminders()
     Component.onCompleted: syncReminders()
     function toggleReminder(lineNo) {
+        if (!remFile.loaded) return;
         var l = remFile.text().split("\n");
         if (lineNo < 0 || lineNo >= l.length) return;
         l[lineNo] = /\[ \]/.test(l[lineNo]) ? l[lineNo].replace("[ ]", "[x]") : l[lineNo].replace(/\[(x|X)\]/, "[ ]");
         remFile.setText(l.join("\n"));
+        remFile.reload();
+        root.syncReminders();
         if (bar) bar.playSound("tink", 0.6);
     }
     function openFile(p) { Quickshell.execDetached(["xdg-open", p]); }
@@ -99,21 +119,29 @@ Item {
         var cur = remFile.loaded ? remFile.text() : "";
         if (cur !== "" && cur.charAt(cur.length - 1) !== "\n") cur += "\n";
         remFile.setText(cur + "- [ ] " + t + "\n");
+        remFile.reload();
+        root.syncReminders();
         if (bar) bar.playSound("pop", 0.5);
     }
     function setReminderText(lineNo, text) {
+        if (!remFile.loaded) return;
         var l = remFile.text().split("\n");
         if (lineNo < 0 || lineNo >= l.length) return;
         var t = String(text || "").trim();
         if (t === "") { deleteReminder(lineNo); return; }
         l[lineNo] = l[lineNo].replace(/^(\s*[-*]\s*\[( |x|X)\]\s*).*$/, "$1" + t.replace(/\$/g, "$$$$"));
         remFile.setText(l.join("\n"));
+        remFile.reload();
+        root.syncReminders();
     }
     function deleteReminder(lineNo) {
+        if (!remFile.loaded) return;
         var l = remFile.text().split("\n");
         if (lineNo < 0 || lineNo >= l.length) return;
         l.splice(lineNo, 1);
         remFile.setText(l.join("\n"));
+        remFile.reload();
+        root.syncReminders();
         if (bar) bar.playSound("tink", 0.4);
     }
 
@@ -337,50 +365,75 @@ Item {
     Component {
         id: cReminders
         Item {
+            id: remRoot
+            anchors.fill: parent
             readonly property var ctx: parent ? parent.ctx : null
             readonly property var open: root.reminders.filter(function (r) { return !r.done; })
             readonly property color blue: ctx && ctx.mono ? ctx.fg : "#0A84FF"
             Item {
                 id: rHead
                 width: parent.width
-                height: cnt.height
+                height: 24
                 Text {
                     anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width - cnt.width - addBtn.width - 14; elide: Text.ElideRight
-                    text: I18n.tr("Reminders"); color: blue; font.family: Fonts.forWeight(Font.Bold, root.fam); font.pixelSize: 14; font.weight: Font.Bold
+                    width: parent.width - addBtn.width - 14; elide: Text.ElideRight
+                    text: I18n.tr("Reminders"); color: "white"; font.family: Fonts.forWeight(Font.Bold, root.fam); font.pixelSize: 14; font.weight: Font.Bold
                 }
-                MorphText {
-                    id: cnt
-                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                    text: parent.parent.open.length; duration: 420; animateWidth: false
-                    color: blue; font.family: Fonts.forWeight(Font.Bold, root.fam); font.pixelSize: 22; font.weight: Font.Bold
-                }
-                // + — add one without leaving the widget. It lives beside the count, never on top of it,
-                // and fades in on hover the way macOS reveals its controls.
+                // + — add one without leaving the widget.
                 Rectangle {
                     id: addBtn
-                    anchors.right: cnt.left; anchors.rightMargin: 8
+                    z: 2
+                    anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     width: 20; height: 20; radius: 10
                     visible: opacity > 0.01
-                    opacity: root.editing ? 0 : ((headHover.hovered || adding) ? 1 : 0)
+                    opacity: root.editing ? 0 : ((headHover.hovered || adding || addMa.containsMouse) ? 1 : 0.6)
                     Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                    color: addMa.containsMouse ? Qt.rgba(blue.r, blue.g, blue.b, 0.22) : "transparent"
+                    color: addMa.containsMouse ? Qt.rgba(1, 1, 1, 0.22) : "transparent"
                     rotation: adding ? 45 : 0
                     Behavior on rotation { NumberAnimation { duration: 320; easing.type: Easing.OutBack; easing.overshoot: 2 } }
                     scale: addMa.pressed ? 0.88 : 1
                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutQuint } }
-                    Rectangle { anchors.centerIn: parent; width: 11; height: 1.7; radius: 1; color: blue }
-                    Rectangle { anchors.centerIn: parent; width: 1.7; height: 11; radius: 1; color: blue }
+                    Rectangle { anchors.centerIn: parent; width: 11; height: 1.7; radius: 1; color: "white" }
+                    Rectangle { anchors.centerIn: parent; width: 1.7; height: 11; radius: 1; color: "white" }
                     MouseArea {
                         id: addMa; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: { adding = !adding; if (adding) newInput.forceActiveFocus(); }
+                        onClicked: { adding = !adding; }
                     }
                 }
                 HoverHandler { id: headHover }
             }
             property bool adding: false
             property int editingLine: -1
+            function updateTyping() {
+                root.typing = adding || editingLine >= 0;
+            }
+            onAddingChanged: {
+                updateTyping();
+                if (adding) {
+                    editingLine = -1;
+                    focusTimer.restart();
+                }
+            }
+            onEditingLineChanged: {
+                updateTyping();
+                if (editingLine >= 0) adding = false;
+            }
+            Connections {
+                target: root
+                function onCancelTypingRequested() {
+                    adding = false;
+                    editingLine = -1;
+                }
+            }
+            Component.onDestruction: {
+                if (adding || editingLine >= 0) root.typing = false;
+            }
+            Timer {
+                id: focusTimer
+                interval: 50
+                onTriggered: newInput.forceActiveFocus()
+            }
             Flickable {
                 id: remFlick
                 y: rHead.height + 6
@@ -414,26 +467,35 @@ Item {
                         x: 24; width: parent.width - 24
                         anchors.verticalCenter: parent.verticalCenter
                         color: ctx ? ctx.fg : "white"; font.family: root.fam; font.pixelSize: 13
-                        selectByMouse: false
-                        onAccepted: { root.addReminder(text); text = ""; }
+                        selectByMouse: true
+                        onAccepted: {
+                            if (text.trim() === "") {
+                                adding = false;
+                            } else {
+                                root.addReminder(text);
+                                text = "";
+                            }
+                        }
                         Keys.onEscapePressed: { text = ""; adding = false; }
                         Text { visible: parent.text === ""; text: I18n.tr("New Reminder"); color: ctx ? ctx.fg2 : "grey"; font: parent.font }
                     }
                 }
                 Repeater {
                     model: remModel
-                    delegate: Row {
+                    delegate: Item {
                         id: remRow
-                        required property var model
-                        readonly property var modelData: remRow.model
+                        required property int line
+                        required property bool done
+                        required property string text
+                        required property bool fresh
                         required property int index
-                        spacing: 8
                         width: parent.width
+                        height: Math.max(22, rowTxt.implicitHeight)
                         // the first list staggers in; a row added later springs in on its own, and nothing else moves
                         property real inT: 0
                         opacity: inT
                         transform: Translate { y: (1 - remRow.inT) * 8 }
-                        Component.onCompleted: remRow.model.fresh ? rowSolo.start() : rowIn.start()
+                        Component.onCompleted: remRow.fresh ? rowSolo.start() : rowIn.start()
                         SequentialAnimation {
                             id: rowIn
                             PauseAnimation { duration: Math.min(300, remRow.index * 45) }
@@ -442,9 +504,10 @@ Item {
                         NumberAnimation { id: rowSolo; target: remRow; property: "inT"; from: 0; to: 1; duration: 320; easing.type: Easing.OutBack; easing.overshoot: 1.4 }
                         Rectangle {
                             id: tick
+                            x: 0
                             width: 16; height: 16; radius: 8
                             anchors.verticalCenter: parent.verticalCenter
-                            readonly property bool done: modelData.done
+                            readonly property bool done: remRow.done
                             property real fill: done ? 1 : 0
                             Behavior on fill { NumberAnimation { duration: 420; easing.type: Easing.OutBack; easing.overshoot: 2.4 } }
                             color: Qt.rgba(blue.r, blue.g, blue.b, fill)
@@ -462,21 +525,21 @@ Item {
                             // the tick draws itself in
                             Canvas {
                                 id: tickMark
-                                anchors.centerIn: parent
-                                width: 11; height: 11
+                                anchors.fill: parent
                                 property real draw: tick.fill
                                 onDrawChanged: requestPaint()
+                                Component.onCompleted: requestPaint()
                                 onPaint: {
                                     var c = getContext("2d"); c.reset();
                                     if (draw <= 0.01) return;
                                     c.strokeStyle = "white"; c.lineWidth = 1.9; c.lineCap = "round"; c.lineJoin = "round";
-                                    var p = [[1.6, 5.6], [4.3, 8.4], [9.4, 2.6]];
+                                    var p = [[4.5, 7.5], [7.0, 10.5], [11.5, 4.5]];
                                     var d = Math.max(0, Math.min(1, (draw - 0.15) / 0.85));
                                     c.beginPath(); c.moveTo(p[0][0], p[0][1]);
-                                    var t1 = Math.min(1, d / 0.4);
+                                    var t1 = Math.min(1, d / 0.35);
                                     c.lineTo(p[0][0] + (p[1][0] - p[0][0]) * t1, p[0][1] + (p[1][1] - p[0][1]) * t1);
-                                    if (d > 0.4) {
-                                        var t2 = (d - 0.4) / 0.6;
+                                    if (d > 0.35) {
+                                        var t2 = (d - 0.35) / 0.65;
                                         c.lineTo(p[1][0] + (p[2][0] - p[1][0]) * t2, p[1][1] + (p[2][1] - p[1][1]) * t2);
                                     }
                                     c.stroke();
@@ -485,43 +548,100 @@ Item {
                             MouseArea {
                                 anchors.fill: parent; anchors.margins: -4
                                 enabled: !root.editing; cursorShape: Qt.PointingHandCursor
-                                onClicked: { tickPop.restart(); root.toggleReminder(modelData.line); if (root.bar) root.bar.playSound("tink", 0.5); }
+                                onClicked: { tickPop.restart(); root.toggleReminder(remRow.line); if (root.bar) root.bar.playSound("tink", 0.5); }
                             }
                         }
                         Item {
-                            width: parent.width - 24
-                            height: Math.max(rowTxt.implicitHeight, 18)
+                            id: rowContent
+                            anchors.left: tick.right
+                            anchors.leftMargin: 8
+                            anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            // Nothing here is a text field, so a click can never leave text selected on the desktop.
-                            // Renaming lives in the Reminders app, which this row opens.
-                            HoverHandler { id: rowHover; enabled: !root.editing }
+                            height: parent.height
+                            readonly property bool isEditing: editingLine === remRow.line
+                            HoverHandler { id: rowHover; enabled: !root.editing && !rowContent.isEditing }
                             Text {
                                 id: rowTxt
-                                width: parent.width - (rowHover.hovered ? 20 : 0); elide: Text.ElideRight
+                                visible: !rowContent.isEditing
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.rightMargin: rowHover.hovered ? 20 : 0
+                                elide: Text.ElideRight
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: modelData.text; font.strikeout: modelData.done
-                                color: ctx ? (modelData.done ? ctx.fg2 : ctx.fg) : "white"
+                                text: remRow.text; font.strikeout: remRow.done
+                                color: ctx ? (remRow.done ? ctx.fg2 : ctx.fg) : "white"
                                 font.family: root.fam; font.pixelSize: 13
+                            }
+                            TextInput {
+                                id: inlineEditInput
+                                visible: rowContent.isEditing
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.rightMargin: 20
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: ctx ? ctx.fg : "white"
+                                font.family: root.fam
+                                font.pixelSize: 13
+                                selectByMouse: true
+                                text: remRow.text
+                                onVisibleChanged: {
+                                    if (visible) {
+                                        text = remRow.text;
+                                        inlineFocusTimer.restart();
+                                    }
+                                }
+                                Timer {
+                                    id: inlineFocusTimer
+                                    interval: 40
+                                    onTriggered: {
+                                        inlineEditInput.forceActiveFocus();
+                                        inlineEditInput.selectAll();
+                                    }
+                                }
+                                onAccepted: {
+                                    var val = text.trim();
+                                    if (val === "") {
+                                        root.deleteReminder(remRow.line);
+                                    } else {
+                                        root.setReminderText(remRow.line, val);
+                                    }
+                                    editingLine = -1;
+                                }
+                                Keys.onEscapePressed: {
+                                    editingLine = -1;
+                                }
                             }
                             MouseArea {
                                 id: rowMa
-                                anchors.fill: parent; anchors.rightMargin: 22
-                                enabled: !root.editing
+                                anchors.fill: parent
+                                anchors.rightMargin: 22
+                                visible: !rowContent.isEditing
+                                enabled: !root.editing && !rowContent.isEditing
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    root.openFile(root.cfgDir + "/reminders.md");
+                                    adding = false;
+                                    editingLine = remRow.line;
                                 }
                             }
                             Text {
                                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                                text: "\u00D7"; color: ctx ? ctx.fg2 : "grey"; font.family: root.fam; font.pixelSize: 15
-                                opacity: rowHover.hovered ? 1 : 0
+                                text: rowContent.isEditing ? "\u2715" : "\u00D7"
+                                color: "white"
+                                font.family: root.fam
+                                font.pixelSize: 15
+                                opacity: rowContent.isEditing ? 0.8 : (rowHover.hovered ? 0.9 : 0)
                                 Behavior on opacity { NumberAnimation { duration: 140 } }
                                 MouseArea {
                                     anchors.fill: parent; anchors.margins: -5
-                                    enabled: rowHover.hovered
+                                    enabled: rowContent.isEditing || rowHover.hovered
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.deleteReminder(modelData.line)
+                                    onClicked: {
+                                        if (rowContent.isEditing) {
+                                            editingLine = -1;
+                                        } else {
+                                            root.deleteReminder(remRow.line);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -529,10 +649,15 @@ Item {
                 }
               }
             }
-            // the header opens the Reminders app, not a text editor
+            // the header: double-click to open reminders.md in external editor, single-click does nothing
             MouseArea {
-                anchors.fill: rHead; enabled: !root.editing; cursorShape: Qt.PointingHandCursor
-                onClicked: {
+                anchors.left: rHead.left
+                anchors.top: rHead.top
+                anchors.bottom: rHead.bottom
+                anchors.right: addBtn.left
+                enabled: !root.editing
+                cursorShape: Qt.ArrowCursor
+                onDoubleClicked: {
                     root.openFile(root.cfgDir + "/reminders.md");
                 }
             }

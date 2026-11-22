@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Minimize or restore Hyprland windows using the optional hyprglass plugin.
+
+macshell-genie min
+macshell-genie restore
+macshell-genie dock WIN [WIN ...]
+"""
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import time
+
+RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR") or Path.home() / ".cache")
+STATE = RUNTIME / "macshell-genie.json"
+ANIM_MS = 600
+PARK = -20000
+
+
+def ctl(*args):
+    result = subprocess.run(["hyprctl", *args], capture_output=True, text=True, timeout=3, check=False)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def valid_address(value):
+    return isinstance(value, str) and re.fullmatch(r"0x[0-9a-fA-F]+", value)
+
+
+def icon_rect(window):
+    monitors = json.loads(ctl("-j", "monitors") or "[]")
+    for monitor in monitors:
+        if monitor["id"] != window["monitor"]:
+            continue
+        name = re.sub(r"[^a-zA-Z0-9_.-]", "_", monitor["name"])
+        try:
+            rects = json.loads((RUNTIME / f"macshell-dock-rects-{name}.json").read_text())
+            for app in (window.get("class", ""), window.get("initialClass", "")):
+                rect = rects.get(app.lower())
+                if isinstance(rect, list) and len(rect) == 4 and all(type(v) is int for v in rect):
+                    return [str(v) for v in rect]
+        except (OSError, ValueError):
+            pass
+    return []
+
+
+def load():
+    try:
+        state = json.loads(STATE.read_text())
+        return {key: value for key, value in state.items() if valid_address(key)
+                and isinstance(value, list) and len(value) == 2 and all(type(v) is int for v in value)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save(stack):
+    temp = STATE.with_suffix(".tmp")
+    temp.write_text(json.dumps(stack))
+    temp.replace(STATE)
+
+
+def place(addr, x, y):
+    ctl("dispatch", f"hl.dsp.window.move({{ x = {x}, y = {y}, window = 'address:{addr}' }})")
+
+
+def minimize(stack):
+    window = json.loads(ctl("-j", "activewindow") or "{}")
+    addr = window.get("address")
+    if not valid_address(addr) or addr in stack:
+        return
+    if ctl("hyprglass", "minimize", f"address:{addr}", *icon_rect(window), str(ANIM_MS)) != "ok":
+        return
+    stack[addr] = window["at"]
+    save(stack)
+    time.sleep(ANIM_MS / 1000 + 0.55)
+    for client in json.loads(ctl("-j", "clients") or "[]"):
+        if client["address"] == addr and client.get("workspace", {}).get("name") == "special:minimized":
+            place(addr, PARK, PARK)
+            break
+
+
+def restore(stack, addr):
+    if not addr:
+        return
+    place(addr, *stack[addr])
+    if ctl("hyprglass", "restore", f"address:{addr}", str(ANIM_MS)) == "ok":
+        del stack[addr]
+        save(stack)
+        focus(addr)
+
+
+def focus(addr):
+    ctl("dispatch", f"hl.dsp.focus({{ window = 'address:{addr}' }})")
+
+
+def main(args):
+    if args not in (["min"], ["restore"]) and not (
+        len(args) >= 2 and args[0] == "dock" and all(valid_address(addr) for addr in args[1:])
+    ):
+        raise SystemExit(__doc__)
+
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    with STATE.with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        live = {client["address"] for client in json.loads(ctl("-j", "clients") or "[]")}
+        stack = {addr: pos for addr, pos in load().items() if addr in live}
+        save(stack)
+        if args[0] == "min":
+            minimize(stack)
+        elif args[0] == "restore":
+            restore(stack, next(reversed(stack), None))
+        else:
+            addr = next((addr for addr in reversed(stack) if addr in args[1:]), None)
+            if addr:
+                restore(stack, addr)
+            else:
+                focus(args[1])
+
+
+if __name__ == "__main__":
+    import sys
+
+    try:
+        main(sys.argv[1:])
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        raise SystemExit(str(exc)) from None

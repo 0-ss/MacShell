@@ -423,4 +423,12 @@ ShellRoot {
         target: "glass"
         function captures(on: bool): void { macDock.windowCapture = on; }
     }
+    // qs -c MacShell ipc call hub toggle | open | close
+    IpcHandler {
+        target: "hub"
+        function toggle(): void { macBar.hubPopRequest("toggle"); }
+        function open(): void { macBar.hubPopRequest("open"); }
+        function close(): void { macBar.hubPopRequest("close"); }
+        function eq(open: bool): void { macBar.earbudsEqExpanded = open; }
+    }
 }

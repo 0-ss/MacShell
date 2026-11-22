@@ -25,9 +25,12 @@ hl.bind("SUPER + L", hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-i
 
 This uses the `hl.bind` / `hl.dsp.exec_cmd` style. Change `SUPER + L` if that key is already used, and adjust the helper path if you installed MacLock elsewhere.
 
-Spotify tracks that expose a Spotify track URI or `open.spotify.com/track/...` URL can use the track's looping Canvas
-video as the animated background in expanded artwork mode. Other tracks continue to use their album artwork. Lyrics
-prefer synchronized NetEase/LRCLIB results and use Genius as a plain-text fallback; Genius lyrics are not time-synced.
+Expanded artwork can play Motion Artwork from a public Apple Music album page or Spotify Canvas for tracks
+that expose a Spotify track URL. Apple Music Motion uses `ffmpeg` to cache the clip locally. Set `canvasMode`
+in `~/.config/maclock/settings.json` to `both` (default), `applemusic`, `spotify` or `off`. If the selected
+providers have no video, MacLock shows the album art.
+
+Lyrics use NetEase and LRCLIB, with optional `syncedlyrics` providers and Genius for plain text.
 
 ## Direct IPC
 

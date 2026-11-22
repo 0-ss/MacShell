@@ -553,7 +553,7 @@ Scope {
             WlrLayershell.keyboardFocus: ((renameSheet.open || linkSheet.open || emojiSheet.open) && !root.picking) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
             // The whole screen takes the pointer (empty desktop: selection rectangle, right-click menu) EXCEPT
-            //   * a Player widget's buttons, which live in the widgets window and still have to be clickable, and
+            //   * interactive widgets' buttons (Player, Reminders), which live in the widgets window and still have to be clickable, and
             //   * everything, while the widgets are being edited (the widgets window needs the pointer then).
             mask: Region {
                 item: root.widgetsEditing ? null : iconLayer
@@ -561,7 +561,11 @@ Scope {
                     Region { item: pr0; intersection: Intersection.Subtract },
                     Region { item: pr1; intersection: Intersection.Subtract },
                     Region { item: pr2; intersection: Intersection.Subtract },
-                    Region { item: pr3; intersection: Intersection.Subtract }
+                    Region { item: pr3; intersection: Intersection.Subtract },
+                    Region { item: pr4; intersection: Intersection.Subtract },
+                    Region { item: pr5; intersection: Intersection.Subtract },
+                    Region { item: pr6; intersection: Intersection.Subtract },
+                    Region { item: pr7; intersection: Intersection.Subtract }
                 ]
             }
 
@@ -692,11 +696,15 @@ Scope {
                 id: iconLayer
                 anchors.fill: parent
 
-                // hit areas of the Player widgets' buttons, cut out of the mask above
+                // hit areas of the interactive widgets' buttons, cut out of the mask above
                 Item { id: pr0; x: root.playerRect(w.modelData.name, 0, 0); y: root.playerRect(w.modelData.name, 0, 1); width: root.playerRect(w.modelData.name, 0, 2); height: root.playerRect(w.modelData.name, 0, 3) }
                 Item { id: pr1; x: root.playerRect(w.modelData.name, 1, 0); y: root.playerRect(w.modelData.name, 1, 1); width: root.playerRect(w.modelData.name, 1, 2); height: root.playerRect(w.modelData.name, 1, 3) }
                 Item { id: pr2; x: root.playerRect(w.modelData.name, 2, 0); y: root.playerRect(w.modelData.name, 2, 1); width: root.playerRect(w.modelData.name, 2, 2); height: root.playerRect(w.modelData.name, 2, 3) }
                 Item { id: pr3; x: root.playerRect(w.modelData.name, 3, 0); y: root.playerRect(w.modelData.name, 3, 1); width: root.playerRect(w.modelData.name, 3, 2); height: root.playerRect(w.modelData.name, 3, 3) }
+                Item { id: pr4; x: root.playerRect(w.modelData.name, 4, 0); y: root.playerRect(w.modelData.name, 4, 1); width: root.playerRect(w.modelData.name, 4, 2); height: root.playerRect(w.modelData.name, 4, 3) }
+                Item { id: pr5; x: root.playerRect(w.modelData.name, 5, 0); y: root.playerRect(w.modelData.name, 5, 1); width: root.playerRect(w.modelData.name, 5, 2); height: root.playerRect(w.modelData.name, 5, 3) }
+                Item { id: pr6; x: root.playerRect(w.modelData.name, 6, 0); y: root.playerRect(w.modelData.name, 6, 1); width: root.playerRect(w.modelData.name, 6, 2); height: root.playerRect(w.modelData.name, 6, 3) }
+                Item { id: pr7; x: root.playerRect(w.modelData.name, 7, 0); y: root.playerRect(w.modelData.name, 7, 1); width: root.playerRect(w.modelData.name, 7, 2); height: root.playerRect(w.modelData.name, 7, 3) }
 
                 // A local monitor-sized wallpaper copy is the source for the right-click menu's glass.
                 // It is never visible on screen: opacity 0 (a ShaderEffectSource ignores its source's own opacity, the same idiom the

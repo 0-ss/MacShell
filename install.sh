@@ -56,6 +56,7 @@
 #       --low-power       settings for older computers (no live window capture, no magnification, plain blur)
 #       --no-autostart    do not touch the Hyprland config
 #       --no-rules        do not add the Liquid Glass layer rules to the Hyprland config
+#       --no-float        do not make all windows float by default (saved, so updates keep it)
 #       --channel CH      release (default: latest release, else the main branch) or main (always the newest commit)
 #       --ref REF         install a specific tag / commit instead of the latest
 #       --from-dir DIR    install from a local folder instead of downloading
@@ -132,6 +133,7 @@ DEPS_ONLY=0
 SKIP_SERVICES=0
 SKIP_AUTOSTART=0
 SKIP_RULES=0
+SKIP_FLOAT=""
 SKIP_LOCK=0
 CHECK_ONLY=0
 LOCAL_ONLY=0
@@ -216,6 +218,7 @@ while [ $# -gt 0 ]; do
         --resolved-id) RESOLVED_ID="${2:-}"; shift ;;
         --resolved-type) RESOLVED_TYPE="${2:-}"; shift ;;
         -h|--help) usage; exit 0 ;;
+        --no-float) SKIP_FLOAT=1 ;;
         *) die "unknown option: $1 (try --help)" ;;
     esac
     shift
@@ -228,6 +231,10 @@ state_get() { [ -f "$STATE_DIR/state.env" ] && sed -n "s/^$1=//p" "$STATE_DIR/st
 [ -n "$CHANNEL" ] || CHANNEL="$(state_get channel_pref)"
 [ -n "$CHANNEL" ] || CHANNEL="release"
 case "$CHANNEL" in release|main) ;; *) die "--channel must be 'release' or 'main'" ;; esac
+# floating windows: an explicit --no-float wins, otherwise keep what was saved by a previous install
+if [ -z "$SKIP_FLOAT" ]; then
+    [ "$(state_get float)" = off ] && SKIP_FLOAT=1 || SKIP_FLOAT=0
+fi
 
 [ "$(id -u)" -eq 0 ] && warn "running as root: MacShell is installed per user, run this as your normal user instead."
 
@@ -353,13 +360,13 @@ OPTIONAL=(
     "notify-send:libnotify:notifications from scripts, update notices"
     "awww:awww:setting the wallpaper"
     "mpvpaper:mpvpaper:animated (video) wallpapers"
-    "ffmpeg:ffmpeg:video wallpaper thumbnails and previews"
+    "ffmpeg:ffmpeg:video wallpaper thumbnails, animated album artwork and previews"
+    "python3:python:AirDrop, sound generation, system monitor, animated album artwork and audio controls"
     "zenity:zenity:file pickers (image widgets, Settings folders)"
     "magick:imagemagick:profile picture conversion"
     "fastfetch:fastfetch:About This Linux"
     "rsync:rsync:faster, safer file sync in the installer"
     "jq:jq:wallpaper helpers (reading the dock / shell settings)"
-    "python3:python:UI sound generation and AirDrop"
     "kitty:kitty:the default terminal"
     "hypridle:hypridle:lock on idle (optional)"
     "wtype:wtype:menu bar keyboard shortcuts in browsers and apps"
@@ -382,6 +389,14 @@ LIBS=(
 )
 LIBS_LOCK=(
     "hyprlock:the PAM stack MacLock checks passwords with (/etc/pam.d/hyprlock)"
+)
+
+# Debian/Ubuntu ship Qt split into many packages: the QML modules and plugins MacShell imports
+APT_QT_PKGS=(
+    qt6-wayland qt6-svg-plugins
+    qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts
+    qml6-module-qtquick-effects qml6-module-qtquick-window qml6-module-qtquick-templates
+    qml6-module-qtqml qml6-module-qtqml-workerscript qml6-module-qtcore qml6-module-qtmultimedia
 )
 
 PM=""            # pacman | dnf | apt
@@ -534,7 +549,15 @@ install_extra_sources() {
             printf '%s\n' "${missing[@]}" | grep -qx hyprland && warn "hyprland is not in your repositories: see https://wiki.hyprland.org"
             ;;
         apt)
-            warn "not in the Debian/Ubuntu repositories: ${missing[*]}. Build them from source: https://quickshell.org and https://wiki.hyprland.org"
+            warn "not in the enabled Debian/Ubuntu repositories: ${missing[*]}"
+            if grep -qs '^ID=debian' /etc/os-release; then
+                say "  On Debian 13 (trixie) Hyprland and Quickshell are in trixie-backports. Enable it, then install them:"
+                say "      echo 'deb http://deb.debian.org/debian trixie-backports main' | sudo tee /etc/apt/sources.list.d/backports.list"
+                say "      sudo apt update && sudo apt install -t trixie-backports hyprland quickshell"
+                say "  Details: docs/DEBIAN.md"
+            else
+                say "  Build them from source: https://quickshell.org and https://wiki.hyprland.org"
+            fi
             MANUAL_LIST+=("${missing[@]}") ;;
     esac
 }
@@ -689,6 +712,13 @@ check_deps() {
         [ -n "$PM" ] && first_installed "$dp" >/dev/null && continue
         if [ -n "$PM" ] && pick=$(first_available "$dp"); then repo+=("$pick"); else extra+=("${dp%%|*}"); fi
     done
+
+    if [ "$PM" = apt ]; then
+        for p in "${APT_QT_PKGS[@]}" python3-venv; do
+            pkg_installed "$p" && continue
+            pkg_available "$p" && repo+=("$p")
+        done
+    fi
 
     if [ "${#repo[@]}" -eq 0 ] && [ "${#extra[@]}" -eq 0 ]; then
         ok "all dependencies are installed"
@@ -1404,7 +1434,7 @@ backup_current() { # backup_current <dest> <name>
 }
 
 # repository files that are not part of a Quickshell config (MacLock is excluded so it never ends up inside MacShell)
-EXCLUDES=(.git .github install.sh macshell-update macshell-start hypr-macshell README.md README LICENSE LICENSE.md docs screenshots scripts sounds "$LOCK_NAME" "$GUI_NAME" "$GREETER_NAME")
+EXCLUDES=(.git .github install.sh macshell-update macshell-start hypr-macshell README.md README LICENSE LICENSE.md docs compat screenshots scripts sounds "$LOCK_NAME" "$GUI_NAME" "$GREETER_NAME")
 LOCK_EXCLUDES=(.git .github)
 
 # the destination is emptied of files the source does not have (rsync --delete): refuse folders that are obviously not a
@@ -1562,6 +1592,53 @@ START
     ln -sf "$BIN_DIR/macshell-start" "$LINK_DIR/macshell-start"
 }
 
+# ───────────── compatibility: Qt older than 6.9, missing "Inter Variable" font ─────────────
+qt_version() {
+    local v="" t
+    for t in qtpaths6 qtpaths-qt6 qmake6 qmake-qt6; do
+        have "$t" || continue
+        if [[ "$t" = qtpaths* ]]; then v=$("$t" --qt-version 2>/dev/null); else v=$("$t" -query QT_VERSION 2>/dev/null); fi
+        [ -n "$v" ] && { echo "$v"; return 0; }
+    done
+    if have pkg-config; then v=$(pkg-config --modversion Qt6Core 2>/dev/null); [ -n "$v" ] && { echo "$v"; return 0; }; fi
+    [ -n "$PM" ] || detect_pm
+    case "$PM" in
+        apt)    v=$(dpkg-query -W -f='${Version}' libqt6core6t64 2>/dev/null || dpkg-query -W -f='${Version}' libqt6core6 2>/dev/null) ;;
+        pacman) v=$(pacman -Q qt6-base 2>/dev/null | awk '{print $2}') ;;
+        dnf)    v=$(rpm -q --qf '%{VERSION}' qt6-qtbase 2>/dev/null) ;;
+    esac
+    printf '%s' "$v" | grep -oE '^[0-9]+\.[0-9]+(\.[0-9]+)?' || true
+}
+version_lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
+
+apply_compat() { # apply_compat <source-root> <installed dirs...>
+    local root="$1" qv d shim; shift
+    qv=$(qt_version)
+    shim="$root/compat/qt-6.8/RectangularShadow.qml"
+    # RectangularShadow only exists in Qt >= 6.9. Unknown version -> install the shim, it is harmless on newer Qt.
+    if [ -f "$shim" ] && { [ -z "$qv" ] || version_lt "$qv" 6.9.0; }; then
+        for d in "$@"; do [ -d "$d" ] && cp -f "$shim" "$d/RectangularShadow.qml"; done
+        ok "Qt ${qv:-unknown} < 6.9: installed the RectangularShadow compatibility shim"
+    fi
+    # MacShell asks for the "Inter Variable" font; many distros only ship static "Inter" (or none) -> alias it
+    if has_inter_font && ! fc-list -f '%{family}\n' : family 2>/dev/null | grep -qiw 'Inter Variable'; then
+        d="${XDG_CONFIG_HOME:-$HOME/.config}/fontconfig/conf.d"
+        mkdir -p "$d"
+        [ -e "$d/60-macshell-inter.conf" ] && return 0
+        cat > "$d/60-macshell-inter.conf" <<'FCEOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <alias binding="same">
+    <family>Inter Variable</family>
+    <prefer><family>Inter</family></prefer>
+  </alias>
+</fontconfig>
+FCEOF
+        ok "font: 'Inter Variable' now falls back to the installed 'Inter'"
+    fi
+}
+
 # Find the helper tree (a folder called hypr-macshell near the top of the source).
 find_hypr_root() { # find_hypr_root <source-root>
     local d
@@ -1659,7 +1736,7 @@ SHIM
 # a zip download (instead of a git clone / release tarball) loses the executable bit
 fix_modes() { # fix_modes <installed folder>
     [ -d "$1" ] || return 0
-    find "$1" -type f \( -name '*.sh' -o -name '*.py' -o -name macshell-update \) -exec chmod +x {} + 2>/dev/null || true
+    find "$1" -type f \( -name '*.sh' -o -name '*.py' -o -name macshell-update -o -name mac-earbuds-ctl -o -name mac-discord-ctl \) -exec chmod +x {} + 2>/dev/null || true
     return 0
 }
 
@@ -1714,6 +1791,20 @@ install_extras() {
     fi
 }
 
+setup_python_deps() {
+    [ "$SKIP_DEPS" = 1 ] && return 0
+    have python3 || return 0
+    local venv="$STATE_DIR/lyrics-venv"
+    if [ -x "$venv/bin/python" ] && "$venv/bin/python" -c 'import syncedlyrics' >/dev/null 2>&1; then return 0; fi
+    if python3 -c 'import syncedlyrics' >/dev/null 2>&1; then return 0; fi
+    step "Installing optional synchronized lyrics providers"
+    if python3 -m venv "$venv" && "$venv/bin/python" -m pip --disable-pip-version-check install --timeout 10 --retries 1 syncedlyrics; then
+        ok "syncedlyrics installed in $venv"
+    else
+        warn "could not install syncedlyrics. The built-in lyrics providers are available."
+    fi
+}
+
 write_state() {
     mkdir -p "$STATE_DIR"
     local iv=""
@@ -1730,6 +1821,7 @@ write_state() {
         echo "dest=$DEST"
         echo "lock_dest=$LOCK_DEST"
         echo "lock_installed=$([ -n "${LOCK_ROOT:-}" ] && echo yes || echo no)"
+        echo "float=$([ "$SKIP_FLOAT" = 1 ] && echo off || echo on)"
     } > "$STATE_DIR/state.env"
 }
 
@@ -1749,13 +1841,11 @@ write_macshell_lua() {
     # The copy below is only the fallback for a source tree that does not contain it.
     local shipped="${QML_ROOT:-}/macshell.lua"
     if [ -n "${QML_ROOT:-}" ] && [ -f "$shipped" ] && grep -qF -- "$MACLUA_BEGIN" "$shipped" && grep -qF -- "$MACLUA_END" "$shipped"; then
-        cp -f "$shipped" "$f"
-        ok "MacShell autostart and keybinds -> $f"
-        return 0
-    fi
-    {
-        printf '%s\n' "$MACLUA_BEGIN"
-        cat <<'MACSHELL_LUA'
+        awk -v marker="$MACLUA_END" '$0 == marker { exit } { print }' "$shipped" > "$f"
+    else
+        {
+            printf '%s\n' "$MACLUA_BEGIN"
+            cat <<'MACSHELL_LUA'
 -- autostart (remove other bars / docks / notification daemons first).
 -- install.sh adds this for you; macshell-start waits for the compositor and restarts the shell if it crashes.
 hl.on("hyprland.start", function()
@@ -1804,9 +1894,20 @@ end
 
 -- MacLock (lock screen)
 hl.bind("SUPER + L",          hl.dsp.exec_cmd("sh ~/.config/quickshell/MacLock/lock-via-ipc.sh"))
+
 MACSHELL_LUA
+        } > "$f"
+    fi
+    {
+        if [ "$SKIP_FLOAT" != 1 ]; then
+            cat <<'FLOAT_LUA'
+-- Floating windows by default (macOS-like overlapping windows).
+-- Disable with: bash install.sh --no-float
+hl.window_rule({ name = "macshell-float-all", match = {}, float = true })
+FLOAT_LUA
+        fi
         printf '%s\n' "$MACLUA_END"
-    } > "$f"
+    } >> "$f"
     ok "MacShell autostart and keybinds -> $f"
 }
 
@@ -2129,7 +2230,9 @@ if [ -n "$LOCK_ROOT" ]; then
 fi
 fix_modes "$DEST"
 install_extras "$SRC_ROOT"
+apply_compat "$SRC_ROOT" "$DEST" "${LOCK_ROOT:+$LOCK_DEST}"
 if [ -n "$GUI_ROOT" ]; then install_gui_files || true; fi
+setup_python_deps
 build_shaders "$DEST"
 write_env_template
 ensure_dirs

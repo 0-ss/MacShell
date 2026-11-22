@@ -69,6 +69,7 @@ ShellRoot {
         property string mediaSlot: "top"    // "top" (under the clock) | "bottom" (above the password field)
         property bool capsLock: false
         property bool use24h: true          // MacShell → Menu Bar → "24-hour clock"
+        property string canvasMode: "off"
         // Settings → Lock Screen → Clock (MACLOCK_CLOCK='{"f":"serif",...}' overrides it, for previews)
         property var clockCfg: { try { return JSON.parse(Quickshell.env("MACLOCK_CLOCK") || "{}"); } catch (e) { return {}; } }
         property bool artBg: true           // blurred album art behind everything while the cover is enlarged (MacShell setting)
@@ -82,8 +83,9 @@ ShellRoot {
         function setMediaSlot(v) {
             if (v === mediaSlot) return;
             mediaSlot = v;
-            saveProc.command = ["sh", "-c", "mkdir -p \"$HOME/.config/maclock\" && printf '{\\n  \"mediaSlot\": \"%s\"\\n}\\n' \"$1\" > \"$HOME/.config/maclock/settings.json\"", "sh", v];
-            saveProc.running = true;
+            var data = lockSettings.readSettings();
+            data.mediaSlot = v;
+            lockSettings.setText(JSON.stringify(data, null, 2));
         }
         function checkCaps() { if (!capsProc.running) capsProc.running = true; }
 
@@ -110,7 +112,30 @@ ShellRoot {
         }
     }
 
-    Process { id: saveProc }
+    readonly property string settingsDir: Quickshell.env("HOME") + "/.config/maclock"
+    Process { command: ["mkdir", "-p", root.settingsDir]; running: true }
+    FileView {
+        id: lockSettings
+        path: root.settingsDir + "/settings.json"
+        atomicWrites: true
+        blockWrites: true
+        blockLoading: true
+        preload: true
+        printErrors: false
+
+        function readSettings() {
+            try {
+                var data = JSON.parse(text());
+                return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+            } catch (e) { return {}; }
+        }
+        onLoaded: {
+            var data = readSettings();
+            lockState.mediaSlot = data.mediaSlot === "bottom" ? "bottom" : "top";
+            lockState.canvasMode = typeof data.canvasMode === "string" ? data.canvasMode : "both";
+        }
+        onLoadFailed: lockState.canvasMode = "both"
+    }
     // Caps Lock indicator
     Process {
         id: capsProc
@@ -190,7 +215,6 @@ ShellRoot {
             + "if [ \"$(nmcli radio wifi 2>/dev/null)\" = enabled ]; then s=$(nmcli -t -f ACTIVE,SIGNAL dev wifi 2>/dev/null | grep '^yes' | head -n1 | cut -d: -f2); "
             + "[ -n \"$s\" ] && printf '%s' \"$s\" || printf 0; else printf -- -1; fi; echo; "
             + "nmcli -t -f TYPE,STATE dev 2>/dev/null | grep -q '^ethernet:connected$' && echo eth || echo -; "
-            + "jq -r '.mediaSlot // \"top\"' \"$HOME/.config/maclock/settings.json\" 2>/dev/null || echo top; "
             + "[ \"$(jq -r '.uiSounds' \"$HOME/.config/macbar/settings.json\" 2>/dev/null)\" != false ] && [ ! -f \"${XDG_RUNTIME_DIR:-/tmp}/macshell-gaming.state\" ] && echo snd || echo -; "
             + "jq -r '.lockArtBackground' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
             + "jq -r '.use24h' \"$HOME/.config/macbar/settings.json\" 2>/dev/null || echo true; "
@@ -204,13 +228,12 @@ ShellRoot {
                 var s = parseInt((l[2] || "-1").trim());
                 lockState.wifiLevel = isNaN(s) || s < 0 ? -1 : (s === 0 ? 0 : (s > 66 ? 3 : (s > 33 ? 2 : 1)));
                 lockState.ethernet = (l[3] || "").trim() === "eth";
-                lockState.mediaSlot = (l[4] || "top").trim() === "bottom" ? "bottom" : "top";
-                lockState.sounds = (l[5] || "").trim() === "snd";
-                lockState.artBg = (l[6] || "true").trim() !== "false";
-                lockState.use24h = (l[7] || "true").trim() !== "false";
-                var lang = (l[8] || "auto").trim();
+                lockState.sounds = (l[4] || "").trim() === "snd";
+                lockState.artBg = (l[5] || "true").trim() !== "false";
+                lockState.use24h = (l[6] || "true").trim() !== "false";
+                var lang = (l[7] || "auto").trim();
                 Qt.uiLanguage = (lang === "auto" || lang === "null") ? "" : lang;
-                if (!Quickshell.env("MACLOCK_CLOCK")) { try { lockState.clockCfg = JSON.parse((l[9] || "{}").trim() || "{}"); } catch (e) { } }
+                if (!Quickshell.env("MACLOCK_CLOCK")) { try { lockState.clockCfg = JSON.parse((l[8] || "{}").trim() || "{}"); } catch (e) { } }
                 if (!root.preview) lockState.sound("lock");
             }
         }

@@ -589,6 +589,7 @@ var strings = {
     "Your own picture (you choose the file)": "Tu propia imagen (elige el archivo)",
     "Current conditions, hourly and daily forecast": "Condiciones actuales y pronóstico por horas y días",
     "Today's date and the month": "Fecha de hoy y el mes",
+    "To-do list and checklist": "Lista de tareas y lista de verificación",
     "Now Playing with controls and lyrics": "Reproduciendo con controles y letra",
     "Unknown Title": "Título desconocido",
     "Loading lyrics…": "Cargando letra…",

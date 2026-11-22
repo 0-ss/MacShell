@@ -124,6 +124,7 @@ Item {
                 album: host.player ? host.player.trackAlbum : ""
                 artUrl: host.player ? host.player.trackArtUrl : ""
                 playing: host.player ? host.player.isPlaying : false
+                desktopCovered: host.hub && host.hub.bar ? host.hub.bar.screenCovered[v.sname] === true : false
                 shuffle: (host.player && host.player.shuffleSupported) ? host.player.shuffle : false
                 canShuffle: host.player !== null && host.player.shuffleSupported
                 loop: (host.player && host.player.loopSupported)
@@ -179,12 +180,79 @@ Item {
                 editing: host.editing
             }
         }
+        Component {
+            id: gifVisual
+            GifWidget {
+                size: wsize
+                scaleF: host.widgetScale
+                fam: host.fontFamily
+                screenX: v.sx; screenY: v.sy
+                source: host.fileUrl(v.wsrc)
+                darkGlass: host.darkGlass
+                editing: host.editing
+                screenName: v.sname
+                desktopCovered: host.hub && host.hub.bar ? host.hub.bar.screenCovered[v.sname] === true : false
+            }
+        }
+        Component {
+            id: sysmonVisual
+            SystemMonitorWidget {
+                scaleF: host.widgetScale
+                style: wstyle
+                size: wsize
+                fam: host.fontFamily
+                screenX: v.sx; screenY: v.sy
+                glassReady: host.glassState === "ready"
+                shaderUrl: "file://" + host.glassShaderOut
+                wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
+                screenW: v.sw
+                screenH: v.sh
+                glassOpacity: host.glassOpacity
+                glassBlur: host.glassBlur
+                glassLiquid: host.glassLiquid
+                glassRim: host.glassRim
+                glassGrain: host.glassGrain
+                darkGlass: host.darkGlass
+                editing: host.editing
+                desktopCovered: host.hub && host.hub.bar ? host.hub.bar.screenCovered[v.sname] === true : false
+                onGlassFailed: host.glassState = "failed"
+            }
+        }
+        Component {
+            id: cardVisual
+            CardWidget {
+                scaleF: host.widgetScale
+                style: wstyle
+                size: wsize
+                mode: wmode
+                fam: host.fontFamily
+                screenX: v.sx; screenY: v.sy
+                glassReady: host.glassState === "ready"
+                shaderUrl: "file://" + host.glassShaderOut
+                wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
+                wallVideo: host.liveWallVideo
+                wallPaused: host.liveWallPaused
+                screenW: v.sw
+                screenH: v.sh
+                glassOpacity: host.glassOpacity
+                glassBlur: host.glassBlur
+                glassLiquid: host.glassLiquid
+                glassRim: host.glassRim
+                borderTint: host.borderTint
+                glassGrain: host.glassGrain
+                darkGlass: host.darkGlass
+                editing: host.editing
+                content: (host && host.extra) ? host.extra.comp(v.wtype) : null
+                onGlassFailed: host.glassState = "failed"
+            }
+        }
         Loader {
             id: visual
             anchors.fill: parent
             sourceComponent: wtype === "calendar" ? calendarVisual
                            : (wtype === "clock" ? clockVisual
                            : (wtype === "player" ? playerVisual
-                           : (wtype === "image" ? imageVisual : weatherVisual)))
+                           : (wtype === "image" ? imageVisual
+                           : (wtype === "gif" ? gifVisual : (wtype === "sysmon" ? sysmonVisual : (host.extra && host.extra.comp(wtype) ? cardVisual : weatherVisual))))))
         }
 }

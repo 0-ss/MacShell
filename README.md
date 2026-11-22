@@ -111,6 +111,7 @@ The two are installed as **separate** Quickshell configs (neither lives inside t
 | `WidgetVisual.qml` | Draws one widget; shared by the desktop layer and the Liquid Glass backdrop, so menus refract the widgets too. |
 | `WeatherWidget.qml`, `WeatherIcon.qml`, `WeatherHourCol.qml`, `CalendarWidget.qml`, `ClockWidget.qml`, `PlayerWidget.qml`, `PlayerArt.qml`, `PlayerBtn.qml`, `PlayerGlyph.qml`, `ImageWidget.qml`, `MarqueeText.qml` | The widgets and their helpers (`ImageWidget.qml` shows a picture of your choice). |
 | `SPopUp.qml`, `Dissolve.qml`, `MorphText.qml`, `MorphGlyph.qml`, `WGlyph.qml`, `ClockGlyph.qml`, `Wheel.qml` | Shared UI pieces and effects. |
+| `IconClass.qml`, `iconclip.frag`, `iconrim.frag` | The Dock's unified icon grid: icon classification and the shape and edge shaders. |
 | `liquidglass.frag` (+ `contourglow`, `tintcard`, `dust`, `burn`, `fade`) | Shaders. Prebuilt `.frag.qsb` files ship next to them; `liquidglass.frag` is recompiled with `qsb` on first run. |
 | `EmojiData.js` | Emoji fallback data for Spotlight (from [gemoji](https://github.com/github/gemoji), MIT). |
 | `macshell-update` | Update tool (installed to `~/.local/bin`, see [Updating](#updating)). The installer also writes `macshell-start`, the script the Hyprland autostart runs. |
@@ -215,8 +216,8 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
    `yay` for you) or the Fedora COPR. It also enables the `bluetooth` service, which Bluetooth needs.
    `bash install.sh --deps-only` does just this step.
    Hyprland 0.55+ with a Lua config may need a newer package than your distro ships, so check `hyprctl version`.
-   Debian/Ubuntu have no `quickshell` / `hyprland` packages: build those from source.
-2. Run the installer a clone:
+   Debian 13 has `quickshell` and `hyprland` in `trixie-backports` (see [docs/DEBIAN.md](docs/DEBIAN.md)); on Ubuntu build them from source.
+2. Run the installer from a clone:
    ```sh
    git clone https://github.com/0-ss/MacShell
    cd MacShell
@@ -257,6 +258,7 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 | `--no-services` | Don't enable system services (bluetooth, NetworkManager, power-profiles-daemon, PipeWire). |
 | `--no-autostart` | Don't touch the Hyprland config. |
 | `--no-rules` | Don't add the Liquid Glass layer rules to the Hyprland config. |
+| `--no-float` | Don't make all windows float by default. The choice is saved, so updates keep it. |
 | `--channel release\|main` | `release` (default): latest release, or the newest commit if there are none. `main`: always the newest commit. |
 | `--no-lock` | Install MacShell only, without MacLock. |
 | `--check` | Only check for a newer version (exit 0 = up to date, 10 = update available). |
@@ -395,12 +397,12 @@ original colours. It needs no shader build and no extra packages.
 
 ## Desktop widgets
 
-Settings → General → Desktop Widgets. Weather, Calendar, Clock, Player and **Image** widgets, each in Small, Medium
-and Large. **Widget size** scales every widget and the grid together (60 % to 150 %); widgets snap back onto the
+Settings → General → Desktop Widgets. Weather, Calendar, Clock, Player, Image, animated GIF/WebP, System Monitor
+and Reminders are available in Small, Medium and Large. **Widget size** scales every widget and the grid together (60 % to 150 %); widgets snap back onto the
 grid when you let go of the slider.
 
 An Image widget shows a picture you choose: press **+ S / M / L** on the Image row and pick a file (needs `zenity`,
-`kdialog` or `yad`). The picture is copied to `~/.config/macwidgets/images`, so it keeps working if the original
+`kdialog` or `yad`). Image and GIF/WebP files are copied to `~/.config/macwidgets/images`, so the widget keeps working if the original
 moves. To change it later use **Edit on Desktop** and press **Choose Image…** on the widget.
 
 ## Wallpaper
