@@ -43,14 +43,169 @@ ShellRoot {
         property var desktop: desktopIcons
         property var clock: clockApp
         property var about: aboutApp
+        property var decor: windowDecor
+        property var minimizeFx: minimizeFxObj
         function openSettings(pane) { macDock.openPrefs(pane); }
 
-        // set by MacBar / MacDock (Binding elements) when their glass needs live data
+        // set by MacBar / MacDock / WindowDecor (Binding elements) when they need live window geometry
         property bool barWantsGeo: false
         property bool dockWantsGeo: false
+        property bool decorWantsGeo: false
         property bool barWantsWallpaper: false
         property bool dockWantsWallpaper: false
         property bool widgetsWantWallpaper: false
+
+        // ── built-in MinimizeFx (Genie / Fade / Instant) state and helpers ──
+        property var minimizedInfo: ({})
+        property var minimizedOrder: []
+        property var pendingMinimize: ({})
+        function normAddr(addr) {
+            var s = String(addr || "").replace(/^0x/i, "").trim().toLowerCase();
+            return s ? ("0x" + s) : "";
+        }
+        function isMinimizedClient(o) {
+            return !!(o && o.workspace && String(o.workspace.name || "") === "special:minimized");
+        }
+        function findToplevel(addr) {
+            var want = normAddr(addr);
+            var ts = Hyprland.toplevels.values;
+            for (var i = 0; i < ts.length; i++) {
+                var o = ts[i].lastIpcObject || {};
+                var a = normAddr(o.address || ts[i].address);
+                if (want !== "") {
+                    if (a === want) return { tl: ts[i], ipc: o, addr: a };
+                } else if (o.focusHistoryID === 0 || (ts[i].wayland && ts[i].wayland.activated)) {
+                    return { tl: ts[i], ipc: o, addr: a };
+                }
+            }
+            return null;
+        }
+        function monitorByIdOrName(idOrName) {
+            var ms = monData && monData.length ? monData : [];
+            for (var i = 0; i < ms.length; i++) {
+                if (ms[i].id === idOrName || ms[i].name === idOrName) return ms[i];
+            }
+            var hms = Hyprland.monitors.values;
+            for (var j = 0; j < hms.length; j++) {
+                var m = hms[j].lastIpcObject;
+                if (m && (m.id === idOrName || m.name === idOrName)) return m;
+            }
+            return hms.length > 0 ? hms[0].lastIpcObject : (ms.length > 0 ? ms[0] : null);
+        }
+        function dockTargetRect(mon, appId) {
+            var name = mon ? mon.name : "";
+            var r = (dock && dock.iconRectFor && name !== "") ? dock.iconRectFor(name, appId) : null;
+            if (r && r.width > 0 && r.height > 0) return r;
+            var mx = mon ? mon.x : 0, my = mon ? mon.y : 0, mw = mon ? mon.width : 1920, mh = mon ? mon.height : 1080;
+            return { x: mx + mw / 2 - 26, y: my + mh - 64, width: 52, height: 52 };
+        }
+        function minimizeWindow(addr) {
+            var hit = findToplevel(addr);
+            var norm = hit ? hit.addr : normAddr(addr);
+            if (!hit || !hit.ipc || !hit.ipc.at || !hit.ipc.size) {
+                var sel = norm ? (', window = "address:' + norm + '"') : "";
+                Hyprland.dispatch('hl.dsp.window.move({ workspace = "special:minimized", follow = false' + sel + ' })');
+                return;
+            }
+            var o = hit.ipc;
+            if (isMinimizedClient(o) || pendingMinimize[norm]) return;
+            var m = monitorByIdOrName(o.monitor);
+            var monName = m ? m.name : "";
+            var winRect = { x: o.at[0], y: o.at[1], width: o.size[0], height: o.size[1] };
+            var appId = String(o["class"] || (hit.tl.wayland ? hit.tl.wayland.appId : "") || "");
+            var wsId = (o.workspace && o.workspace.id > 0) ? o.workspace.id : (m && m.activeWorkspace ? m.activeWorkspace.id : 1);
+            var info = {};
+            for (var k in minimizedInfo) info[k] = minimizedInfo[k];
+            info[norm] = { ws: wsId, mon: monName, win: winRect, appId: appId };
+            minimizedInfo = info;
+            minimizedOrder = minimizedOrder.filter(function (x) { return x !== norm; }).concat([norm]);
+            var target = dockTargetRect(m, appId);
+            var moveCmd = 'hl.dsp.window.move({ workspace = "special:minimized", follow = false, window = "address:' + norm + '" })';
+            if (minimizeFx && monName !== "" && hit.tl.wayland) {
+                var minJob = {
+                    screen: monName, tl: hit.tl.wayland, win: winRect, target: target, reverse: false,
+                    before: function () {
+                        if (pendingMinimize[norm] === minJob) delete pendingMinimize[norm];
+                        Hyprland.dispatch(moveCmd);
+                    },
+                    after: null
+                };
+                pendingMinimize[norm] = minJob;
+                minimizeFx.play(minJob);
+            } else {
+                Hyprland.dispatch(moveCmd);
+            }
+        }
+        function restoreWindow(addr) {
+            var norm = normAddr(addr);
+            if (!norm) return false;
+            var pend = pendingMinimize[norm];
+            if (pend) {
+                delete pendingMinimize[norm];
+                if (minimizeFx && minimizeFx.cancel && minimizeFx.cancel(pend)) {
+                    var cinfo = {};
+                    for (var pk in minimizedInfo) if (pk !== norm) cinfo[pk] = minimizedInfo[pk];
+                    minimizedInfo = cinfo;
+                    minimizedOrder = minimizedOrder.filter(function (x) { return x !== norm; });
+                    Hyprland.dispatch('hl.dsp.focus({ window = "address:' + norm + '" })');
+                    return true;
+                }
+            }
+            var hit = findToplevel(norm);
+            var saved = minimizedInfo[norm];
+            if (!hit || !isMinimizedClient(hit.ipc)) {
+                if (saved) {
+                    var clean = {};
+                    for (var ck in minimizedInfo) if (ck !== norm) clean[ck] = minimizedInfo[ck];
+                    minimizedInfo = clean;
+                    minimizedOrder = minimizedOrder.filter(function (x) { return x !== norm; });
+                }
+                return false;
+            }
+            var o = hit.ipc;
+            var m = monitorByIdOrName((saved && saved.mon) ? saved.mon : o.monitor);
+            var monName = m ? m.name : "";
+            var destWs = (saved && saved.ws > 0) ? saved.ws : (m && m.activeWorkspace && m.activeWorkspace.id > 0 ? m.activeWorkspace.id : 1);
+            var winRect = (saved && saved.win) ? saved.win : ((o && o.at && o.size) ? { x: o.at[0], y: o.at[1], width: o.size[0], height: o.size[1] } : null);
+            var appId = (saved && saved.appId) ? saved.appId : String(o["class"] || "");
+            var target = dockTargetRect(m, appId);
+            var info = {};
+            for (var k in minimizedInfo) if (k !== norm) info[k] = minimizedInfo[k];
+            minimizedInfo = info;
+            minimizedOrder = minimizedOrder.filter(function (x) { return x !== norm; });
+            var finishRestore = function () {
+                Hyprland.dispatch('hl.dsp.window.move({ workspace = "' + destWs + '", follow = false, window = "address:' + norm + '" })');
+                Hyprland.dispatch('hl.dsp.focus({ window = "address:' + norm + '" })');
+            };
+            if (minimizeFx && monName !== "" && winRect && hit.tl.wayland) {
+                minimizeFx.play({
+                    screen: monName, tl: hit.tl.wayland, win: winRect, target: target, reverse: true,
+                    before: null,
+                    after: finishRestore
+                });
+            } else {
+                finishRestore();
+            }
+            return true;
+        }
+        function hasMinimizedRecord(addr) {
+            var norm = normAddr(addr);
+            return norm !== "" && minimizedInfo[norm] !== undefined;
+        }
+        function restoreLastMinimized() {
+            while (minimizedOrder.length > 0) {
+                var lenBefore = minimizedOrder.length;
+                var last = minimizedOrder[lenBefore - 1];
+                if (restoreWindow(last)) return true;
+                if (minimizedOrder.length >= lenBefore) minimizedOrder = minimizedOrder.slice(0, lenBefore - 1);
+            }
+            var ts = Hyprland.toplevels.values;
+            for (var i = ts.length - 1; i >= 0; i--) {
+                var o = ts[i].lastIpcObject;
+                if (isMinimizedClient(o)) return restoreWindow(o.address || ts[i].address);
+            }
+            return false;
+        }
 
         // ── screen recording / screen sharing: the window captures sit out ──
         // A recorder (wf-recorder, a screen share) and the glass's live ScreencopyViews all pull frames from Hyprland at the same
@@ -163,7 +318,10 @@ ShellRoot {
         property bool geoHot: true
         property string lastActive: ""
         property string geoLast: ""
+        property string decorLast: ""
         Timer { id: geoCool; interval: 1500; onTriggered: sharedHub.geoHot = false }
+        // Relaxed one-shot refresh for WindowDecor title / focus updates without waking 60 Hz geometry polling
+        Timer { id: decorSync; interval: 40; onTriggered: { if (sharedHub.ipcOk && !sharedHub.ipcBroken) sharedHub.ipcPoll(); else if (sharedHub.decorWantsGeo && !geoProc.running) geoProc.running = true; } }
         Connections {
             target: Hyprland
             function onRawEvent(event) {
@@ -174,10 +332,29 @@ ShellRoot {
                     cw[a] = true;
                     sharedHub.closingWins = cw;
                     closingForget.restart();
+                    var na = sharedHub.normAddr(a);
+                    if (na) {
+                        if (sharedHub.pendingMinimize[na]) {
+                            if (sharedHub.minimizeFx && sharedHub.minimizeFx.cancel) sharedHub.minimizeFx.cancel(sharedHub.pendingMinimize[na]);
+                            delete sharedHub.pendingMinimize[na];
+                        }
+                        if (sharedHub.minimizedInfo[na]) {
+                            var mi = {};
+                            for (var mk in sharedHub.minimizedInfo) if (mk !== na) mi[mk] = sharedHub.minimizedInfo[mk];
+                            sharedHub.minimizedInfo = mi;
+                            sharedHub.minimizedOrder = sharedHub.minimizedOrder.filter(function (x) { return x !== na; });
+                        }
+                    }
                 }
                 // titles changing (terminals, browsers, players do it all the time) move nothing on screen
                 var en = event.name;
-                if (en === "windowtitle" || en === "windowtitlev2" || en === "activewindow") return;
+                if (en === "windowtitle" || en === "windowtitlev2" || en === "activewindow") {
+                    if (sharedHub.decorWantsGeo) {
+                        try { Hyprland.refreshToplevels(); } catch (err) { }
+                        decorSync.restart();
+                    }
+                    return;
+                }
                 // our own window previews / screen captures announce themselves as "screencast": not a change
                 if (en === "screencast" || en === "screencastv2") return;
                 // workspace switch, window moved to another workspace / monitor, fullscreen, float toggle, special workspace:
@@ -189,7 +366,16 @@ ShellRoot {
                     if (en.indexOf("workspace") >= 0 || en.indexOf("focusedmon") === 0) wpKick.restart();   // per-workspace wallpapers
                 }
                 // focus only matters when it moves to ANOTHER window (titles changing re-send the same one)
-                if (en === "activewindowv2") { if (event.data === sharedHub.lastActive) return; sharedHub.lastActive = event.data; }
+                if (en === "activewindowv2") {
+                    if (event.data === sharedHub.lastActive) return;
+                    sharedHub.lastActive = event.data;
+                    tlDebounce.restart();
+                    if (sharedHub.decorWantsGeo) {
+                        try { Hyprland.refreshToplevels(); } catch (err) { }
+                        decorSync.restart();
+                    }
+                    return;
+                }
                 sharedHub.geoHot = true; geoCool.restart(); tlDebounce.restart();
             }
         }
@@ -240,7 +426,7 @@ ShellRoot {
         Timer {
             interval: sharedHub.geoHot ? 90 : 250
             repeat: true
-            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo) && !sharedHub.ipcOk
+            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo || sharedHub.decorWantsGeo) && !sharedHub.ipcOk
             triggeredOnStart: true
             onTriggered: if (!geoProc.running) geoProc.running = true
         }
@@ -268,7 +454,7 @@ ShellRoot {
             // fingerprint the GEOMETRY only: a window retitling itself (a terminal, a browser tab, a player) is no
             // reason to wake the 60 Hz path — that kept it hot (and the main thread busy) the whole time.
             // A plain string (no JSON.stringify of nested arrays): this runs up to 60 times a second.
-            var key = "", j, c, at, sz;
+            var key = "", decorKey = "", j, c, at, sz;
             for (j = 0; j < mo.length; j++) {
                 m = mo[j];
                 key += m.name + "," + m.x + "," + m.y + "," + m.width + "," + m.height + "," + m.scale + ","
@@ -280,9 +466,17 @@ ShellRoot {
                 key += c.address + "," + (at ? at[0] + "," + at[1] : "") + "," + (sz ? sz[0] + "," + sz[1] : "") + ","
                      + (c.workspace ? c.workspace.id : 0) + "," + c.monitor + "," + (c.floating ? 1 : 0) + "," + c.fullscreen + ","
                      + (c.mapped ? 1 : 0) + (c.hidden ? 1 : 0) + ";";
+                if (decorWantsGeo) decorKey += c.address + "," + c.focusHistoryID + "," + (c.title || "") + ";";
             }
-            if (key === geoLast) return;
+            if (key === geoLast) {
+                if (decorWantsGeo && decorKey !== decorLast) {
+                    decorLast = decorKey;
+                    glassClients = cl;
+                }
+                return;
+            }
             geoLast = key;
+            decorLast = decorKey;
             geoHot = true; geoCool.restart();
             monData = mo;
             glassClients = cl;
@@ -307,7 +501,7 @@ ShellRoot {
             // fast (60 Hz) for 1.5 s after any window event, otherwise a relaxed 2.5 Hz check (idle CPU)
             interval: sharedHub.geoHot ? 16 : 400
             repeat: true
-            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo) && !sharedHub.ipcBroken
+            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo || sharedHub.decorWantsGeo) && !sharedHub.ipcBroken
             triggeredOnStart: true
             onTriggered: sharedHub.ipcPoll()
         }
@@ -371,6 +565,8 @@ ShellRoot {
     // The Settings toggle governs the app; a manual components.json override wins when present.
     ClockApp { id: clockApp; hub: sharedHub; appEnabled: clockApp.manualOverride ? clockApp.manualVal : macBar.clockAppEnabled }
     AboutApp { id: aboutApp; hub: sharedHub }
+    WindowDecor { id: windowDecor; hub: sharedHub }
+    MinimizeFx { id: minimizeFxObj; hub: sharedHub; effect: macDock.minimizeEffect; speed: macDock.minimizeSpeed }
 
     Component.onCompleted: {
         sharedHub.bar = macBar;
@@ -430,5 +626,18 @@ ShellRoot {
         function open(): void { macBar.hubPopRequest("open"); }
         function close(): void { macBar.hubPopRequest("close"); }
         function eq(open: bool): void { macBar.earbudsEqExpanded = open; }
+    }
+    // qs -c MacShell ipc call windecor toggle | on | off
+    IpcHandler {
+        target: "windecor"
+        function toggle(): void { windowDecor.enabled = !windowDecor.enabled; }
+        function on(): void { windowDecor.enabled = true; }
+        function off(): void { windowDecor.enabled = false; }
+    }
+    // qs -c MacShell ipc call minimize active | restoreLast
+    IpcHandler {
+        target: "minimize"
+        function active(): void { sharedHub.minimizeWindow(""); }
+        function restoreLast(): void { sharedHub.restoreLastMinimized(); }
     }
 }

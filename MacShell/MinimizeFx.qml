@@ -30,11 +30,35 @@ Scope {
         winRect = j.winFn ? j.winFn() : j.win;
         targetRect = j.targetFn ? j.targetFn() : j.target;
     }
+    function runBefore(j) {
+        if (j && j.before && !j._beforeDone) {
+            j._beforeDone = true;
+            j.before();
+        }
+    }
+    function runAfter(j) {
+        if (j && j.after && !j._afterDone) {
+            j._afterDone = true;
+            j.after();
+        }
+    }
+    function cancel(j) {
+        if (!j || job !== j || j._beforeDone) return false;
+        anim.stop();
+        captureWait.stop();
+        handoverAnim.stop();
+        job = null;
+        captured = false;
+        handover = 1;
+        return true;
+    }
     function play(j) {
-        if (busy) { finish(); }
+        if (busy) { finish(true); }
+        handoverAnim.stop();
+        handover = 1;
         if (effect === "instant" || !j.tl) {
-            if (j.before) j.before();
-            if (j.after) j.after();
+            runBefore(j);
+            runAfter(j);
             return;
         }
         rectsFrom(j);
@@ -48,25 +72,31 @@ Scope {
         console.log("[minimize] no capture in time, doing it without the effect");
         var j = job;
         job = null;
-        if (j && j.before) j.before();
-        if (j && j.after) j.after();
+        runBefore(j);
+        runAfter(j);
     }
     // the overlay's own fade, used to hand a restored window over to the real one without a double image
     property real handover: 1
-    function finish() {
+    function finish(immediate) {
         anim.stop();
         captureWait.stop();
+        if (handoverAnim.running) {
+            handoverAnim.stop();
+            job = null;
+            handover = 1;
+            return;
+        }
         var j = job;
-        if (j && j.reverse && effect !== "instant") {
+        runBefore(j);
+        if (!immediate && j && j.reverse && effect !== "instant") {
             // put the real window back first, then let the copy fade off it
-            if (j.after) j.after();
-            j.after = null;
+            runAfter(j);
             handoverAnim.restart();
             return;
         }
         job = null;
         handover = 1;
-        if (j && j.after) j.after();
+        runAfter(j);
     }
     NumberAnimation {
         id: handoverAnim
@@ -76,7 +106,7 @@ Scope {
     function start() {
         if (!job) return;
         rectsFrom(job);
-        if (job.before) job.before();
+        runBefore(job);
         anim.from = job.reverse ? 1 : 0;
         anim.to = job.reverse ? 0 : 1;
         anim.duration = effect === "fade" ? fadeMs : genieMs;
@@ -117,19 +147,28 @@ Scope {
             readonly property real ox: modelData.x
             readonly property real oy: modelData.y
 
-            ScreencopyView {
+            SafeCapture {
                 id: cap
                 width: Math.max(1, ow.w.width)
                 height: Math.max(1, ow.w.height)
-                captureSource: ow.mine ? fx.job.tl : null
-                live: false
+                want: ow.mine ? fx.job.tl : null
+                wantLive: false
+                hold: true
+                graceMs: 250
                 visible: false
-                onHasContentChanged: {
-                    if (hasContent && ow.mine && fx.job && !fx.captured) {
+                function checkReady() {
+                    if (hasContent && ow.mine && fx.job && held === fx.job.tl && !fx.captured) {
                         fx.captured = true;
                         captureWait.stop();
                         fx.start();
                     }
+                }
+                onHasContentChanged: checkReady()
+                onHeldChanged: checkReady()
+                onWantChanged: Qt.callLater(checkReady)
+                Connections {
+                    target: fx
+                    function onJobChanged() { Qt.callLater(cap.checkReady); }
                 }
             }
             ShaderEffectSource { id: capTex; sourceItem: cap; hideSource: true; visible: false; live: true; smooth: true }

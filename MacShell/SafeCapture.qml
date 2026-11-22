@@ -57,7 +57,7 @@ ScreencopyView {
     function log(m) { if (dbg) console.log("[capture " + (held ? "held" : "free") + " " + Math.round(width) + "x" + Math.round(height) + "] " + m); }
 
     captureSource: held
-    live: (wantLive || pulse) && !reviving && !dead && want !== null && held !== null
+    live: (wantLive || pulse) && !reviving && !dead && want !== null && held === want
 
     // one frame, only when it is safe. Never calls captureFrame() directly, so it can never warn.
     function snap() {
@@ -145,6 +145,7 @@ ScreencopyView {
     function attach() {
         if (want === null) return;
         var d = Gate.slotDelay();
+        if (held !== null && held !== want && !hadContent && !ended) d = Math.max(d, graceMs);
         if (d <= 0) { held = want; return; }
         attachT.interval = d;
         attachT.restart();

@@ -217,6 +217,8 @@ Scope {
     property bool bounceOnLaunch: true
     property bool showThumbs: true       // open windows get a live preview cell next to the Trash
     property bool windowCapture: true    // live window capture for those previews (off: the cells show the app icon, nothing is captured). Liquid Glass is not affected
+    property string minimizeEffect: "genie" // genie | fade | instant (built-in MinimizeFx)
+    property real minimizeSpeed: 0.42       // Genie duration in seconds (0.2 .. 1.2)
     property int hideDelay: 450          // ms before the dock hides after the pointer leaves
     readonly property var accentChoices: [
         { name: "Blue",     c: "#0a84ff" }, { name: "Purple", c: "#bf5af2" },
@@ -654,7 +656,7 @@ Scope {
         { id: "displays",   sec: 2, name: "Displays",        wg: "sun",        c1: "#3D9BFF", c2: "#0A6CFF", keys: "brightness night shift monitor resolution refresh scale" },
         { id: "battery",    sec: 2, name: "Battery",         wg: "bolt",       c1: "#4CD964", c2: "#28A745", keys: "power energy charge profile performance game mode gaming fullscreen" },
         // 3 · Desktop
-        { id: "dock",       sec: 3, name: "Desktop & Dock",  glyph: "dock",     c1: "#2C2C2E", c2: "#1C1C1E", keys: "size icon magnification zoom spacing margin distance corner radius round square edge hide auto labels indicators bounce trash monitor preview app switcher alt tab" },
+        { id: "dock",       sec: 3, name: "Desktop & Dock",  glyph: "dock",     c1: "#2C2C2E", c2: "#1C1C1E", keys: "size icon magnification zoom spacing margin distance corner radius round square edge hide auto labels indicators bounce trash monitor preview app switcher alt tab titlebar titlebars traffic lights minimize genie animation" },
         { id: "menubar",    sec: 3, name: "Menu Bar",        glyph: "menubar",  c1: "#3D9BFF", c2: "#0A6CFF", keys: "panel bar height clock date seconds 24 hour battery tray search spotlight week monday style liquid bluetooth screenshots" },
         { id: "controlcenter", sec: 3, name: "Control Center", wg: "cc",       c1: "#8E8E93", c2: "#636366", keys: "modules tiles controls" },
         { id: "widgets",    sec: 3, name: "Widgets",         glyph: "widgets",  c1: "#FF9F0A", c2: "#FF7A00", keys: "desktop widgets weather clock calendar player image photo gif sysmon reminders batteries notes photos alarms stocks add remove arrange edit size temperature fahrenheit celsius city location" },
@@ -2535,6 +2537,56 @@ Scope {
                         SSwitch { t: pal; checked: root.showTrash; onToggled: v => root.showTrash = v }
                     }
                 }
+
+                SLabel { t: pal; header: true; text: I18n.tr("Windows") }
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("macOS window titlebars")
+                        subtitle: I18n.tr("Draw traffic-light titlebars and outlines on Hyprland windows")
+                        SSwitch {
+                            t: pal
+                            checked: root.hub && root.hub.decor ? root.hub.decor.enabled : false
+                            onToggled: v => { if (root.hub && root.hub.decor) root.hub.decor.enabled = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: root.hub && root.hub.decor && root.hub.decor.enabled
+                        title: I18n.tr("Show window title")
+                        SSwitch {
+                            t: pal
+                            checked: root.hub && root.hub.decor ? root.hub.decor.showTitle : true
+                            onToggled: v => { if (root.hub && root.hub.decor) root.hub.decor.showTitle = v; }
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Minimize effect")
+                        subtitle: I18n.tr("Animation when minimizing or restoring windows to the Dock")
+                        SSegmented {
+                            t: pal
+                            model: [I18n.tr("Genie"), I18n.tr("Fade"), I18n.tr("Instant")]
+                            segWidth: 72
+                            current: Math.max(0, ["genie", "fade", "instant"].indexOf(root.minimizeEffect))
+                            onPicked: i => root.minimizeEffect = ["genie", "fade", "instant"][i]
+                        }
+                    }
+                    SRow {
+                        t: pal
+                        visible: root.minimizeEffect === "genie"
+                        title: I18n.tr("Genie speed")
+                        SSlider {
+                            t: pal
+                            from: 0.2; to: 1.2; stepSize: 0.02
+                            value: root.minimizeSpeed
+                            leftLabel: I18n.tr("Fast"); rightLabel: I18n.tr("Slow")
+                            resetValue: 0.42
+                            onMoved: v => root.minimizeSpeed = Math.round(v * 100) / 100
+                        }
+                    }
+                }
             }
         }
 
@@ -4351,12 +4403,15 @@ Scope {
         iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
         showTrash = true; showLabels = true; showIndicators = true; showRunningApps = true; iconTile = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
+        minimizeEffect = "genie"; minimizeSpeed = 0.42;
+        if (hub && hub.decor) { hub.decor.enabled = false; hub.decor.showTitle = true; }
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, settingsEnabled, desktopIcons, desktopIconSize, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, appearanceMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
-        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength, showRunningApps, iconTile].join("|")
+        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength, showRunningApps, iconTile,
+        minimizeEffect, minimizeSpeed].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
     onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
@@ -4373,7 +4428,8 @@ Scope {
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
             showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators, showRunningApps: showRunningApps, iconTile: iconTile,
             bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture, glassLive: glassLive,
-            iconTint: iconTint, iconTintColor: iconTintColor, iconTintStrength: iconTintStrength
+            iconTint: iconTint, iconTintColor: iconTintColor, iconTintStrength: iconTintStrength,
+            minimizeEffect: minimizeEffect, minimizeSpeed: minimizeSpeed
         };
         settingsStore.setText(JSON.stringify(o, null, 2));
     }
@@ -4382,7 +4438,8 @@ Scope {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "settingsEnabled", "desktopIcons", "desktopIconSize", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "appearanceMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
-                    "showTrash", "showLabels", "showIndicators", "showRunningApps", "iconTile", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
+                    "showTrash", "showLabels", "showIndicators", "showRunningApps", "iconTile", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength",
+                    "minimizeEffect", "minimizeSpeed"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
             try { root[keys[i]] = o[keys[i]]; } catch (err) { }
@@ -4582,8 +4639,26 @@ Scope {
         return true;
     }
 
+    function iconRectFor(screenName, appId) {
+        var p = trashProbes[screenName];
+        if (!p || typeof p.iconRect !== "function") return null;
+        return p.iconRect(appId);
+    }
+    function restoreNativeTracked(tl) {
+        if (!tl || !hub || !hub.hasMinimizedRecord || !hub.restoreWindow) return false;
+        var a = genieAddr(tl);
+        return a !== "" && hub.hasMinimizedRecord(a) && hub.restoreWindow(a);
+    }
+    function restoreIfMinimized(tl) {
+        if (!tl || !hub || !hub.restoreWindow) return false;
+        var a = genieAddr(tl);
+        return a !== "" && hub.restoreWindow(a);
+    }
     function activate(item, forceNew) {
-        if (item.kind === "win") { if (item.tl && !genieDock(item.tl, [item.tl])) item.tl.activate(); return; }
+        if (item.kind === "win") {
+            if (item.tl && !restoreNativeTracked(item.tl) && !genieDock(item.tl, [item.tl]) && !restoreIfMinimized(item.tl)) item.tl.activate();
+            return;
+        }
         if (item.special === "apps") { if (bar) bar.spotOpen("apps"); return; }
         if (item.special === "trash") {
             // the file manager first (Dolphin understands trash:/ natively); xdg-open only as the last resort
@@ -4598,7 +4673,7 @@ Scope {
             var idx = -1;
             for (var i = 0; i < wins.length; i++) if (wins[i].activated) idx = i;
             var chosen = wins[(idx + 1) % wins.length];
-            if (!genieDock(chosen, wins)) chosen.activate();
+            if (!restoreNativeTracked(chosen) && !genieDock(chosen, wins) && !restoreIfMinimized(chosen)) chosen.activate();
             return;
         }
         if (item.entry || item.key) {
@@ -5228,6 +5303,23 @@ Scope {
                 Timer { id: genieRectsTimer; interval: 300; onTriggered: ui.genieWriteRects() }
                 Connections { target: row; function onWidthChanged() { genieRectsTimer.restart(); } function onXChanged() { genieRectsTimer.restart(); } }
                 Connections { target: root; function onItemsChanged() { genieRectsTimer.restart(); } }
+                function iconRect(appId) {
+                    var want = String(appId || "").toLowerCase();
+                    var wantKey = want !== "" ? root.keyOf(appId) : "";
+                    var top = win.modelData.y + win.modelData.height - win.height;
+                    for (var i = 0; i < rep.count; i++) {
+                        var c = rep.itemAt(i);
+                        if (!c || c.isSep || c.modelData.kind !== "app") continue;
+                        var k = String(c.modelData.key || "").toLowerCase();
+                        var aid = String(c.modelData.appId || "").toLowerCase();
+                        if ((want !== "" && (k === want || aid === want)) || (wantKey !== "" && k === wantKey)) {
+                            var icon = c.iconImg;
+                            var p = icon.mapToItem(null, 0, 0);
+                            return { x: Math.round(win.modelData.x + p.x), y: Math.round(top + p.y), width: Math.round(icon.width), height: Math.round(icon.height) };
+                        }
+                    }
+                    return null;
+                }
                 function genieWriteRects() {
                     if (!genieProbe.loaded) return;
                     var map = {};

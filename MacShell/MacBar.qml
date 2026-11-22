@@ -4600,7 +4600,10 @@ Scope {
                 m.push(mchk("Dark Mode", "", root.darkMode, function () { root.setAppearance(root.darkMode ? "light" : "dark"); }));
             } else if (name === "window") {
                 if (has) {
-                    m.push(mi("Minimize", "", disp('hl.dsp.window.move({ workspace = "special:minimized", follow = false })')));
+                    m.push(mi("Minimize", "", function () {
+                        if (hub && hub.minimizeWindow) hub.minimizeWindow(aw ? aw.address : "");
+                        else disp('hl.dsp.window.move({ workspace = "special:minimized", follow = false })')();
+                    }));
                     m.push(mchk("Zoom", "", fsMode === 1, disp('hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })')));
                     m.push(mi(floating ? "Tile Window" : "Float Window", "", disp('hl.dsp.window.float({ action = "toggle" })')));
                     m.push(msep());

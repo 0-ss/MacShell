@@ -33,12 +33,13 @@ Scope {
     readonly property string fam: dock ? dock.fontFamily : "Open Runde"
 
     // ── settings ──
-    property bool enabled: true
+    property bool enabled: false
     property bool showTitle: true
     property int radius: 10                       // window corner radius (macOS: 10)
     property var excludeClasses: ["org.quickshell", "quickshell"]
     readonly property int barH: 28                // macOS titlebar height
     property bool ready: false
+    Component.onDestruction: if (enabled) restoreProps()
 
     FileView {
         id: store
@@ -177,7 +178,10 @@ Scope {
         var go = function () { Hyprland.dispatch('hl.dsp.window.close({ ' + sel(addr) + ' })'); };
         if (hub && hub.closeQuietly) hub.closeQuietly(go); else go();     // live captures pause for a moment first (no frame in flight when the window goes)
     }
-    function minimizeWin(addr) { Hyprland.dispatch('hl.dsp.window.move({ workspace = "special:minimized", follow = false, ' + sel(addr) + ' })'); }
+    function minimizeWin(addr) {
+        if (hub && hub.minimizeWindow) hub.minimizeWindow(addr);
+        else Hyprland.dispatch('hl.dsp.window.move({ workspace = "special:minimized", follow = false, ' + sel(addr) + ' })');
+    }
     function zoomWin(addr, alt) {
         if (alt) Hyprland.dispatch('hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle", ' + sel(addr) + ' })');
         else Hyprland.dispatch('hl.dsp.window.fullscreen_state({ internal = 2, client = 0, ' + sel(addr) + ' })');
@@ -314,6 +318,7 @@ Scope {
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
+                        textFormat: Text.PlainText
                         text: m ? m.title : ""
                         color: deco.active ? (root.darkMode ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(0, 0, 0, 0.85))
                                            : (root.darkMode ? Qt.rgba(1, 1, 1, 0.45) : Qt.rgba(0, 0, 0, 0.42))
