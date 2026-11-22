@@ -24,6 +24,7 @@
   <a href="#updating">Updating</a> ·
   <a href="#hyprland-configuration-lua">Hyprland config</a> ·
   <a href="#maclock">MacLock</a> ·
+  <a href="ROADMAP.md">Roadmap</a> ·
   <a href="#troubleshooting">Troubleshooting</a>
 </p>
 
