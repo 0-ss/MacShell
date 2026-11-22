@@ -9,14 +9,19 @@ import sys
 import os
 import re
 import json
+import hashlib
+import tempfile
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
 
+VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+
 class GeniusLyricsParser(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.in_lyrics_container = 0
+        self.container_depth = 0
+        self.skip_depth = 0
         self.lyrics_parts = []
         self.ignore_tags = {"script", "style", "header", "nav", "footer"}
         self.current_ignore = 0
@@ -26,23 +31,40 @@ class GeniusLyricsParser(HTMLParser):
         if tag in self.ignore_tags:
             self.current_ignore += 1
             return
-        if attr_dict.get("data-lyrics-container") == "true" or "Lyrics__Container" in attr_dict.get("class", ""):
-            self.in_lyrics_container += 1
-        elif self.in_lyrics_container > 0 and tag in ("br", "p", "div"):
+        if self.container_depth == 0:
+            if tag not in VOID_TAGS and (attr_dict.get("data-lyrics-container") == "true"
+                                         or "Lyrics__Container" in (attr_dict.get("class") or "")):
+                self.container_depth = 1
+                if self.lyrics_parts:
+                    self.lyrics_parts.append("\n")
+            return
+        if tag == "br":
+            if self.skip_depth == 0:
+                self.lyrics_parts.append("\n")
+            return
+        if tag in VOID_TAGS:
+            return
+        self.container_depth += 1
+        # Genius embeds a header (contributors, "Read More") inside the lyrics container
+        if self.skip_depth > 0 or attr_dict.get("data-exclude-from-selection") == "true":
+            self.skip_depth += 1
+        elif tag in ("p", "div"):
             self.lyrics_parts.append("\n")
 
     def handle_endtag(self, tag):
         if tag in self.ignore_tags:
             self.current_ignore = max(0, self.current_ignore - 1)
             return
-        if self.in_lyrics_container > 0:
-            if tag in ("p", "div"):
-                self.lyrics_parts.append("\n")
+        if tag in VOID_TAGS or self.container_depth == 0:
+            return
+        if self.skip_depth > 0:
+            self.skip_depth -= 1
+        elif tag in ("p", "div"):
+            self.lyrics_parts.append("\n")
+        self.container_depth -= 1
 
     def handle_data(self, data):
-        if self.current_ignore > 0:
-            return
-        if self.in_lyrics_container > 0:
+        if self.current_ignore == 0 and self.container_depth > 0 and self.skip_depth == 0:
             self.lyrics_parts.append(data)
 
     def get_lyrics(self):
@@ -64,9 +86,14 @@ def clean_title(title):
     t = re.sub(r' - .*$', '', t)
     return t.strip()
 
+def cache_key_for(artist, title):
+    # hashed so non-Latin titles (Japanese, Cyrillic, ...) do not collapse onto one file
+    raw = f"{artist.strip().casefold()}\0{title.strip().casefold()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
 def fetch_genius_lyrics(artist, title, cache_dir):
     os.makedirs(cache_dir, exist_ok=True)
-    cache_key = re.sub(r'[^a-zA-Z0-9]', '_', f"{artist}_{title}".lower())[:32]
+    cache_key = cache_key_for(artist, title)
     cache_file = os.path.join(cache_dir, f"genius_{cache_key}.json")
 
     if os.path.exists(cache_file) and os.path.getsize(cache_file) > 10:
@@ -97,7 +124,7 @@ def fetch_genius_lyrics(artist, title, cache_dir):
                     song_path = hits[0].get("result", {}).get("path")
                     break
 
-        if not song_path:
+        if not (isinstance(song_path, str) and song_path.startswith("/") and not song_path.startswith("//")):
             return None
 
         song_url = f"https://genius.com{song_path}"
@@ -130,8 +157,9 @@ def fetch_genius_lyrics(artist, title, cache_dir):
                 "lines": lines_data,
                 "source": "genius"
             }
-            with open(cache_file, "w", encoding="utf-8") as f:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=cache_dir, prefix=".genius-", delete=False) as f:
                 json.dump(result, f, ensure_ascii=False)
+            os.replace(f.name, cache_file)
             return result
     except Exception as e:
         pass
