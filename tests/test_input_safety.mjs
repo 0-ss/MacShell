@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const read = f => readFileSync(new URL(`../MacShell/${f}`, import.meta.url), "utf8");
-const [bar, dock, desktop] = ["MacBar.qml", "MacDock.qml", "Desktop.qml"].map(read);
+const [bar, dock, desktop, settings] = ["MacBar.qml", "MacDock.qml", "Desktop.qml", "SettingsWindow.qml"].map(read);
 
 // Pulls `function name(args) { ... }` out of QML by brace depth and returns it as a callable.
 function extract(qml, name) {
@@ -46,7 +46,7 @@ for (const good of ["notes.txt", "my folder 2", ".hidden", "..x"]) assert.equal(
 for (const badName of ["", ".", "..", "../secret", "a/b", "foo\0bar"]) assert.equal(isValidFileName(badName), false, JSON.stringify(badName));
 
 // `read -p` is a Bash extension; plain sh (dash) rejects it
-for (const [name, qml] of [["MacBar.qml", bar], ["MacDock.qml", dock]])
+for (const [name, qml] of [["MacBar.qml", bar], ["MacDock.qml", dock], ["SettingsWindow.qml", settings]])
     assert.ok(!/read\s+(-r\s+)?-p/.test(qml), `${name} still uses read -p`);
 
 // Wi-Fi password: reaches nmcli only via stdin (--ask), never argv or its environment.

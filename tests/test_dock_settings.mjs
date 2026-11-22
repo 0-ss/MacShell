@@ -5,7 +5,8 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const qml = readFileSync(new URL("../MacShell/MacDock.qml", import.meta.url), "utf8");
+// MacDock.qml plus the Settings window extracted from it (slotCmd lives there now)
+const qml = ["MacDock.qml", "SettingsWindow.qml"].map(f => readFileSync(new URL(`../MacShell/${f}`, import.meta.url), "utf8")).join("\n");
 
 // normalizeModeEntry
 const fs = qml.indexOf("function normalizeModeEntry(");
