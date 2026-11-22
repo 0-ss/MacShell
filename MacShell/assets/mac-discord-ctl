@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 CACHE_HOME = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
 STATE_FILE = os.path.join(CACHE_HOME, "macshell-discord-state.json")
@@ -119,12 +120,20 @@ def load_saved_state():
 
 
 def save_state(st):
+    tmp = None
     try:
-        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-        with open(STATE_FILE, "w", encoding="utf-8") as f:
+        d = os.path.dirname(STATE_FILE)
+        os.makedirs(d, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", dir=d, delete=False, encoding="utf-8") as f:
+            tmp = f.name
             json.dump(st, f)
+        os.replace(tmp, STATE_FILE)
     except Exception:
-        pass
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def get_status():
@@ -177,7 +186,9 @@ def toggle_mute(explicit=None):
     in_streams, _ = get_pw_state()
     for stream in in_streams:
         run_cmd(["wpctl", "set-mute", str(stream["id"]), target_mute], timeout=0.8)
-    send_discord_shortcut("M")
+    # Discord's shortcut only toggles: skip it when its state already matches the target.
+    if explicit is None or target_bool != bool(saved.get("muted", False)):
+        send_discord_shortcut("M")
     saved["muted"] = target_bool
     save_state(saved)
     return {"ok": True, "muted": target_bool}
@@ -198,7 +209,8 @@ def toggle_deaf(explicit=None):
         run_cmd(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "1"], timeout=0.8)
         for s in in_streams:
             run_cmd(["wpctl", "set-mute", str(s["id"]), "1"], timeout=0.8)
-    send_discord_shortcut("D")
+    if explicit is None or target_deaf != bool(saved.get("deafened", False)):
+        send_discord_shortcut("D")
     saved["deafened"] = target_deaf
     if target_deaf:
         saved["muted"] = True

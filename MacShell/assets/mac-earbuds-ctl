@@ -443,8 +443,9 @@ def send_via_daemon(kind: str, val) -> bool:
         s.connect(UNIX_SOCK_PATH)
         msg = json.dumps({"action": kind, "val": val}) + "\n"
         s.sendall(msg.encode("utf-8"))
+        ack = s.recv(32)
         s.close()
-        return True
+        return ack.strip() == b"OK"
     except Exception:
         return False
 
@@ -593,6 +594,8 @@ def run_daemon():
     rfcomm_sock = None
     connected_mac = ""
     rx_buf = bytearray()
+    target_dev = None
+    last_bt_check = 0.0
 
     def cleanup_rfcomm():
         nonlocal rfcomm_sock, connected_mac, rx_buf
@@ -608,12 +611,14 @@ def run_daemon():
     while True:
         try:
             st = load_state()
-            devs = get_bt_audio_devices()
-            target_dev = None
-            for d in devs:
-                if d["connected"] and re.search(r"buds|galaxy|samsung", d["name"], re.I):
-                    target_dev = d
-                    break
+            # Skip the busctl poll while the RFCOMM link is up; recheck every 15 s.
+            if rfcomm_sock is None or time.monotonic() - last_bt_check >= 15.0:
+                last_bt_check = time.monotonic()
+                target_dev = None
+                for d in get_bt_audio_devices():
+                    if d["connected"] and re.search(r"buds|galaxy|samsung", d["name"], re.I):
+                        target_dev = d
+                        break
 
             if not target_dev:
                 cleanup_rfcomm()
@@ -621,6 +626,7 @@ def run_daemon():
                 if unix_server in r:
                     try:
                         conn, _ = unix_server.accept()
+                        conn.sendall(b"ERR\n")
                         conn.close()
                     except Exception:
                         pass
@@ -669,25 +675,27 @@ def run_daemon():
                 try:
                     conn, _ = unix_server.accept()
                     data = conn.recv(1024).decode("utf-8", "ignore").strip()
-                    conn.close()
-                    if data:
-                        req = json.loads(data)
+                    ok = False
+                    try:
+                        req = json.loads(data) if data else {}
                         action = req.get("action")
                         val = req.get("val")
-                        if rfcomm_sock and action:
-                            if action == "noise":
-                                pkt = build_samsung_spp_packet(0x78, bytes([mode_map.get(val, 0x01)]))
-                                rfcomm_sock.sendall(pkt)
-                            elif action == "eq":
-                                pkt = build_samsung_spp_packet(0x86, bytes([eq_map.get(val, 0x03)]))
-                                rfcomm_sock.sendall(pkt)
-                            elif action == "touch":
-                                touch_byte = 0x00 if val else 0x01
-                                pkt = build_samsung_spp_packet(0x90, bytes([touch_byte] * 7))
-                                rfcomm_sock.sendall(pkt)
-                            elif action == "latency":
-                                pkt = build_samsung_spp_packet(0x87, bytes([0x01 if val else 0x00]))
-                                rfcomm_sock.sendall(pkt)
+                        pkt = None
+                        if action == "noise":
+                            pkt = build_samsung_spp_packet(0x78, bytes([mode_map.get(val, 0x01)]))
+                        elif action == "eq":
+                            pkt = build_samsung_spp_packet(0x86, bytes([eq_map.get(val, 0x03)]))
+                        elif action == "touch":
+                            pkt = build_samsung_spp_packet(0x90, bytes([0x00 if val else 0x01] * 7))
+                        elif action == "latency":
+                            pkt = build_samsung_spp_packet(0x87, bytes([0x01 if val else 0x00]))
+                        if pkt and rfcomm_sock:
+                            rfcomm_sock.sendall(pkt)
+                            ok = True
+                    except Exception:
+                        pass
+                    conn.sendall(b"OK\n" if ok else b"ERR\n")
+                    conn.close()
                 except Exception:
                     pass
 
@@ -721,9 +729,11 @@ def run_daemon():
                     raw_pkt = rx_buf[:total_len]
                     del rx_buf[:total_len]
 
-                    if raw_pkt[-1] == 0xDD:
+                    if raw_pkt[-1] == 0xDD and pkt_len >= 2:
                         body = raw_pkt[3 : 3 + pkt_len - 2]
                         if not body:
+                            continue
+                        if crc16_ccitt(bytes(body)) != struct.unpack("<H", raw_pkt[3 + pkt_len - 2 : 3 + pkt_len])[0]:
                             continue
                         msg_id = body[0]
                         pld = body[1:]
