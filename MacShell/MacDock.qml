@@ -204,6 +204,14 @@ Scope {
     property bool magnificationEnabled: true
     property bool showLabels: true       // hover tooltips
     property bool showIndicators: true   // dots under running apps
+    property bool iconTile: true   // rounded tile with the icon's dominant color and a light edge behind each icon. could be turned off if somebody prefer the old look.
+    readonly property real iconRim: 1.0   // strength of the edge light. fixed value.
+    readonly property real iconEdge: 2.0   // how soft the icon edge is. fixed value.
+    readonly property real iconScale: 1.0   // how big the icon is inside its cell. fixed at 1.
+    readonly property string iconShape: "rounded"   // only rounded here.
+    readonly property real iconCorner: 0.245   // corner radius as a fraction of the icon width. 0.245 is probably close to the usual icon corner.
+    readonly property real iconPower: iconShape === "squircle" ? 5.0 : 2.0
+    readonly property vector4d iconRadii: Qt.vector4d(iconCorner, iconCorner, iconCorner, iconCorner)
     property bool bounceOnLaunch: true
     property bool showThumbs: true       // open windows get a live preview cell next to the Trash
     property bool windowCapture: true    // live window capture for those previews (off: the cells show the app icon, nothing is captured). Liquid Glass is not affected
@@ -2178,6 +2186,16 @@ Scope {
                             resetValue: 1.0
                             onMoved: v => root.iconTintStrength = Math.round(v * 100) / 100
                         }
+                    }
+                }
+
+                SCard {
+                    t: pal
+                    SRow {
+                        t: pal
+                        title: I18n.tr("Unified icon grid")
+                        subtitle: I18n.tr("Sizes every icon to the same grid")
+                        SSwitch { t: pal; checked: root.iconTile; onToggled: v => root.iconTile = v }
                     }
                 }
 
@@ -4279,13 +4297,13 @@ Scope {
         darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Open Runde";
         iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
-        showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
+        showTrash = true; showLabels = true; showIndicators = true; iconTile = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, settingsEnabled, desktopIcons, desktopIconSize, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, appearanceMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
-        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength].join("|")
+        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength, iconTile].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
     onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
@@ -4300,7 +4318,7 @@ Scope {
             glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid, glassBlur: glassBlur,
             accent: String(accent), fontFamily: fontFamily,
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
-            showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators,
+            showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators, iconTile: iconTile,
             bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture, glassLive: glassLive,
             iconTint: iconTint, iconTintColor: iconTintColor, iconTintStrength: iconTintStrength
         };
@@ -4311,7 +4329,7 @@ Scope {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "settingsEnabled", "desktopIcons", "desktopIconSize", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "appearanceMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
-                    "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
+                    "showTrash", "showLabels", "showIndicators", "iconTile", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
             try { root[keys[i]] = o[keys[i]]; } catch (err) { }
@@ -5960,11 +5978,13 @@ Scope {
                                     // icon art drawn at ~99%: the dock and the cells keep their size. Whole pixels only: at rest this was
                                     // 51.48 px wide and centred on a fractional x, so the GPU re-sampled the icon texture (blurry) until the
                                     // magnification made it big enough that the blur was no longer noticeable
-                                    width: Math.max(1, Math.round(root.iconSize * 0.99 * cell.s * cell.appear))
+                                    readonly property real full: Math.max(1, Math.round(root.iconSize * 0.99 * cell.s * cell.appear))
+                                    width: cell.useThumb ? full : Math.max(1, Math.round(full * root.iconScale))
                                     height: width
+                                    readonly property real tile: width - 2 * Math.round(width * 0.0975) + 2
                                     x: Math.round((parent.width - width) / 2)
                                     anchors.bottom: parent.bottom
-                                    anchors.bottomMargin: Math.round(lift + armLift)
+                                    anchors.bottomMargin: Math.round(lift + armLift) + Math.round((full - width) / 2)
                                     source: cell.isSep ? "" : root.cellIconSrc(cell.modelData)
                                     sourceSize: Qt.size(Math.ceil(root.iconSize * root.magnification * 1.25),
                                                         Math.ceil(root.iconSize * root.magnification * 1.25))
@@ -5974,12 +5994,16 @@ Scope {
                                     asynchronous: true
                                 }
                                 MultiEffect {
+                                    id: iconFx
                                     visible: !cell.isSep && !cell.thumbReady
+                                z: 1
+                                maskSource: tileMask
+                                maskThresholdMin: 0.5
+                                maskSpreadAtMin: 1.0
                                     source: img
                                     anchors.fill: img
                                     rotation: img.wob
-                                    transformOrigin: Item.Bottom
-                                    shadowEnabled: true
+                                    shadowEnabled: false
                                     shadowColor: "black"
                                     shadowOpacity: 0.32
                                     shadowBlur: 0.55
@@ -5992,7 +6016,103 @@ Scope {
                                     colorizationColor: root.iconTintColor
                                 }
 
-                                // ── window thumbnail (same box as the icon, so magnification just works) ──
+                                IconClass {
+                                id: domCanvas
+                                source: img.source.toString()
+                                corner: root.iconCorner
+                                power: root.iconPower
+                            }
+                            Item {
+                                id: tileMask
+                                width: img.width
+                                height: img.height
+                                visible: false
+                                layer.enabled: true
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: width * 0.245
+                                    color: "black"
+                                }
+                            }
+                            Rectangle {
+                                id: tileFill
+                                width: img.tile
+                                height: width
+                                color: domCanvas.dom
+                                visible: false
+                                layer.enabled: true
+                            }
+                            MultiEffect {
+                                id: fillFx
+                                source: tileFill
+                                width: tileFill.width
+                                height: width
+                                saturation: root.iconTint ? -0.75 * root.iconTintStrength : 0.0
+                                colorization: root.iconTint ? 1.0 * root.iconTintStrength : 0.0
+                                brightness: (ma.pressed ? -0.3 : 0.0) + (root.iconTint ? 0.14 * root.iconTintStrength : 0.0)
+                                contrast: root.iconTint ? 0.04 * root.iconTintStrength : 0.0
+                                colorizationColor: root.iconTintColor
+                            }
+                            ShaderEffectSource {
+                                id: fillTex
+                                sourceItem: fillFx
+                                hideSource: true
+                                live: true
+                                visible: false
+                            }
+                            ShaderEffect {
+                                visible: root.iconTile && !cell.isSep && !cell.thumbReady
+                                anchors.centerIn: img
+                                width: tileFill.width
+                                height: width
+                                z: 0
+                                property variant source: fillTex
+                                property vector2d itemSize: Qt.vector2d(width, height)
+                                property real power: root.iconPower
+                                property real box: 1.0
+                                property real soft: root.iconEdge
+                                property vector4d radii: root.iconRadii
+                                fragmentShader: Qt.resolvedUrl("iconclip.frag.qsb")
+                            }
+                            ShaderEffect {
+                                visible: !cell.isSep && !cell.thumbReady
+                                anchors.centerIn: img
+                                width: img.tile
+                                height: width
+                                z: 2
+                                property vector2d itemSize: Qt.vector2d(width, height)
+                                property real power: root.iconPower
+                                property vector4d radii: root.iconRadii
+                                property real strength: root.iconRim
+                                property real soft: root.iconEdge
+                                fragmentShader: Qt.resolvedUrl("iconrim.frag.qsb")
+                                opacity: root.iconTile ? 1 : 0
+                            }
+                                ShaderEffectSource {
+                                    id: iconTex
+                                    sourceItem: iconFx
+                                    hideSource: root.iconTile
+                                    live: true
+                                    smooth: true
+                                    mipmap: true
+                                    visible: false
+                                }
+                                ShaderEffect {
+                                    visible: root.iconTile && !cell.isSep && !cell.thumbReady
+                                    anchors.fill: img
+                                    z: 1
+                                    scale: ((domCanvas.proper || domCanvas.square) ? img.tile / img.width : 0.66 * domCanvas.fit) / norm
+                                    property variant source: iconTex
+                                    property vector2d itemSize: Qt.vector2d(width, height)
+                                    property real power: root.iconPower
+                                    property real norm: domCanvas.art >= 0.8 ? domCanvas.art : (domCanvas.proper ? 0.88 : 1.0)
+                                    property real box: (domCanvas.proper || domCanvas.square) ? norm : 2.0
+                                    property real soft: root.iconEdge
+                                    property real fillCorner: domCanvas.proper ? 1.0 : 0.0
+                                    property vector4d radii: root.iconRadii
+                                    fragmentShader: Qt.resolvedUrl("iconclip.frag.qsb")
+                                }
+                            // ── window thumbnail (same box as the icon, so magnification just works) ──
                                 Item {
                                     id: th
                                     anchors.fill: img
