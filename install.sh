@@ -288,10 +288,8 @@ UNIT
 
 # ───────────────────────── uninstall ─────────────────────────
 remove_hypr_blocks() {
-    local f
-    for f in "$HYPR_DIR/hyprland.lua"; do
-        [ -f "$f" ] && grep -qF -- "$MARK_BEGIN" "$f" && { sedi "\|$MARK_BEGIN|,\|$MARK_END|d" "$f"; ok "removed the MacShell block from $f"; }
-    done
+    local f="$HYPR_DIR/hyprland.lua"
+    [ -f "$f" ] && grep -qF -- "$MARK_BEGIN" "$f" && { sedi "\|$MARK_BEGIN|,\|$MARK_END|d" "$f"; ok "removed the MacShell block from $f"; }
     f="$HYPR_DIR/macshell.lua"
     if [ -f "$f" ] && grep -qF -- "$MACLUA_BEGIN" "$f"; then
         if [ -f "$f.macshell-backup" ]; then mv -f "$f.macshell-backup" "$f"; else rm -f "$f"; fi

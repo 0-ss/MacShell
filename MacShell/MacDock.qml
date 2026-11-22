@@ -1003,7 +1003,7 @@ Scope {
                     sourceComponent: Item {
                         id: sbg
                         readonly property real m: sbLd.pillM
-                        readonly property var pillSrc: pillSes          // exposed for the back / forward pill (ids inside don't escape)
+                        readonly property var pillSrc: sbPillSes          // exposed for the back / forward pill (ids inside don't escape)
                         Item {
                             id: prefsBackdrop
                             parent: frame
@@ -1031,7 +1031,7 @@ Scope {
                             }
                         }
                         ShaderEffectSource {
-                            id: pillSes
+                            id: sbPillSes
                             sourceItem: prefsBackdrop
                             hideSource: true
                             live: true
@@ -1272,7 +1272,7 @@ Scope {
                             height: 34
                             radius: 8
                             color: sel ? (prefsWindow.active ? pal.accent : pal.selInactive)
-                                       : (navMa.containsMouse ? pal.hover : "transparent")
+                                       : (sideNavMa.containsMouse ? pal.hover : "transparent")
 
                             SGlyph {
 
@@ -1293,7 +1293,7 @@ Scope {
                                 font.pixelSize: 14
                             }
                             MouseArea {
-                                id: navMa
+                                id: sideNavMa
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 onClicked: prefsWindow.go(navRow.modelData)
