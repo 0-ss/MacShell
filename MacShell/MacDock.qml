@@ -204,6 +204,8 @@ Scope {
     property bool magnificationEnabled: true
     property bool showLabels: true       // hover tooltips
     property bool showIndicators: true   // dots under running apps
+    property bool showRunningApps: true   // icons for running apps that aren't pinned. might want it off for pinned-only Dock.
+    onShowRunningAppsChanged: rebuild()
     property bool bounceOnLaunch: true
     property bool showThumbs: true       // open windows get a live preview cell next to the Trash
     property bool windowCapture: true    // live window capture for those previews (off: the cells show the app icon, nothing is captured). Liquid Glass is not affected
@@ -2463,6 +2465,11 @@ Scope {
                     }
                     SRow {
                         t: pal
+                        title: I18n.tr("Show open applications that are not in the Dock")
+                        SSwitch { t: pal; checked: root.showRunningApps; onToggled: v => root.showRunningApps = v }
+                    }
+                    SRow {
+                        t: pal
                         title: I18n.tr("Animate opening applications")
                         subtitle: I18n.tr("Icons bounce while an app is launching")
                         SSwitch { t: pal; checked: root.bounceOnLaunch; onToggled: v => root.bounceOnLaunch = v }
@@ -4279,13 +4286,13 @@ Scope {
         darkMode = true; appearanceMode = "dark"; glassOpacity = 0.42; glassBlur = 5; glassLiquid = 1.0; dockStyle = "blur"; accent = "#0a84ff"; fontFamily = "Open Runde";
         iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
-        showTrash = true; showLabels = true; showIndicators = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
+        showTrash = true; showLabels = true; showIndicators = true; showRunningApps = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
     }
 
     // ── settings persistence (~/.config/macdock/settings.json) ──
     readonly property string settingsSig: [dockEnabled, settingsEnabled, desktopIcons, desktopIconSize, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, appearanceMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
-        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength].join("|")
+        showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength, showRunningApps].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
     onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
@@ -4300,7 +4307,7 @@ Scope {
             glassRim: glassRim, glassGrain: glassGrain, glassLiquid: glassLiquid, glassBlur: glassBlur,
             accent: String(accent), fontFamily: fontFamily,
             hideMode: hideMode, hideDelay: hideDelay, monitor: monitor,
-            showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators,
+            showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators, showRunningApps: showRunningApps,
             bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture, glassLive: glassLive,
             iconTint: iconTint, iconTintColor: iconTintColor, iconTintStrength: iconTintStrength
         };
@@ -4311,7 +4318,7 @@ Scope {
         if (!o || typeof o !== "object") return;
         var keys = ["dockEnabled", "settingsEnabled", "desktopIcons", "desktopIconSize", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "appearanceMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
-                    "showTrash", "showLabels", "showIndicators", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
+                    "showTrash", "showLabels", "showIndicators", "showRunningApps", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
             try { root[keys[i]] = o[keys[i]]; } catch (err) { }
@@ -4672,7 +4679,7 @@ Scope {
         }
 
         var extras = [];
-        for (var r = 0; r < runOrder.length; r++) if (!seen[runOrder[r].key]) extras.push(runOrder[r]);
+        for (var r = 0; r < runOrder.length; r++) if (!seen[runOrder[r].key] && root.showRunningApps) extras.push(runOrder[r]);
         if (extras.length > 0 && list.length > 0) list.push({ kind: "sep", key: "sep:run" });
         for (var x = 0; x < extras.length; x++) {
             var e2 = lookup(extras[x].appId);
