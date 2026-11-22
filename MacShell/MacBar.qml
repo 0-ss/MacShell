@@ -364,6 +364,7 @@ Scope {
     property bool showSeconds: false
     property bool showBatteryPercent: true
     property bool showTray: true
+    property bool trayCollapse: false   // keep the tray icons behind a double arrow until it is clicked
     property bool showSearch: true
     property bool weekStartsMonday: false
     property string terminal: "kitty"
@@ -408,7 +409,7 @@ Scope {
 
     readonly property var settingKeys: ["barEnabled", "darkMode", "appearanceMode", "accent", "fontFamily", "barHeight", "uiScaleAuto", "uiScaleManual", "glassOpacity",
         "barStyle", "barGlass", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "barBgOpacity", "glassRealtime", "liveWallGlass", "glassDebug", "wallpaperPath", "use24h", "language", "showDate",
-        "showSeconds", "showBatteryPercent", "showTray", "showSearch",
+        "showSeconds", "showBatteryPercent", "showTray", "trayCollapse", "showSearch",
         "spotlightEnabled", "reduceMotion", "ccEnabled", "notificationsEnabled", "clockAppEnabled", "ccStyle", "barLogoMode", "barCustomLogoPath", "barWidgets", "weekStartsMonday", "terminal", "launcher",
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotDesktop", "screenshotSave", "screenshotClipboard", "screenshotNotify", "nightTemp", "ccControls", "ccPos", "ccSizes", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
         "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
@@ -913,6 +914,14 @@ Scope {
                 ctx.globalAlpha = 1;
                 ctx.lineWidth = 1.5;
                 if (flag) line(2.5, 2.5, 15.5, 15.5);
+            } else if (k === "chevrons") {
+                // two chevrons, level 0 points left and level 1 points right
+                var mt = Math.max(0, Math.min(1, level));
+                var mTip = 4.3 + 3.5 * mt, mArm = 7.8 - 3.5 * mt;
+                ctx.lineWidth = 1.8;
+                poly([mArm, 4.5, mTip, 9, mArm, 13.5], false);
+                poly([mArm + 5.5, 4.5, mTip + 5.5, 9, mArm + 5.5, 13.5], false);
+                ctx.lineWidth = 1.5;
             } else if (k === "bluetooth") {
                 ctx.lineWidth = 2.1;
                 poly([5, 5.5, 13, 12.5, 9, 16, 9, 2, 13, 5.5, 5, 12.5], false);
@@ -4190,7 +4199,7 @@ Scope {
         barEnabled = true;
         darkMode = true; appearanceMode = "dark"; accent = "#0a84ff"; fontFamily = "Open Runde"; glassOpacity = 0.42; glassBlur = 5; barBgOpacity = 0.10; glassRealtime = false; liveWallGlass = false;
         barStyle = "liquid"; use24h = true; showDate = true; showSeconds = false; showBatteryPercent = true;
-        showTray = true; showSearch = true;
+        showTray = true; trayCollapse = false; showSearch = true;
         spotlightEnabled = true; ccEnabled = true; notificationsEnabled = true; clockAppEnabled = true; ccStyle = "tiles";
         barLogoMode = "arch"; barCustomLogoPath = "";
         barWidgets = ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "bluetooth", "privacy", "controlCenter", "clock"];
@@ -5061,6 +5070,7 @@ Scope {
                 onCcEditChanged: root.ccEditing = ccEdit
                 property string ccPage: ""          // "" = the control grid, "wifi" = the Wi-Fi list shown inside the Control Center
                 onCcPageChanged: wifiPrompt = ""
+                property bool trayExpanded: false   // the collapsed tray is open
                 property var trayItem: null         // SystemTrayItem whose menu is open in the tray popover
                 property var trayStack: []          // submenu path (QsMenuEntry objects) inside that menu
                 Timer { interval: 1500; repeat: true; running: ui.pop === "vol"; onTriggered: root.audioTick++ }
@@ -5902,7 +5912,13 @@ Scope {
                             delegate: Item {
                                 id: tray
                                 required property var modelData
-                                width: 26; height: 28
+                                readonly property bool shown: ui.trayExpanded || !root.trayCollapse
+                                width: shown ? 26 : 0; height: 28
+                                opacity: shown ? 1 : 0
+                                clip: true
+                                enabled: shown
+                                Behavior on width { NumberAnimation { duration: root.reduceMotion ? 0 : 220; easing.type: Easing.OutCubic } }
+                                Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 180; easing.type: Easing.OutCubic } }
                                 Rectangle {
                                     anchors.centerIn: parent
                                     width: parent.width - 2
@@ -5931,6 +5947,25 @@ Scope {
                                             tray.modelData.activate();
                                     }
                                 }
+                            }
+                        }
+
+                        // arrow that opens and closes the collapsed tray
+                        Item {
+                            visible: root.showTray && root.trayCollapse && SystemTray.items.values.length > 0
+                            width: visible ? 24 : 0
+                            height: 28
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 16; height: 16
+                                kind: "chevrons"
+                                level: ui.trayExpanded ? 1 : 0
+                                Behavior on level { NumberAnimation { duration: root.reduceMotion ? 0 : 260; easing.type: Easing.OutCubic } }
+                                color: bpal.fg2
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: ui.trayExpanded = !ui.trayExpanded
                             }
                         }
 

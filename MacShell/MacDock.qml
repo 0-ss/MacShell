@@ -1811,6 +1811,10 @@ Scope {
                         SSwitch { t: pal; checked: root.bar ? root.bar.showTray : true; onToggled: v => { if (root.bar) root.bar.showTray = v; } }
                     }
                     SRow {
+                        t: pal; title: I18n.tr("Collapse the system tray behind an arrow")
+                        SSwitch { t: pal; checked: root.bar ? root.bar.trayCollapse : false; onToggled: v => { if (root.bar) root.bar.trayCollapse = v; } }
+                    }
+                    SRow {
                         t: pal; title: I18n.tr("Volume")
                         SSwitch { t: pal; checked: root.bar ? root.bar.barWidgetEnabled("volume") : true; onToggled: v => { if (root.bar) root.bar.setBarWidget("volume", v); } }
                     }
