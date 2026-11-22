@@ -4293,7 +4293,7 @@ Scope {
         if (name === "apple") {
             m.push(ico(mi("About This Linux", "", function () {
                 if (hub && hub.about) hub.about.open();
-                else sh(terminal + " -e sh -c 'fastfetch || neofetch; echo; read -p \"Press Enter\" _'");
+                else Quickshell.execDetached(["sh", "-c", "exec \"$1\" -e sh -c 'fastfetch || neofetch; echo; printf \"Press Enter \"; read -r _'", "sh", terminal]);
             }), "m_about"));
             m.push(msep());
             m.push(ico(mi("System Settings\u2026", "", function () { root.openSettings(); }), "gear"));
@@ -5568,6 +5568,22 @@ Scope {
     // The switcher layer holds EXCLUSIVE keyboard focus while open, and Hyprland can refuse to focus / switch
     // workspace while an exclusive layer is up. So: close the layer first, then dispatch a moment later.
     property var swPending: null
+    // Pure: builds the Hyprland Lua focus expression from untrusted window data, "" when nothing safe to focus.
+    function buildFocusLua(t) {
+        var ws = Math.floor(Number(t.ws));
+        var addr = String(t.addr || "");
+        if (/^[0-9a-fA-F]+$/.test(addr)) addr = "0x" + addr;
+        if (!/^0x[0-9a-fA-F]+$/.test(addr)) addr = "";
+        // class is matched as an exact regex literal: escape RE2 metacharacters, then escape for a Lua "..." string
+        var cls = String(t.cls || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            .replace(/[\\"\x00-\x1f\x7f]/g, function (c) { return c === "\\" || c === "\"" ? "\\" + c : "\\" + ("00" + c.charCodeAt(0)).slice(-3); });
+        if (addr === "" && cls === "") return "";
+        var lua = "";
+        if (ws > 0) lua += "hl.dispatch(hl.dsp.focus({ workspace = \"" + ws + "\" })); ";
+        lua += "hl.dispatch(hl.dsp.focus({ window = \"" + (addr !== "" ? "address:" + addr : "class:^(" + cls + ")$") + "\" })); ";
+        lua += "hl.dispatch(hl.dsp.window.bring_to_top())";
+        return lua;
+    }
     Timer {
         id: swFocusTimer
         interval: 60
@@ -5576,10 +5592,8 @@ Scope {
             root.swPending = null;
             if (!t) return;
             // Hyprland 0.55+ is Lua: `hyprctl dispatch` takes a Lua expression, the old "focuswindow ..." strings fail.
-            var lua = "";
-            if (t.ws > 0) lua += "hl.dispatch(hl.dsp.focus({ workspace = \"" + t.ws + "\" })); ";
-            lua += "hl.dispatch(hl.dsp.focus({ window = \"" + (t.addr !== "" ? "address:" + t.addr : "class:^(" + t.cls + ")$") + "\" })); ";
-            lua += "hl.dispatch(hl.dsp.window.bring_to_top())";
+            var lua = root.buildFocusLua(t);
+            if (lua === "") return;
             console.log("[switcher] hyprctl eval '" + lua + "'");
             Quickshell.execDetached(["hyprctl", "eval", lua]);
         }

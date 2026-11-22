@@ -57,9 +57,9 @@ Scope {
         Quickshell.execDetached(["sh", "-c",
             "for t in \"$1\" kitty foot alacritty wezterm konsole xterm; do " +
             "  [ -n \"$t\" ] && command -v \"$t\" >/dev/null 2>&1 || continue; " +
-            "  exec \"$t\" -e sh -c \"$2; echo; read -r -p 'Done. Press Enter to close ' _\"; " +
+            "  exec \"$t\" -e sh -c 'eval \"$1\"; echo; printf \"Done. Press Enter to close \"; read -r _' sh \"$2\"; " +
             "done; " +
-            "if command -v gnome-terminal >/dev/null 2>&1; then exec gnome-terminal -- sh -c \"$2; echo; read -r -p 'Done. Press Enter to close ' _\"; fi; " +
+            "if command -v gnome-terminal >/dev/null 2>&1; then exec gnome-terminal -- sh -c 'eval \"$1\"; echo; printf \"Done. Press Enter to close \"; read -r _' sh \"$2\"; fi; " +
             "notify-send 'MacShell' 'No terminal emulator found for the sudo command' 2>/dev/null || true",
             "sh", preferred, command]);
     }
@@ -4161,8 +4161,7 @@ Scope {
                             text: I18n.tr("Install\u2026")
                             onClicked: {
                                 var inst = Quickshell.env("HOME") + "/.local/share/macshell/install.sh";
-                                var term = root.bar ? root.bar.terminal : "kitty";
-                                Quickshell.execDetached(["sh", "-c", term + " -e sh -c '\"$0\" --deps-only; echo; echo Press Enter to close; read x'", inst]);
+                                root.openTerminalCommand("'" + inst.replace(/'/g, "'\\''") + "' --deps-only");
                             }
                         }
                     }

@@ -1100,10 +1100,13 @@ Scope {
                         open = true;
                         Qt.callLater(function () { nameIn.forceActiveFocus(); nameIn.selectAll(); });
                     }
+                    function isValidFileName(name) {
+                        return name !== "" && name !== "." && name !== ".." && name.indexOf("/") < 0 && name.indexOf("\0") < 0;
+                    }
                     function commit() {
                         var it = item, t = nameIn.text.trim();
                         open = false;
-                        if (!it || t === "" || t === it.name) return;
+                        if (!it || !isValidFileName(t) || t === it.name) return;
                         Quickshell.execDetached(["sh", "-c", "if [ ! -e \"$2/$3\" ] && [ ! -L \"$2/$3\" ]; then mv -- \"$1\" \"$2/$3\"; fi", "sh", it.path, root.dir, t]);
                         rescan.restart();
                     }
