@@ -81,6 +81,7 @@ import "I18n.js" as I18n
 import "Fonts.js" as Fonts
 import "MenuBar.js" as MenuBar
 import "FocusModes.js" as FocusModes
+import "Spotlight.js" as Spotlight
 
 Scope {
     id: root
@@ -386,6 +387,7 @@ Scope {
     property bool liveActivities: true       // compact Live Activities pills in the Menu Bar
     property var barRightOrder: MenuBar.DEFAULT_RIGHT_ORDER.slice()
     readonly property var rightBarOrder: MenuBar.normalizeRightOrder(barRightOrder)
+    property var spotlightActions: []        // user-defined custom Spotlight actions: [{ title, cmd, key }]
     property string focusActiveId: ""        // "" = off, or profile id from focusProfiles
     property var focusProfiles: FocusModes.defaultProfiles()
     property string focusPrevWallpaper: ""
@@ -411,7 +413,7 @@ Scope {
         "filesCmd", "clipboardCmd", "appUsage", "clipHistory", "clipAutoPaste", "emojiRecent", "screenshotDir", "screenshotDesktop", "screenshotSave", "screenshotClipboard", "screenshotNotify", "screenshotSearchEnabled", "screenshotAutoRename", "screenshotRenameSince", "nightTemp", "ccControls", "ccPos", "ccSizes", "ccMigRec", "wallpaperDir", "wallpaperFavs", "wallpaperCmd", "wallpaperVideo", "wpRestorePath", "uiSounds", "gamingMode", "gamingAuto", "ccMigGame", "lockArtBackground",
         "lockClockStyle", "switcherStyle", "lockClockFont", "lockClockWeight", "lockClockMaterial", "lockClockIntensity", "lockClockTint", "lockClockDate", "autoContrast", "wallpaperAppearance", "wpPairLight", "wpPairDark",
         "notifDnd", "dnd", "nightOn", "keepAwake",
-        "barAutoHide", "globalMenuEnabled", "liveActivities", "barRightOrder", "focusActiveId", "focusProfiles",
+        "barAutoHide", "globalMenuEnabled", "liveActivities", "barRightOrder", "focusActiveId", "focusProfiles", "spotlightActions",
         "kbRepeatRate", "kbRepeatDelay", "mouseSens", "mouseNatural", "tpNatural", "tpTap", "tpDwt", "tpScroll"]
     // Optional bar widgets; tray and Spotlight use their existing showTray/showSearch settings.
     property var barWidgets: ["appleMenu", "appMenus", "workspaces", "volume", "keyboard", "notifications", "wifi", "bluetooth", "privacy", "controlCenter", "clock"]
@@ -3803,20 +3805,103 @@ Scope {
         return m + ":" + (r < 10 ? "0" : "") + r;
     }
     function pickColor() { sh("c=$(hyprpicker -a) && [ -n \"$c\" ] && notify-send -a macbar 'Color copied' \"$c\""); }
+    readonly property string spotlightSearchScript: decodeURIComponent(String(Qt.resolvedUrl("assets/spotlight-search.py")).replace(/^file:\/\//, ""))
     Process {
         id: fileSearchProc
-        command: ["sh", "-c", "find \"$HOME\" \\( -type f -o -type d \\) -iname \"*$1*\" -not -path '*/.cache/*' -not -path '*/.local/share/Trash/*' -not -path '*/.git/*' -not -path '*/node_modules/*' 2>/dev/null | head -n 60", "sh", root.fileQuery]
+        command: ["python3", "-B", root.spotlightSearchScript, "search", root.fileQuery]
         stdout: StdioCollector { onStreamFinished: {
-            var a=text.trim().split("\n").filter(function(x){return x!=="";});
-            if (root.fileSearchFor === root.fileQuery) { root.fileHits=a; root.fileSearchPending=false; }
+            var a = Spotlight.parseSearchJson(text);
+            if (root.fileSearchFor === root.fileQuery) { root.fileHits = a; root.fileSearchPending = false; }
             else fileDebounce.restart();
         } }
         onExited: if (root.fileSearchFor !== root.fileQuery) fileDebounce.restart()
     }
-    Timer { id: fileDebounce; interval: 260; onTriggered: {
+    Timer { id: fileDebounce; interval: 220; onTriggered: {
         if (root.fileQuery.length > 0 && !fileSearchProc.running) { root.fileSearchFor=root.fileQuery; root.fileSearchPending=true; fileSearchProc.running=true; }
     } }
     function updateFileSearch(q) { fileQuery=q; fileHits=[]; fileSearchPending=true; fileDebounce.restart(); }
+
+    // On-demand Quick Look preview snippet reader for Spotlight split-view preview pane
+    property string spPreviewPath: ""
+    property var spPreviewData: null
+    Process {
+        id: spPreviewProc
+        property string forPath: ""
+        command: ["python3", "-B", root.spotlightSearchScript, "preview", forPath]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (spPreviewProc.forPath !== root.spPreviewPath) { root.requestSpotPreview(root.spPreviewPath); return; }
+                try { root.spPreviewData = JSON.parse(text); } catch (e) { root.spPreviewData = null; }
+            }
+        }
+    }
+    function requestSpotPreview(p) {
+        var clean = String(p || "").trim();
+        spPreviewPath = clean;
+        if (!clean) { spPreviewData = null; return; }
+        var k = Spotlight.fileKindFromPath(clean, false);
+        if (k === "image") { spPreviewData = { ok: true, kind: "image", text: "" }; return; }
+        if (spPreviewProc.running) return;
+        spPreviewProc.forPath = clean;
+        spPreviewProc.running = true;
+    }
+
+    // On-demand live FX rates (cached in RAM once fetched) & dictionary lookup for Spotlight Knowledge Cards
+    property var fxRates: null
+    property bool fxRequested: false
+    Process {
+        id: fxProc
+        command: ["sh", "-c", "curl -fsS --max-time 4 'https://open.er-api.com/v6/latest/USD' 2>/dev/null || true"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var o = JSON.parse(text);
+                    if (o && o.rates && o.rates.EUR) root.fxRates = o.rates;
+                } catch (e) {}
+            }
+        }
+    }
+    function ensureFxRates() {
+        if (fxRates || fxRequested || fxProc.running) return;
+        fxRequested = true;
+        fxProc.running = true;
+    }
+
+    property string dictQuery: ""
+    property var dictResult: null
+    property bool dictPending: false
+    Process {
+        id: dictProc
+        property string word: ""
+        command: ["sh", "-c", "curl -fsS --max-time 4 \"https://api.dictionaryapi.dev/api/v2/entries/en/$1\" 2>/dev/null || true", "sh", word]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (dictProc.word !== root.dictQuery) { root.lookupWord(root.dictQuery); return; }
+                root.dictResult = Spotlight.parseDictionaryJson(text, dictProc.word);
+                root.dictPending = false;
+            }
+        }
+        onExited: if (dictProc.word === root.dictQuery) root.dictPending = false
+    }
+    Timer {
+        id: dictDebounce
+        interval: 320
+        onTriggered: {
+            if (root.dictQuery === "" || dictProc.running) return;
+            dictProc.word = root.dictQuery;
+            root.dictPending = true;
+            dictProc.running = true;
+        }
+    }
+    function lookupWord(w) {
+        var clean = String(w || "").trim().toLowerCase();
+        if (clean === dictQuery && (dictResult || dictPending)) return;
+        dictQuery = clean;
+        dictResult = null;
+        if (!clean) { dictPending = false; return; }
+        dictPending = true;
+        dictDebounce.restart();
+    }
     ScreenshotSearch {
         id: screenshotSearch
         enabled: root.settingsReady && root.screenshotSearchEnabled
@@ -4491,6 +4576,26 @@ Scope {
     }
     function actionItems(q, prefixOnly) {
         var all = [
+            { title: I18n.tr("Toggle Dark Mode"), aliases: ["dark", "light", "theme", "appearance"], glyph: "contrast",
+              run: function () { root.setAppearance(root.darkMode ? "light" : "dark"); } },
+            { title: root.activeFocusProfile ? I18n.tr("Turn Off Focus") : I18n.tr("Toggle Do Not Disturb"), aliases: ["dnd", "focus"], glyph: "moon",
+              run: function () { root.toggleDnd(); } },
+            { title: I18n.tr("Mission Control"), aliases: ["mc", "spaces", "overview"], glyph: "layers",
+              run: function () { if (hub && hub.mc) hub.mc.toggleMission(""); } },
+            { title: I18n.tr("Toggle Stage Manager"), aliases: ["stage", "stagemanager"], glyph: "layers",
+              run: function () { if (hub && hub.wm) hub.wm.stageManager = !hub.wm.stageManager; } },
+            { title: I18n.tr("Show Desktop"), aliases: ["desktop"], glyph: "folder",
+              run: function () { if (hub && hub.wm) hub.wm.toggleRevealDesktop(""); } },
+            { title: I18n.tr("New Quick Note"), aliases: ["quick note", "quicknote"], glyph: "doc",
+              run: function () { if (hub && hub.wm) hub.wm.openQuickNote(); } },
+            { title: I18n.tr("Open Clock & Timers"), aliases: ["clock", "alarm"], glyph: "clock",
+              run: function () { if (hub && hub.clock) hub.clock.open("timers"); } },
+            { title: I18n.tr("Screenshot Selection\u2026"), aliases: ["screenshot", "capture"], glyph: "search",
+              run: function () { root.shot("sel"); } },
+            { title: root.recording ? I18n.tr("Stop Screen Recording") : I18n.tr("Start Screen Recording"), aliases: ["record", "recording"], glyph: "record",
+              run: function () { root.toggleRecording(); } },
+            { title: I18n.tr("Empty Trash"), aliases: ["trash"], glyph: "close", confirm: true,
+              run: function () { if (hub && hub.dock) hub.dock.emptyTrash(); } },
             { title: I18n.tr("Lock Screen"), glyph: "lock", run: function () { root.lockScreen(); } },
             { title: I18n.tr("Sleep"), glyph: "moon", run: function () { root.sleepMachine(); } },
             { title: I18n.tr("System Settings\u2026"), aliases: ["settings", "system settings", "einstellungen"],
@@ -4499,6 +4604,18 @@ Scope {
             { title: I18n.tr("Restart"), glyph: "restart", confirm: true, run: function () { sh("systemctl reboot"); } },
             { title: I18n.tr("Shut Down"), glyph: "power", confirm: true, run: function () { sh("systemctl poweroff"); } }
         ];
+        // Append user-defined custom Spotlight actions/shortcuts from settings.json
+        var custom = (typeof spotlightActions !== "undefined" && Array.isArray(spotlightActions)) ? spotlightActions : [];
+        for (var ci = 0; ci < custom.length; ci++) {
+            var ca = custom[ci];
+            if (!ca || !ca.title || !ca.cmd) continue;
+            all.push({
+                title: String(ca.title),
+                aliases: ca.key ? [String(ca.key).toLowerCase()] : [],
+                glyph: "bolt",
+                run: (function (c) { return function () { root.sh(c); }; })(String(ca.cmd))
+            });
+        }
         var s = (q || "").trim().toLowerCase(), out = [];
         for (var i = 0; i < all.length; i++) {
             var action = all[i];
@@ -4543,15 +4660,33 @@ Scope {
         }
         return out;
     }
-    function pathItem(path, isDir, subPrefix) {
+    function pathItem(path, isDir, subPrefix, snippet, sizeBytes) {
         var home = Quickshell.env("HOME") || "";
         var shown = (home && path.indexOf(home + "/") === 0) ? "~" + path.substring(home.length) : path;
-        return { title: path.substring(path.lastIndexOf("/") + 1) || path, sub: (subPrefix ? subPrefix + " \u00b7 " : "") + shown, path: true,
-                 glyph: isDir ? "folder" : "doc", run: (function (p) { return function () { root.openPath(p); }; })(path) };
+        var kind = Spotlight.fileKindFromPath(path, isDir);
+        var fileUrl = "file://" + path.split("/").map(function (part) { return encodeURIComponent(part); }).join("/");
+        var subLine = (snippet ? snippet + " \u00b7 " : "") + (subPrefix ? subPrefix + " \u00b7 " : "") + shown;
+        return {
+            title: path.substring(path.lastIndexOf("/") + 1) || path,
+            sub: subLine,
+            path: true,
+            filePath: path,
+            isDir: !!isDir,
+            fileKind: kind,
+            sizeBytes: Number(sizeBytes) || 0,
+            snippet: snippet || "",
+            preview: kind === "image" ? fileUrl : "",
+            glyph: isDir ? "folder" : "doc",
+            run: (function (p) { return function () { root.openPath(p); }; })(path)
+        };
     }
     function fileItems(q) {
         var out = [];
-        for (var i = 0; i < fileHits.length && out.length < 60; i++) out.push(pathItem(fileHits[i], false, ""));
+        for (var i = 0; i < fileHits.length && out.length < 60; i++) {
+            var h = fileHits[i];
+            if (typeof h === "string") out.push(pathItem(h, false, "", "", 0));
+            else if (h && h.path) out.push(pathItem(h.path, !!h.isDir, "", h.snippet || "", h.size || 0));
+        }
         return out;
     }
     function recentItems() {
@@ -4593,6 +4728,108 @@ Scope {
             return out;
         }
         if(s.length>0) out=appItems(q,4);
+        // Inline currency conversion knowledge card
+        var fx = (typeof Spotlight !== "undefined") ? Spotlight.parseCurrencyQuery(q, typeof fxRates !== "undefined" ? fxRates : null) : null;
+        if (fx) {
+            if (typeof ensureFxRates === "function") ensureFxRates();
+            out.unshift({
+                title: fx.formatted,
+                sub: I18n.tr("Currency") + " \u00b7 " + fx.rateText + (fx.live ? "" : " (est.)"),
+                glyph: "link",
+                card: { kind: "currency", title: fx.formatted, subtitle: fx.amount + " " + fx.from + " \u2192 " + fx.to, body: fx.rateText + (fx.live ? "\nLive ECB/FX rate" : "\nFallback rate (fetching live\u2026)") },
+                run: (function (val) { return function () { Quickshell.execDetached(["wl-copy", val]); }; })(fx.formatted)
+            });
+        }
+        // Spotlight Quick Keys & Inline Knowledge Cards (timer, note, remind, focus, define, weather, stock)
+        var qa = (typeof Spotlight !== "undefined") ? Spotlight.parseQuickAction(q) : null;
+        if (qa) {
+            if (qa.kind === "timer") {
+                var durLabel = MenuBar.fmtShortClock(qa.ms);
+                out.unshift({
+                    title: I18n.tr("Start Timer") + " " + durLabel + (qa.label ? (" \u2014 " + qa.label) : ""),
+                    sub: I18n.tr("Quick Key \u00b7 Clock Timer"),
+                    glyph: "clock",
+                    run: (function (ms, lbl) { return function () { if (hub && hub.clock) hub.clock.startTimer(ms, lbl); }; })(qa.ms, qa.label)
+                });
+            } else if (qa.kind === "note") {
+                out.unshift({
+                    title: I18n.tr("Add Note") + ": " + qa.text,
+                    sub: I18n.tr("Quick Key \u00b7 Quick Note"),
+                    glyph: "doc",
+                    run: (function (txt) {
+                        return function () {
+                            Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/macbar\" && printf '\\n%s\\n' \"$1\" >> \"$HOME/.config/macbar/quicknote.txt\"", "sh", txt]);
+                            if (hub && hub.wm) hub.wm.openQuickNote();
+                        };
+                    })(qa.text)
+                });
+            } else if (qa.kind === "remind") {
+                out.unshift({
+                    title: I18n.tr("Create Reminder") + ": " + qa.text,
+                    sub: I18n.tr("Quick Key \u00b7 Reminder"),
+                    glyph: "bell",
+                    run: (function (txt) {
+                        return function () {
+                            Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/macbar\" && printf '%s  %s\\n' \"$(date '+%Y-%m-%d %H:%M')\" \"$1\" >> \"$HOME/.config/macbar/reminders.txt\" && notify-send -a macbar 'Reminder Saved' \"$1\"", "sh", txt]);
+                        };
+                    })(qa.text)
+                });
+            } else if (qa.kind === "focus") {
+                var ft = qa.target;
+                if (ft === "off" || ft === "none") {
+                    out.unshift({ title: I18n.tr("Turn Off Focus"), sub: I18n.tr("Focus Mode"), glyph: "moon", run: function () { root.setFocusMode("", false); } });
+                } else {
+                    for (var fpi = 0; fpi < focusProfiles.length; fpi++) {
+                        var fp = focusProfiles[fpi];
+                        if (!ft || fp.id.indexOf(ft) >= 0 || fp.name.toLowerCase().indexOf(ft) >= 0) {
+                            out.unshift({
+                                title: I18n.tr("Enable Focus") + ": " + I18n.tr(fp.name),
+                                sub: I18n.tr("Focus Mode"),
+                                glyph: fp.glyph || "moon",
+                                run: (function (fid) { return function () { root.setFocusMode(fid, false); }; })(fp.id)
+                            });
+                        }
+                    }
+                }
+            } else if (qa.kind === "define") {
+                lookupWord(qa.word);
+                var dr = dictResult;
+                var defBody = dr ? dr.defs.map(function (d) { return (d.pos ? ("(" + d.pos + ") ") : "") + d.text; }).join("\n\n")
+                                 : (dictPending ? I18n.tr("Looking up definition\u2026") : I18n.tr("No definition found"));
+                out.unshift({
+                    title: dr ? (dr.word + (dr.phonetic ? "  " + dr.phonetic : "")) : (I18n.tr("Define") + " " + qa.word),
+                    sub: dr && dr.defs.length > 0 ? dr.defs[0].text : I18n.tr("Dictionary"),
+                    glyph: "doc",
+                    card: { kind: "dictionary", title: dr ? dr.word : qa.word, subtitle: dr ? (dr.phonetic || "Dictionary") : "Dictionary", body: defBody },
+                    run: (function (txt) { return function () { Quickshell.execDetached(["wl-copy", txt]); }; })(defBody)
+                });
+            } else if (qa.kind === "weather") {
+                var wgt = hub && hub.widgets ? hub.widgets : null;
+                var wTitle = (wgt && wgt.wxReady) ? (wgt.wxCity + " \u00b7 " + Math.round(wgt.wxTemp) + "\u00b0") : I18n.tr("Weather");
+                var wSub = (wgt && wgt.wxReady && wgt.wxInfo) ? (wgt.wxInfo.t + " \u00b7 H:" + Math.round(wgt.wxHi) + "\u00b0 L:" + Math.round(wgt.wxLo) + "\u00b0") : I18n.tr("Current weather");
+                out.unshift({
+                    title: wTitle, sub: wSub, glyph: "sun",
+                    card: { kind: "weather", title: wTitle, subtitle: wSub, body: (wgt && wgt.wxReady) ? ("Location: " + wgt.wxCity + "\nTemperature: " + Math.round(wgt.wxTemp) + "\u00b0\nHigh / Low: " + Math.round(wgt.wxHi) + "\u00b0 / " + Math.round(wgt.wxLo) + "\u00b0") : "Weather widget data loading\u2026" },
+                    run: function () { Quickshell.execDetached(["xdg-open", "https://wttr.in"]); }
+                });
+            } else if (qa.kind === "stock") {
+                var sym = qa.symbol;
+                var ex = hub && hub.widgets && hub.widgets.extra ? hub.widgets.extra : null;
+                var foundSt = null;
+                if (ex && Array.isArray(ex.stocks)) {
+                    for (var si = 0; si < ex.stocks.length; si++) {
+                        if (String(ex.stocks[si].sym || "").toUpperCase() === sym) { foundSt = ex.stocks[si]; break; }
+                    }
+                }
+                var stTitle = foundSt ? (sym + "  " + foundSt.price + " (" + foundSt.chg + ")") : ("$" + sym);
+                var stSub = foundSt ? I18n.tr("Stock Quote") : I18n.tr("Open quote on Yahoo Finance");
+                out.unshift({
+                    title: stTitle, sub: stSub, glyph: "link",
+                    card: { kind: "stock", title: sym, subtitle: stTitle, body: foundSt ? ("Symbol: " + sym + "\nPrice: " + foundSt.price + "\nChange: " + foundSt.chg) : ("Press Return to open " + sym + " on Yahoo Finance.") },
+                    run: (function (sy) { return function () { Quickshell.execDetached(["xdg-open", "https://finance.yahoo.com/quote/" + encodeURIComponent(sy)]); }; })(sym)
+                });
+            }
+        }
         var cv=conversion(s); if(cv) out.unshift(cv);
         else { var expr=s.replace(/^=\s*/,""); var v=calcValue(expr); if(v!==null && (s.charAt(0)==="=" || /[+*/%xX×÷()-]/.test(s))) out.unshift({title:String(Number(v.toPrecision(10))),sub:I18n.tr("Calculator · Return to copy"),glyph:"search",run:function(){Quickshell.execDetached(["wl-copy",String(v)]);}}); }
         var acts=actionItems(q,true);
@@ -13937,6 +14174,111 @@ Scope {
                     onPressed: ui.pop = ""
                 }
 
+                // Split-view Quick Look Preview Pane inside Spotlight (right half of resPanel when a file/screenshot/knowledge card is selected)
+                Item {
+                    id: spPreviewPane
+                    parent: resPanel
+                    visible: resPanel.showSplitPreview
+                    x: Math.round((resPanel.width - 16) * 0.54) + 14
+                    y: resPanel.listTop + 2
+                    width: Math.max(0, resPanel.width - x - 10)
+                    height: Math.max(0, resPanel.height - y - 10)
+                    readonly property var item: resPanel.selectedItem
+                    readonly property bool isCard: !!(item && item.card)
+                    readonly property bool isImage: !!(item && (item.preview || item.fileKind === "image"))
+
+                    Rectangle { x: -6; y: 4; width: 1; height: parent.height - 8; color: panelPal.sep }
+
+                    // Knowledge Card preview (Currency / Dictionary / Weather / Stock)
+                    Column {
+                        visible: spPreviewPane.isCard
+                        anchors.fill: parent; anchors.margins: 8
+                        spacing: 6
+                        Text {
+                            width: parent.width; wrapMode: Text.WordWrap
+                            text: spPreviewPane.isCard ? String(spPreviewPane.item.card.title || "") : ""
+                            color: panelPal.fg
+                            font.family: Fonts.forWeight(Font.DemiBold, root.boldFontFamily); font.pixelSize: 18; font.weight: Font.DemiBold
+                        }
+                        Text {
+                            width: parent.width; wrapMode: Text.WordWrap
+                            text: spPreviewPane.isCard ? String(spPreviewPane.item.card.subtitle || "") : ""
+                            color: root.accent
+                            font.family: Fonts.forWeight(Font.DemiBold, panelPal.fam); font.pixelSize: 12
+                        }
+                        Rectangle { width: parent.width; height: 1; color: panelPal.sep }
+                        Text {
+                            width: parent.width; wrapMode: Text.WordWrap
+                            text: spPreviewPane.isCard ? String(spPreviewPane.item.card.body || "") : ""
+                            color: panelPal.fg2
+                            font.family: Fonts.forWeight(Font.Normal, panelPal.fam); font.pixelSize: 12
+                        }
+                    }
+
+                    // File / Image / Screenshot / Text / PDF Quick Look preview
+                    Column {
+                        visible: !spPreviewPane.isCard && spPreviewPane.item !== null
+                        anchors.fill: parent; anchors.margins: 6
+                        spacing: 6
+                        Image {
+                            visible: spPreviewPane.isImage
+                            width: parent.width
+                            height: Math.max(90, parent.height - 68)
+                            source: spPreviewPane.isImage ? (spPreviewPane.item.preview || ("file://" + encodeURI(spPreviewPane.item.filePath || ""))) : ""
+                            sourceSize: Qt.size(512, 512)
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true; smooth: true
+                        }
+                        Rectangle {
+                            visible: !spPreviewPane.isImage && root.spPreviewData && root.spPreviewData.text && root.spPreviewData.text !== ""
+                            width: parent.width
+                            height: Math.max(90, parent.height - 68)
+                            radius: 8
+                            color: root.panelDarkMode ? Qt.rgba(0, 0, 0, 0.28) : Qt.rgba(0, 0, 0, 0.05)
+                            clip: true
+                            Text {
+                                anchors.fill: parent; anchors.margins: 8
+                                text: (root.spPreviewData && root.spPreviewData.text) ? root.spPreviewData.text : ""
+                                color: panelPal.fg
+                                font.family: "monospace"; font.pixelSize: 10.5
+                                wrapMode: Text.WrapAnywhere; elide: Text.ElideRight
+                            }
+                        }
+                        Text {
+                            width: parent.width; elide: Text.ElideMiddle
+                            text: spPreviewPane.item ? String(spPreviewPane.item.title || "") : ""
+                            color: panelPal.fg
+                            font.family: Fonts.forWeight(Font.DemiBold, root.boldFontFamily); font.pixelSize: 12.5; font.weight: Font.DemiBold
+                        }
+                        Text {
+                            width: parent.width; elide: Text.ElideMiddle
+                            text: {
+                                if (!spPreviewPane.item) return "";
+                                var sz = spPreviewPane.item.sizeBytes ? Spotlight.formatBytes(spPreviewPane.item.sizeBytes) : (root.spPreviewData && root.spPreviewData.size ? Spotlight.formatBytes(root.spPreviewData.size) : "");
+                                return (sz ? sz + " \u00b7 " : "") + (spPreviewPane.item.filePath || "");
+                            }
+                            color: panelPal.fg2
+                            font.family: Fonts.forWeight(Font.Normal, panelPal.fam); font.pixelSize: 10.5
+                        }
+                        Row {
+                            spacing: 6
+                            visible: !!(spPreviewPane.item && spPreviewPane.item.filePath)
+                            Rectangle {
+                                height: 22; radius: 6; width: qlOpenT.implicitWidth + 14
+                                color: qlOpenMa.containsMouse ? root.accent : panelPal.btnOff
+                                Text { id: qlOpenT; anchors.centerIn: parent; text: I18n.tr("Open"); color: qlOpenMa.containsMouse ? "white" : panelPal.fg; font.pixelSize: 11 }
+                                MouseArea { id: qlOpenMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { var p = spPreviewPane.item.filePath; ui.pop = ""; root.openPath(p); } }
+                            }
+                            Rectangle {
+                                height: 22; radius: 6; width: qlCopyT.implicitWidth + 14
+                                color: qlCopyMa.containsMouse ? root.accent : panelPal.btnOff
+                                Text { id: qlCopyT; anchors.centerIn: parent; text: I18n.tr("Copy Path"); color: qlCopyMa.containsMouse ? "white" : panelPal.fg; font.pixelSize: 11 }
+                                MouseArea { id: qlCopyMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { Quickshell.execDetached(["wl-copy", spPreviewPane.item.filePath]); ui.pop = ""; } }
+                            }
+                        }
+                    }
+                }
+
                 // Hover preview of a screenshot result, as in Blink: resting the pointer on a row for 350 ms shows the image
                 // larger beside the results, on the side with more room. After a keystroke it stays hidden until the pointer
                 // really moves, so rows rebuilt under a resting pointer do not pop it up while typing.
@@ -14275,6 +14617,12 @@ Scope {
                         x: -pad; y: -pad
                         width: spot.width + 2 * pad
                         readonly property var items: ui.spFull ? [] : ui.spResults      // clipboard / emoji / apps have their own panels
+                        readonly property var selectedItem: (items.length > 0 && selIdx >= 0 && selIdx < items.length) ? items[selIdx] : null
+                        readonly property bool showSplitPreview: !ui.spFull && selectedItem !== null && (!!selectedItem.filePath || !!selectedItem.card || !!selectedItem.preview)
+                        onSelectedItemChanged: {
+                            if (selectedItem && selectedItem.filePath) root.requestSpotPreview(selectedItem.filePath);
+                            else root.requestSpotPreview("");
+                        }
                         property int keep: 1                         // last non-empty row count, so the panel shrinks while it fades out
                         onItemsChanged: if (items.length > 0) keep = items.length
                         onSelIdxChanged: {
@@ -14290,14 +14638,14 @@ Scope {
                         Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 160; easing.type: Easing.OutCubic } }
                         // file search shows 5 rows at a time; more results scroll
                         readonly property int maxRows: /^(file|find)\s+/i.test(ui.spQuery) ? 5 : 99
-                        height: listTop + Math.min(items.length > 0 ? items.length : keep, maxRows) * 46 + pad
+                        height: listTop + Math.max(showSplitPreview ? 230 : 0, Math.min(items.length > 0 ? items.length : keep, maxRows) * 46) + pad
                         // expands / contracts downward only: the pill above never moves
                         Behavior on height { NumberAnimation { duration: root.reduceMotion ? 0 : 220; easing.type: Easing.OutCubic } }
                         GGlass { anchors.fill: parent; gx: spg; cornerR: 32; thickness: 30; strengthMul: 1.0; shadowAmt: 0.14 }
                         MenuBorder { amount: 0.3; anchors.fill: parent; cornerR: 32; dark: root.panelDarkMode; tint: root.menuBorderColor }
                         Item {
                             x: 8; y: resPanel.listTop
-                            width: parent.width - 16
+                            width: resPanel.showSplitPreview ? Math.round((parent.width - 16) * 0.54) : (parent.width - 16)
                             height: parent.height - resPanel.listTop - resPanel.pad
                             clip: true
                         Flickable {

@@ -49,10 +49,10 @@ Items are grouped by area. Each item includes a brief note on the current state 
 
 ## 4. Spotlight (macOS Tahoe Parity)
 
-- [ ] **Full-Text & Metadata File Search** — Upgrade file search (`find -iname` in `MacShell/MacBar.qml`) to support indexed content/metadata search (e.g. local FTS index, Recoll/Tracker/ripgrep integration) for documents, PDFs, and notes.
-- [ ] **Quick Look Preview Pane** — Split-view preview panel on the right side of Spotlight results for files, images, screenshots, and documents.
-- [ ] **Spotlight Actions & Quick Keys** — Expand the *Actions* tab beyond the 6 power/system commands to support app actions, user-defined shortcuts/scripts, quick keys, and direct creation of timers, reminders, and notes.
-- [ ] **Inline Knowledge Cards** — Live currency conversion, dictionary definitions, and inline weather/stock summary cards directly in Spotlight results.
+- [x] **Full-Text & Metadata File Search** — `MacShell/assets/spotlight-search.py` upgrades `MacBar.qml` file search with ranked filename + ripgrep full-text content search (showing matching line snippets), file size/mtime metadata, and `pdftotext` PDF excerpt support.
+- [x] **Quick Look Preview Pane** — Split-view preview pane (`spPreviewPane` in `MacShell/MacBar.qml`) renders images, screenshots, text/code/PDF excerpts, directory listings, file metadata, and Open / Copy Path actions alongside Spotlight results.
+- [x] **Spotlight Actions & Quick Keys** — Expanded *Actions* tab with system/window/media commands, user-defined `spotlightActions`, and quick keys (`t 5m` / `timer`, `note`, `remind`, `focus`) powered by `MacShell/Spotlight.js`.
+- [x] **Inline Knowledge Cards** — Live currency conversion (`100 USD to EUR`, `50€ in $` with cached FX rates), dictionary definitions (`define <word>`), and inline weather (`weather`) & stock (`stock AAPL` / `$AAPL`) summary cards in Spotlight.
 
 ---
 
