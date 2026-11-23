@@ -232,9 +232,13 @@ Scope {
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
             Rectangle {
-                anchors.right: parent.right; anchors.rightMargin: 18
+                id: thumbCard
+                property real swipeX: 0
+                anchors.right: parent.right; anchors.rightMargin: 18 - swipeX
                 anchors.bottom: parent.bottom; anchors.bottomMargin: 18
                 width: 236; height: 162; radius: 16
+                opacity: Math.max(0.25, 1 - Math.max(0, swipeX) / 140)
+                Behavior on swipeX { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                 color: root.darkMode ? Qt.rgba(0.11, 0.11, 0.13, 0.94) : Qt.rgba(0.97, 0.97, 0.98, 0.96)
                 border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.14)
                 HoverHandler { onHoveredChanged: { root.thumbHovered = hovered; if (!hovered) thumbAutoHide.restart(); } }
@@ -244,7 +248,20 @@ Scope {
                     source: "file://" + root.thumbPath.split("/").map(function (p) { return encodeURIComponent(p); }).join("/")
                     sourceSize: Qt.size(480, 280)
                     fillMode: Image.PreserveAspectCrop; clip: true; asynchronous: true; smooth: true
-                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openMarkup(root.thumbPath) }
+                    MouseArea {
+                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        property real sx: 0; property bool swiped: false
+                        onPressed: mouse => { sx = mouse.x; swiped = false; }
+                        onPositionChanged: mouse => {
+                            var dx = mouse.x - sx;
+                            if (dx > 12) { swiped = true; thumbCard.swipeX = dx; }
+                        }
+                        onReleased: {
+                            if (thumbCard.swipeX > 72) root.dismissThumbnail();
+                            else if (!swiped) root.openMarkup(root.thumbPath);
+                            thumbCard.swipeX = 0;
+                        }
+                    }
                 }
                 Row {
                     anchors.bottom: parent.bottom; anchors.bottomMargin: 7
@@ -322,6 +339,18 @@ Scope {
                                 color: root.markupTool === mTool.modelData.id ? root.accent : (root.darkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.07))
                                 Text { id: mtL; anchors.centerIn: parent; text: mTool.modelData.label; color: root.markupTool === mTool.modelData.id ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12 }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.markupTool = mTool.modelData.id }
+                            }
+                        }
+                        Rectangle {
+                            visible: root.markupTool === "text"
+                            width: 120; height: 28; radius: 8
+                            color: root.darkMode ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
+                            border.width: 1; border.color: root.accent
+                            TextInput {
+                                anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8
+                                verticalAlignment: TextInput.AlignVCenter; clip: true
+                                color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 12
+                                text: root.markupText; onTextEdited: root.markupText = text
                             }
                         }
                         Rectangle { width: 1; height: 20; anchors.verticalCenter: parent.verticalCenter; color: Qt.rgba(1, 1, 1, 0.18) }

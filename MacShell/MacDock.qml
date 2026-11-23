@@ -2143,12 +2143,18 @@ Scope {
                             // the more icons were pinned the bigger they were. That was the stutter / lag of the magnification. Now the textures keep
                             // their size and only the shader's offset moves.
                             readonly property real magExtra: root.iconSize * (root.effMag - 1) * (root.magRadius / (root.iconSize + root.spacing) + 1)
-                            readonly property real capInner: Math.min(Math.ceil(Math.max(dock.width, root.totalW0 + 2 * root.hPad + magExtra) / 128) * 128,
-                                                                      win.modelData.width + 320 - 2 * (padPx + margin))   // the mirrored edge padding is 160 px each side
-                            readonly property real capW: capInner + 2 * (padPx + margin)
-                            readonly property real capH: dock.height + 2 * (padPx + margin)
-                            readonly property real capX: (ui.width - capW) / 2                                   // the Dock is centred in the window
-                            readonly property real capY: ui.height - root.margin - dock.height + (win.modelData.height - ui.height) - padPx - margin   // untucked position
+                            readonly property real capInner: Math.min(Math.ceil(Math.max(root.isVertical ? dock.height : dock.width, root.totalW0 + 2 * root.hPad + magExtra) / 128) * 128,
+                                                                      (root.isVertical ? win.modelData.height : win.modelData.width) + 320 - 2 * (padPx + margin))
+                            readonly property real capW: (root.isVertical ? dock.width : capInner) + 2 * (padPx + margin)
+                            readonly property real capH: (root.isVertical ? capInner : dock.height) + 2 * (padPx + margin)
+                            readonly property real capX: root.dockPosition === "left"
+                                                         ? (root.margin - padPx - margin)
+                                                         : (root.dockPosition === "right"
+                                                            ? (win.modelData.width - root.margin - dock.width - padPx - margin)
+                                                            : (ui.width - capW) / 2)
+                            readonly property real capY: root.isVertical
+                                                         ? (ui.height - capH) / 2
+                                                         : (ui.height - root.margin - dock.height + (win.modelData.height - ui.height) - padPx - margin)
                             ShaderEffectSource {
                                 id: bsrc
                                 sourceItem: glassBackdrop.item
@@ -2217,8 +2223,8 @@ Scope {
                                 property vector2d glassSize: Qt.vector2d(dock.width, dock.height)
                                 property vector2d srcSize: Qt.vector2d(dg.capW, dg.capH)
                                 // where this item's top-left sits inside the (fixed) capture; follows the Dock as it widens / tucks
-                                property vector2d srcOffset: Qt.vector2d(dock.x - padPx - dg.capX,
-                                                                         dock.y + (win.modelData.height - ui.height) - padPx - dg.capY)
+                                property vector2d srcOffset: Qt.vector2d(dock.x + (root.dockPosition === "right" ? (win.modelData.width - ui.width) : 0) - padPx - dg.capX,
+                                                                         dock.y + (root.isVertical ? 0 : (win.modelData.height - ui.height)) - padPx - dg.capY)
                                 property real pad: padPx
                                 property real radius: root.cornerRadius
                                 property real bezel: Math.min(dock.height * 0.36, 26)
@@ -2449,9 +2455,14 @@ Scope {
                                     width: cell.useThumb ? full : Math.max(1, Math.round(full * root.iconScale))
                                     height: width
                                     readonly property real tile: width - 2 * Math.round(width * 0.0975) + 2
-                                    x: Math.round((parent.width - width) / 2)
-                                    anchors.bottom: parent.bottom
-                                    anchors.bottomMargin: Math.round(lift + armLift) + Math.round((full - width) / 2)
+                                    x: root.dockPosition === "left"
+                                       ? (Math.round(lift + armLift) + Math.round((full - width) / 2))
+                                       : (root.dockPosition === "right"
+                                          ? (parent.width - width - Math.round(lift + armLift) - Math.round((full - width) / 2))
+                                          : Math.round((parent.width - width) / 2))
+                                    y: root.isVertical
+                                       ? Math.round((parent.height - height) / 2)
+                                       : (parent.height - height - Math.round(lift + armLift) - Math.round((full - width) / 2))
                                     source: cell.isSep ? "" : root.cellIconSrc(cell.modelData)
                                     sourceSize: Qt.size(Math.ceil(root.iconSize * root.magnification * 1.25),
                                                         Math.ceil(root.iconSize * root.magnification * 1.25))
@@ -2730,10 +2741,14 @@ Scope {
                                     opacity: cell.tipOn ? 1 : 0
                                     Behavior on opacity { NumberAnimation { duration: 120 } }
                                     active: cell.tipOn || opacity > 0
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    // (no explicit width / height: the Loader takes the bubble's size from it)
-                                    // the tail's tip sits just above the icon (above the magnified / bouncing icon, too)
-                                    y: cell.height - img.height - img.lift - height - Math.round(9 * root.labelK)
+                                    x: root.dockPosition === "left"
+                                       ? (img.x + img.width + Math.round(10 * root.labelK))
+                                       : (root.dockPosition === "right"
+                                          ? (img.x - width - Math.round(10 * root.labelK))
+                                          : (parent.width - width) / 2)
+                                    y: root.isVertical
+                                       ? (img.y + (img.height - height) / 2)
+                                       : (cell.height - img.height - img.lift - height - Math.round(9 * root.labelK))
                                     sourceComponent: DockGlassPanel {
                                         id: lp
                                         readonly property string title: cell.isSep ? "" : ((cell.modelData.kind === "win" && cell.modelData.tl && cell.modelData.tl.title) ? cell.modelData.tl.title : cell.modelData.name)
@@ -3144,9 +3159,15 @@ Scope {
 
                     width: ui.menuW
                     bodyH: menuCol.height + 2 * pad
-                    x: Math.max(8, Math.min(ui.width - width - 8, ui.menuCx - width / 2))
-                    y: ui.menuIconTop >= 0 ? ui.menuIconTop - Math.round(10 * k) - height
-                                           : ui.height - root.margin - root.bgHeight - root.iconSize * (root.effMag - 1) - Math.round(10 * k) - height
+                    x: root.dockPosition === "left"
+                       ? (dock.x + dock.width + 12)
+                       : (root.dockPosition === "right"
+                          ? Math.max(8, dock.x - width - 12)
+                          : Math.max(8, Math.min(ui.width - width - 8, ui.menuCx - width / 2)))
+                    y: root.isVertical
+                       ? Math.max(12, Math.min(ui.height - height - 12, (ui.menuCell ? ui.menuCell.mapToItem(ui, 0, ui.menuCell.height / 2).y : ui.height / 2) - height / 2))
+                       : (ui.menuIconTop >= 0 ? ui.menuIconTop - Math.round(10 * k) - height
+                                              : ui.height - root.margin - root.bgHeight - root.iconSize * (root.effMag - 1) - Math.round(10 * k) - height)
                     // The tail points at the icon the menu belongs to. Its position along the bubble is locked when the menu opens:
                     // re-evaluating tailX while the menu follows its icon during magnification changed shapeKey on every frame,
                     // repainting all of the bubble's canvases (blurred shadow included) on the CPU and causing severe magnification lag.

@@ -585,7 +585,9 @@ Scope {
             color: "transparent"
             WlrLayershell.namespace: "macdesktop"
             WlrLayershell.layer: WlrLayer.Bottom
-            WlrLayershell.keyboardFocus: ((renameSheet.open || linkSheet.open || emojiSheet.open) && !root.picking) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+            WlrLayershell.keyboardFocus: ((renameSheet.open || linkSheet.open || emojiSheet.open) && !root.picking)
+                                         ? WlrKeyboardFocus.Exclusive
+                                         : (root.selectionCount > 0 ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None)
 
             // The whole screen takes the pointer (empty desktop: selection rectangle, right-click menu) EXCEPT
             //   * interactive widgets' buttons (Player, Reminders), which live in the widgets window and still have to be clickable, and
@@ -868,11 +870,19 @@ Scope {
                         if (it && it.isStack) { root.activeStack = it; return; }
                         if (it) root.openItem(it);
                     }
+                }
+                Item {
+                    id: desktopKeyCatcher
+                    focus: root.selectionCount > 0 && !w.sheetOpen
                     Keys.onSpacePressed: {
                         var sel = root.selectedItems();
                         if (sel.length > 0 && !sel[0].isStack && root.hub && root.hub.quickLook) {
                             root.hub.quickLook.togglePath(sel[0].path);
                         }
+                    }
+                    Keys.onEscapePressed: {
+                        if (root.activeStack !== null) root.activeStack = null;
+                        else root.clearSelection();
                     }
                 }
 

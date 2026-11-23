@@ -7505,6 +7505,21 @@ Scope {
                             }
                         }
 
+                        // Visual "× Hide" badge while dragging a Menu Bar item downward off the bar (macOS Cmd+drag remove feedback)
+                        Rectangle {
+                            visible: rightRow.dragId !== "" && rightRow.dragHideArmed
+                            z: 60
+                            x: Math.max(0, Math.min(rightRow.width - width, (rightRow.slotX[rightRow.dragId] || 0) + rightRow.dragDx))
+                            y: root.barH + 6
+                            height: 20; radius: 10; width: hideBadgeT.implicitWidth + 14
+                            color: "#FF453A"
+                            Text {
+                                id: hideBadgeT; anchors.centerIn: parent
+                                text: "\u00d7 " + I18n.tr("Hide")
+                                color: "#FFFFFF"; font.pixelSize: 10.5; font.weight: Font.DemiBold
+                            }
+                        }
+
                         // tray + collapse arrow wrapped as one reorderable slot
                         Row {
                             id: traySlot
