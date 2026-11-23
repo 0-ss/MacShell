@@ -1170,6 +1170,7 @@ Item {
     property int lyrTries: 0
     Timer { id: lyrRetry; interval: 12000; onTriggered: ls.fetchLyrics() }
     readonly property string lyricsScript: decodeURIComponent(Qt.resolvedUrl("lyrics_fetcher.py").toString().replace(/^file:\/\//, ""))
+    readonly property string geniusScript: decodeURIComponent(Qt.resolvedUrl("genius-lyrics.py").toString().replace(/^file:\/\//, ""))
     property string lyricRequestKey: ""
     function fetchLyrics() {
         if (lyrProc.running) return;
@@ -1177,14 +1178,14 @@ Item {
         lyrLines = []; lyrStatus = "loading";
         var len = media.pl.lengthSupported ? Math.round(media.pl.length) : 0;
         lyricRequestKey = trackKey;
-        lyrProc.command = ["sh", "-c", ls.lyrScript, "sh", media.pl.trackArtist || "", media.pl.trackTitle || "", media.pl.trackAlbum || "", len > 0 ? String(len) : "0", ls.lyricsScript];
+        lyrProc.command = ["sh", "-c", ls.lyrScript, "sh", media.pl.trackArtist || "", media.pl.trackTitle || "", media.pl.trackAlbum || "", len > 0 ? String(len) : "0", ls.lyricsScript, ls.geniusScript];
         lyrProc.running = true;
     }
     readonly property string lyrScript: [
         'a="$1"; t="$2"; al="$3"; d="${4:-0}"; c="$HOME/.cache/maclock/lyrics"; mkdir -p "$c"',
         'k=$(printf "%s|%s" "$a" "$t" | md5sum | cut -c1-16); f="$c/$k.json"',
         '[ -s "$f" ] && { cat "$f"; exit 0; }',
-        'tmp=$(mktemp); answered=0; r=""',
+        'tmp=$(mktemp); trap \'rm -f "$tmp"\' EXIT INT TERM; answered=0; r=""',
         // titles like "Song (feat. X)" / "Song - Remastered 2011": also try the bare title
         'bare=$(printf "%s" "$t" | sed -E "s/ *[(\\[][^)\\]]*[)\\]]//g; s/ +- +(.*[Rr]emaster.*|[Ll]ive.*|[Rr]adio [Ee]dit.*)$//")',
         // ── 1. NetEase Cloud Music: fast, not rate-limited. Same title + same length (±4 s) or it doesn't count.
@@ -1211,7 +1212,7 @@ Item {
         'fi',
         // ── 3. Genius: token-free, rich lyrics source
         'if [ -z "$r" ] || [ "$(printf "%s" "$r" | jq -r ".syncedLyrics // empty" 2>/dev/null)" = "" ]; then',
-        '  g=$(python3 "$HOME/.config/quickshell/MacLock/genius-lyrics.py" "$a" "$bare" "$c" 2>/dev/null || true)',
+        '  g=$(python3 "$6" "$a" "$bare" "$c" 2>/dev/null || true)',
         '  if [ -n "$g" ] && [ "$g" != "{}" ]; then',
         '    gp=$(printf "%s" "$g" | jq -r ".plain // empty" 2>/dev/null)',
         '    if [ -n "$gp" ]; then r=$(jq -nc --arg p "$gp" "{plainLyrics: \\$p}"); answered=1; fi',

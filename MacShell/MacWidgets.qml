@@ -444,6 +444,7 @@ Scope {
     property string lrcAlbum: ""
     property string lrcDur: ""
     readonly property string lyricsScript: decodeURIComponent(Qt.resolvedUrl("lyrics_fetcher.py").toString().replace(/^file:\/\//, ""))
+    readonly property string geniusScript: decodeURIComponent(Qt.resolvedUrl("genius-lyrics.py").toString().replace(/^file:\/\//, ""))
     readonly property string trackKey: player ? (player.trackTitle + "|" + player.trackArtist + "|" + player.trackAlbum + "|"
                                                   + Math.round(player.lengthSupported ? player.length : 0)) : ""
     onTrackKeyChanged: {
@@ -515,11 +516,11 @@ Scope {
             + "py=\"${XDG_DATA_HOME:-$HOME/.local/share}/macshell/lyrics-venv/bin/python\"; [ -x \"$py\" ] || py=python3; "
             + "sync=$(timeout 12s \"$py\" \"$5\" \"$1\" \"$2\" 2>/dev/null); "
             + "if [ -n \"$sync\" ]; then printf '%s' \"$sync\"; exit 0; fi; "
-            + "g=$(python3 \"$HOME/.config/quickshell/MacShell/genius-lyrics.py\" \"$2\" \"$1\" \"$HOME/.cache/macshell/lyrics\" 2>/dev/null || true); "
+            + "g=$(python3 \"$6\" \"$2\" \"$1\" \"$HOME/.cache/macshell/lyrics\" 2>/dev/null || true); "
             + "gp=$(printf '%s' \"$g\" | jq -r '.plain // empty' 2>/dev/null); "
             + "if [ -n \"$gp\" ]; then jq -nc --arg p \"$gp\" '{plainLyrics:$p}'; "
             + "elif [ -n \"$r\" ]; then printf '%s' \"$r\"; else printf '{}'; fi",
-            "sh", root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur, root.lyricsScript]
+            "sh", root.lrcTitle, root.lrcArtist, root.lrcAlbum, root.lrcDur, root.lyricsScript, root.geniusScript]
         stdout: StdioCollector {
             onStreamFinished: {
                 if (root.lyricsReqKey !== root.trackKey) {            // the song changed while we were asking

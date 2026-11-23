@@ -16,6 +16,19 @@ var dicts = {
         "Stop": "Стоп",
         "ddd MMM d": "ddd, d MMM",
         "dddd, MMMM d": "dddd, d MMMM"
+    },
+    es: {
+        " more notification": " notificación más",
+        " · Paused": " · En pausa",
+        "Enter Password": "Introduce la contraseña",
+        "Enter your password to unlock": "Introduce tu contraseña para desbloquear",
+        "Instrumental": "Instrumental",
+        "Loading lyrics…": "Cargando letra…",
+        "Notification": "Notificación",
+        "Timer": "Temporizador",
+        "Stop": "Detener",
+        "ddd MMM d": "ddd d MMM",
+        "dddd, MMMM d": "dddd, d MMMM"
     }
 };
 // the language chosen in System Settings (shell.qml sets Qt.uiLanguage), or the system locale

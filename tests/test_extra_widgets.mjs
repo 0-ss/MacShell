@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const extraQml = read("../MacShell/ExtraWidgets.qml");
 const widgetsQml = read("../MacShell/MacWidgets.qml");
-const dockQml = read("../MacShell/MacDock.qml");
+const settingsQml = read("../MacShell/SettingsWindow.qml");
 
 const compMatch = extraQml.match(/function comp\(type\)\s*\{\s*return \(\{([^}]+)\}\)\[type\]/);
 assert.ok(compMatch, "ExtraWidgets.comp(type) mapping must exist");
@@ -19,9 +19,9 @@ const typeNamesMatch = widgetsQml.match(/readonly property var typeNames:\s*\(\{
 assert.ok(typeNamesMatch, "MacWidgets.typeNames must exist");
 const typeNames = new Set([...typeNamesMatch[1].matchAll(/(\w+)\s*:/g)].map((m) => m[1]));
 
-const addBlockStart = dockQml.indexOf('I18n.tr("Add a Widget")');
-assert.ok(addBlockStart > 0, "Add a Widget section must exist in MacDock.qml");
-const addBlock = dockQml.slice(addBlockStart, dockQml.indexOf("delegate: Item", addBlockStart));
+const addBlockStart = settingsQml.indexOf('I18n.tr("Add a Widget")');
+assert.ok(addBlockStart > 0, "Add a Widget section must exist in SettingsWindow.qml");
+const addBlock = settingsQml.slice(addBlockStart, settingsQml.indexOf("delegate: Item", addBlockStart));
 const dockTypes = new Set([...addBlock.matchAll(/type:\s*"(\w+)"/g)].map((m) => m[1]));
 
 for (const t of extraTypes) {

@@ -282,35 +282,10 @@ Scope {
         }
         onRunningChanged: if (!running && root.tonePending) { var r = root.tonePending; root.tonePending = null; root.runPanelTone(r); }
     }
-    // ── bar text colour: measure what is behind the bar strip (wallpaper + windows + the bar's own glass) ──
-    function measureBar() {
-        return;     // the bar is always dark now: nothing to measure behind it
-        var sc = Quickshell.screens && Quickshell.screens.length ? Quickshell.screens[0] : null;
-        if (!sc) return;
-        barToneProc.command = ["sh", toneScript, "0.25", String(Math.round(sc.x)), String(Math.round(sc.y)), String(Math.max(8, Math.round(sc.width))), String(Math.max(8, Math.round(barH)))];
-        barToneProc.running = true;
-    }
-    Timer { id: barToneT; interval: 350; onTriggered: root.measureBar() }          // debounce: after a resize / wallpaper / window change settles
-    Timer { interval: 1200; repeat: true; running: root.autoContrast && root.barEnabled && !root.gaming; onTriggered: root.measureBar() }
     Connections {
         target: root
-        function onBarHeightChanged() { barToneT.restart(); }
-        function onDarkModeChanged() { root.panelTone = 0; barToneT.restart(); }
-        function onBarEnabledChanged() { if (root.barEnabled) barToneT.restart(); }
-        function onWallpaperAccentChanged() { barToneT.restart(); }
-        function onGlassClientsChanged() { barToneT.restart(); }
-        function onAutoContrastChanged() { if (root.autoContrast) barToneT.restart(); else { root.barTone = 0; root.panelTone = 0; } }
-    }
-    Process {
-        id: barToneProc
-        stdout: StdioCollector {
-            onStreamFinished: {
-                var p = text.trim().split(/\s+/);
-                var v = parseFloat(p[0]), sd = parseFloat(p[1]);
-                if (isNaN(v)) return;
-                root.barTone = root.pickTone(root.barTone, v, isNaN(sd) ? 0 : sd, false);
-            }
-        }
+        function onDarkModeChanged() { root.panelTone = 0; }
+        function onAutoContrastChanged() { if (!root.autoContrast) { root.barTone = 0; root.panelTone = 0; } }
     }
     property bool lockArtBackground: true     // lock screen: blurred album art as the background while the cover is enlarged
     // lock screen clock (Settings → Lock Screen → Clock); MacLock reads these when it starts
@@ -3154,14 +3129,26 @@ Scope {
         refreshDiscord();
         refreshEarbuds();
     }
+    function shouldPollDiscord(popOpen, hasDiscordStreams, hasDiscordToplevel, prevRunning) {
+        return !!(popOpen || hasDiscordStreams || hasDiscordToplevel || prevRunning);
+    }
+    function shouldPollEarbuds(popOpen, btOn, btConnected, prevConnected) {
+        return !!(popOpen || (btOn && btConnected > 0) || prevConnected);
+    }
     Timer {
-        interval: root.popCount > 0 ? 2500 : 7000
+        interval: root.popCount > 0 ? 3000 : 15000
         repeat: true
         running: root.barEnabled && root.showAudioHub && !root.gaming
         triggeredOnStart: true
         onTriggered: {
-            root.refreshDiscord();
-            root.refreshEarbuds();
+            var popOpen = root.popCount > 0, ts = Hyprland.toplevels.values, hasTl = false;
+            for (var i = 0; i < ts.length && !hasTl; i++) {
+                var t = ts[i], o = t.lastIpcObject || {};
+                hasTl = /vesktop|discord|equibop|legcord|webcord|armcord/i.test(String(t.appId || "") + " " + String(o["class"] || ""));
+            }
+            var hasStreams = root.discordInNodes.length > 0 || root.discordOutNodes.length > 0;
+            if (root.shouldPollDiscord(popOpen, hasStreams, hasTl, !!root.discordState.running)) root.refreshDiscord();
+            if (root.shouldPollEarbuds(popOpen, root.btOn, root.btConnected, !!root.earbudsState.connected)) root.refreshEarbuds();
         }
     }
 
@@ -3271,15 +3258,22 @@ Scope {
         if (wifiConnProc.running) return;
         wifiError = "";
         wifiBusy = ssid;
-        var cmd = ["nmcli", "--wait", "25", "dev", "wifi", "connect", ssid];
-        if (pw && pw !== "") { cmd.push("password"); cmd.push(pw); }
-        wifiConnProc.command = cmd;
+        // The password travels via the environment and nmcli's stdin (--ask), never via argv where `ps` shows it.
+        wifiConnProc.environment = (pw && pw !== "") ? { MACBAR_WIFI_PW: pw } : ({});
+        wifiConnProc.command = ["sh", "-c", wifiConnProc.connScript, "sh", ssid];
         wifiConnProc.running = true;
     }
     Process {
         id: wifiConnProc
+        readonly property string connScript: 'if [ -n "${MACBAR_WIFI_PW:-}" ]; then\n'
+            + '  pw="$MACBAR_WIFI_PW"; unset MACBAR_WIFI_PW\n'
+            + '  printf \'%s\\n\' "$pw" | nmcli --wait 25 --ask dev wifi connect "$1"\n'
+            + 'else\n'
+            + '  exec nmcli --wait 25 dev wifi connect "$1"\n'
+            + 'fi'
         stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") root.wifiError = root.nmErr(text) }
         onExited: (code, status) => {
+            wifiConnProc.environment = ({});
             root.wifiBusy = "";
             if (code !== 0 && root.wifiError === "") root.wifiError = "Couldn't join the network.";
             if (code === 0) root.wifiError = "";
@@ -3829,42 +3823,40 @@ Scope {
     // Hyprland 0.55+ is configured and driven in Lua: `hyprctl dispatch` takes a Lua expression (the old "killactive" style strings fail).
     function hlx(expr) { Quickshell.execDetached(["hyprctl", "dispatch", expr]); }
     function disp(expr) { return function () { root.hlx(expr); }; }
-    // Menu shortcuts are sent to the focused window with Hyprland's sendshortcut (no extra tool needed).
-    // If some app ignores them, set this to true to type them with wtype instead.
+    // Menu shortcuts go to the focused window via Hyprland's Lua send_shortcut; wtype is the fallback.
+    function buildKeyCommand(mods, k, rawAddr) {
+        var kNorm = String(k);
+        if (!/^[A-Za-z0-9_]+$/.test(kNorm)) return null;
+        var addr = String(rawAddr || "");
+        if (/^[0-9a-fA-F]+$/.test(addr)) addr = "0x" + addr;
+        if (!/^0x[0-9a-fA-F]+$/.test(addr)) addr = "";
+        var wtypeMap = { "ctrl": "ctrl", "control": "ctrl", "shift": "shift", "alt": "alt", "super": "logo", "win": "logo", "cmd": "logo" };
+        var hyprMap = { "control": "CTRL", "win": "SUPER", "cmd": "SUPER" };
+        var wtypeMods = [], hyprList = [];
+        for (var i = 0; i < mods.length; i++) {
+            var m = String(mods[i]).toLowerCase();
+            if (!/^[a-z]+$/.test(m)) return null;
+            wtypeMods.push(wtypeMap[m] || m);
+            hyprList.push(hyprMap[m] || m.toUpperCase());
+        }
+        var hyprMods = hyprList.join(" ");
+        var wtypeArgs = [];
+        for (var a = 0; a < wtypeMods.length; a++) wtypeArgs.push("-M", wtypeMods[a]);
+        wtypeArgs.push("-k", kNorm);
+        for (var b = wtypeMods.length - 1; b >= 0; b--) wtypeArgs.push("-m", wtypeMods[b]);
+        return {
+            luaExpr: 'hl.dsp.send_shortcut({ mods = "' + hyprMods + '", key = "' + kNorm + '"' + (addr !== "" ? ', window = "address:' + addr + '"' : "") + ' })',
+            legacyArg: (hyprMods !== "" ? hyprMods + ", " : "") + kNorm + ", " + (addr !== "" ? "address:" + addr : "activewindow"),
+            focusLua: addr !== "" ? 'hl.dsp.focus({ window = "address:' + addr + '" })' : "",
+            wtypeArgs: wtypeArgs
+        };
+    }
     function keys(mods, k) {
         return function () {
-            var targetAddr = root.activeWin ? (root.activeWin.address || "") : "";
-            var modMap = {
-                "ctrl": "ctrl", "control": "ctrl",
-                "shift": "shift",
-                "alt": "alt",
-                "super": "logo", "win": "logo", "cmd": "logo"
-            };
-            var wtypeMods = mods.map(function(m) { return modMap[m.toLowerCase()] || m.toLowerCase(); });
-            var hyprMods = mods.map(function(m) { return m.toUpperCase(); }).join(" ");
-            var luaMods = mods.map(function(m) { return m.toUpperCase(); }).join(" + ");
-
-            var kNorm = k;
-            var wtypeK = k;
-            if (k === "comma") { kNorm = "comma"; wtypeK = "comma"; }
-            else if (k === "equal") { kNorm = "equal"; wtypeK = "equal"; }
-            else if (k === "minus") { kNorm = "minus"; wtypeK = "minus"; }
-            else if (k === "period") { kNorm = "period"; wtypeK = "period"; }
-
-            var wtypeCmd = "wtype";
-            for (var i = 0; i < wtypeMods.length; i++) wtypeCmd += " -M " + wtypeMods[i];
-            wtypeCmd += " -k " + wtypeK;
-            for (var j = wtypeMods.length - 1; j >= 0; j--) wtypeCmd += " -m " + wtypeMods[j];
-
-            var focusCmd = targetAddr !== "" ? "hyprctl dispatch focuswindow address:" + targetAddr + " >/dev/null 2>&1; sleep 0.04; " : "sleep 0.03; ";
-            var sendArg = targetAddr !== "" ? (hyprMods !== "" ? hyprMods + ", " : "") + kNorm + ", address:" + targetAddr
-                                           : (hyprMods !== "" ? hyprMods + ", " : "") + kNorm + ", activewindow";
-
-            var fullScript = focusCmd + 'if command -v wtype >/dev/null 2>&1; then ' + wtypeCmd + '; '
-                           + 'elif command -v ydotool >/dev/null 2>&1; then ydotool key ' + (mods.length ? mods.join("+") + "+" : "") + kNorm + '; '
-                           + 'else hyprctl dispatch sendshortcut "' + sendArg + '" 2>/dev/null || hyprctl dispatch sendshortcut "' + (hyprMods ? hyprMods + ", " : "") + kNorm + ', activewindow" 2>/dev/null || true; fi';
-
-            Quickshell.execDetached(["sh", "-c", fullScript]);
+            var c = root.buildKeyCommand(mods, k, root.activeWin ? root.activeWin.address : "");
+            if (!c) return;
+            // Lua dispatch first, legacy sendshortcut next, then focus + wtype; arguments are positional so nothing is interpolated into the shell.
+            Quickshell.execDetached(["sh", "-c", '[ "$(hyprctl dispatch "$1" 2>/dev/null)" = "ok" ] || [ "$(hyprctl dispatch sendshortcut "$2" 2>/dev/null)" = "ok" ] || { [ -n "$3" ] && hyprctl dispatch "$3" >/dev/null 2>&1; sleep 0.04; shift 3; command -v wtype >/dev/null 2>&1 && exec wtype "$@"; }', "sh", c.luaExpr, c.legacyArg, c.focusLua].concat(c.wtypeArgs));
         };
     }
     function mchk(label, shortcut, checked, run) { return { kind: "item", label: label, shortcut: shortcut || "", run: run, checked: checked === true }; }
@@ -4441,6 +4433,7 @@ Scope {
             if (hit.title) item.title = hit.title;
             if (hit.description) item.sub = hit.description;
             item.icon = "file://" + hit.path.split("/").map(function (part) { return encodeURIComponent(part); }).join("/");
+            item.preview = item.icon;           // hovering the row shows the screenshot larger (shotPeek)
             return item;
         });
         else if (screenshotSearch.failed || screenshotSearch.indexFailed) message = I18n.tr("Screenshot index unavailable");
@@ -4486,7 +4479,7 @@ Scope {
         if (name === "apple") {
             m.push(ico(mi("About This Linux", "", function () {
                 if (hub && hub.about) hub.about.open();
-                else sh(terminal + " -e sh -c 'fastfetch || neofetch; echo; read -p \"Press Enter\" _'");
+                else Quickshell.execDetached(["sh", "-c", "exec \"$1\" -e sh -c 'fastfetch || neofetch; echo; printf \"Press Enter \"; read -r _'", "sh", terminal]);
             }), "m_about"));
             m.push(msep());
             m.push(ico(mi("System Settings\u2026", "", function () { root.openSettings(); }), "gear"));
@@ -5845,6 +5838,22 @@ Scope {
     // The switcher layer holds EXCLUSIVE keyboard focus while open, and Hyprland can refuse to focus / switch
     // workspace while an exclusive layer is up. So: close the layer first, then dispatch a moment later.
     property var swPending: null
+    // Pure: builds the Hyprland Lua focus expression from untrusted window data, "" when nothing safe to focus.
+    function buildFocusLua(t) {
+        var ws = Math.floor(Number(t.ws));
+        var addr = String(t.addr || "");
+        if (/^[0-9a-fA-F]+$/.test(addr)) addr = "0x" + addr;
+        if (!/^0x[0-9a-fA-F]+$/.test(addr)) addr = "";
+        // class is matched as an exact regex literal: escape RE2 metacharacters, then escape for a Lua "..." string
+        var cls = String(t.cls || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            .replace(/[\\"\x00-\x1f\x7f]/g, function (c) { return c === "\\" || c === "\"" ? "\\" + c : "\\" + ("00" + c.charCodeAt(0)).slice(-3); });
+        if (addr === "" && cls === "") return "";
+        var lua = "";
+        if (ws > 0) lua += "hl.dispatch(hl.dsp.focus({ workspace = \"" + ws + "\" })); ";
+        lua += "hl.dispatch(hl.dsp.focus({ window = \"" + (addr !== "" ? "address:" + addr : "class:^(" + cls + ")$") + "\" })); ";
+        lua += "hl.dispatch(hl.dsp.window.bring_to_top())";
+        return lua;
+    }
     Timer {
         id: swFocusTimer
         interval: 60
@@ -5853,10 +5862,8 @@ Scope {
             root.swPending = null;
             if (!t) return;
             // Hyprland 0.55+ is Lua: `hyprctl dispatch` takes a Lua expression, the old "focuswindow ..." strings fail.
-            var lua = "";
-            if (t.ws > 0) lua += "hl.dispatch(hl.dsp.focus({ workspace = \"" + t.ws + "\" })); ";
-            lua += "hl.dispatch(hl.dsp.focus({ window = \"" + (t.addr !== "" ? "address:" + t.addr : "class:^(" + t.cls + ")$") + "\" })); ";
-            lua += "hl.dispatch(hl.dsp.window.bring_to_top())";
+            var lua = root.buildFocusLua(t);
+            if (lua === "") return;
             console.log("[switcher] hyprctl eval '" + lua + "'");
             Quickshell.execDetached(["hyprctl", "eval", lua]);
         }
@@ -12951,6 +12958,87 @@ Scope {
                     onPressed: ui.pop = ""
                 }
 
+                // Hover preview of a screenshot result, as in Blink: resting the pointer on a row for 350 ms shows the image
+                // larger beside the results, on the side with more room. After a keystroke it stays hidden until the pointer
+                // really moves, so rows rebuilt under a resting pointer do not pop it up while typing.
+                Item {
+                    id: shotPeek
+                    z: 40
+                    property Item owner: null
+                    property string want: ""
+                    property string src: ""
+                    property bool parking: false             // next pointer event only records where the pointer rests
+                    property point parked: Qt.point(0, 0)
+                    property bool hasParked: false
+                    property rect anchorR: Qt.rect(0, 0, 0, 0)
+                    readonly property int edge: 16
+                    function hover(row, p) {
+                        if (parking) { parking = false; hasParked = true; parked = p; return; }
+                        if (hasParked) {
+                            if (Math.hypot(p.x - parked.x, p.y - parked.y) < 5) return;
+                            hasParked = false;
+                        }
+                        var url = row.modelData && row.modelData.preview ? String(row.modelData.preview) : "";
+                        if (url === "") { dismiss(); return; }
+                        if (owner === row && want === url) return;
+                        dismiss();
+                        owner = row; want = url;
+                        peekDelay.restart();
+                    }
+                    function leave(row) { if (owner === row) dismiss(); }
+                    function park() { parking = true; hasParked = false; dismiss(); }
+                    function dismiss() { peekDelay.stop(); owner = null; want = ""; src = ""; }
+                    onOwnerChanged: if (!owner && src !== "") dismiss()      // its row was rebuilt or removed
+                    Timer {
+                        id: peekDelay
+                        interval: 350
+                        onTriggered: {
+                            var o = shotPeek.owner;
+                            if (!o) return;
+                            var r = o.mapToItem(spotRoot, 0, 0, o.width, o.height);
+                            var pr = resPanel.mapToItem(spotRoot, 0, 0, resPanel.width, resPanel.height);
+                            shotPeek.anchorR = Qt.rect(pr.x, r.y, pr.width, r.height);
+                            shotPeek.src = shotPeek.want;
+                        }
+                    }
+                    Connections {
+                        target: ui
+                        function onSpQueryChanged() { shotPeek.park(); }
+                        function onPopChanged() { shotPeek.dismiss(); }
+                        function onSpModeChanged() { shotPeek.dismiss(); }
+                    }
+                    readonly property real sideR: spotRoot.width - edge - (anchorR.x + anchorR.width + 12)
+                    readonly property real sideL: anchorR.x - 12 - edge
+                    readonly property bool onRight: sideR + 40 >= sideL      // right unless the left has clearly more room
+                    readonly property real maxW: Math.min(960, Math.max(sideL, sideR))
+                    readonly property real maxH: Math.min(720, spotRoot.height - 2 * edge)
+                    readonly property real k: peekImg.implicitWidth > 0 && peekImg.implicitHeight > 0
+                        ? Math.min((maxW - 16) / peekImg.implicitWidth, (maxH - 16) / peekImg.implicitHeight, 1) : 0
+                    width: Math.round(peekImg.implicitWidth * k + 16)
+                    height: Math.round(peekImg.implicitHeight * k + 16)
+                    x: onRight ? anchorR.x + anchorR.width + 12 : anchorR.x - width - 12
+                    y: Math.max(edge, Math.min(spotRoot.height - edge - height, anchorR.y + anchorR.height / 2 - height / 2))
+                    readonly property bool shown: src !== "" && peekImg.status === Image.Ready && maxW > 40 && maxH > 40
+                    opacity: 0
+                    visible: opacity > 0
+                    // fades in, disappears at once (as Blink's panel does)
+                    onShownChanged: { if (shown) peekFade.restart(); else { peekFade.stop(); opacity = 0; } }
+                    NumberAnimation { id: peekFade; target: shotPeek; property: "opacity"; from: 0; to: 1; duration: root.reduceMotion ? 0 : 120; easing.type: Easing.OutCubic }
+                    Rectangle {
+                        anchors.fill: parent; radius: 14
+                        color: root.panelDarkMode ? Qt.rgba(0.16, 0.16, 0.18, 0.94) : Qt.rgba(0.97, 0.97, 0.98, 0.96)
+                        border.width: 1; border.color: root.panelDarkMode ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.12)
+                    }
+                    Image {
+                        id: peekImg
+                        anchors.fill: parent; anchors.margins: 8
+                        source: shotPeek.src
+                        sourceSize: Qt.size(1920, 1920)          // decoded at most this large, aspect kept
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true; smooth: true; mipmap: true
+                    }
+                }
+
                 // Backdrop capture + blur for Spotlight's glass. Deliberately NOT inside `spot`: as children they inherited
                 // spot's opacity while it faded, so the glass refracted a half-transparent backdrop and turned into a milky
                 // blob mid-fade (the fade looked broken). Out here they always produce the real backdrop.
@@ -13241,6 +13329,7 @@ Scope {
                             boundsBehavior: Flickable.StopAtBounds
                             interactive: contentHeight > height
                             flickableDirection: Flickable.VerticalFlick
+                            onContentYChanged: shotPeek.dismiss()      // the preview would point at a row that moved
                             Behavior on contentY { enabled: !resFlick.moving && !resFlick.dragging; NumberAnimation { duration: root.reduceMotion ? 0 : 120; easing.type: Easing.OutCubic } }
                             Rectangle {
                                 y: resPanel.selIdx * 46
@@ -13329,6 +13418,8 @@ Scope {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         onEntered: { if (ui.spSel !== rr.index) { ui.spHover = true; ui.spSel = rr.index; } }
+                                        onPositionChanged: (mouse) => shotPeek.hover(rr, mapToItem(spotRoot, mouse.x, mouse.y))
+                                        onExited: shotPeek.leave(rr)
                                         onClicked: ui.spActivate(rr.index)
                                     }
                                 }

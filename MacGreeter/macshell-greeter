@@ -3,7 +3,15 @@
 # It starts a tiny Hyprland whose only job is to host the login screen (see hyprland.lua.in).
 SYS=/usr/local/share/macshell-greeter
 STATE=/var/lib/macshell-greeter
-RT="${XDG_RUNTIME_DIR:-/tmp}"
+
+# private directory for the generated config: never a bare /tmp (predictable name, another user could plant a symlink)
+if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ "$(stat -c %u "$XDG_RUNTIME_DIR" 2>/dev/null)" = "$(id -u)" ]; then
+    RT="$XDG_RUNTIME_DIR"
+elif [ -d "$STATE/state" ] && [ -w "$STATE/state" ]; then
+    RT="$STATE/state"
+else
+    RT=$(mktemp -d -t macshell-greeter.XXXXXX) || exit 1
+fi
 
 # keyboard layout: the one the last user to log in has in Hyprland (macshell-greeter-sync saved it), else any user's, else us
 layout=""; variant=""
@@ -38,7 +46,9 @@ else
     CONF="$RT/macshell-greeter-hyprland.conf"; TPL="$SYS/hyprland.conf.in"
 fi
 
-sed -e "s|@SYS@|$SYS|g" -e "s|@KB_LAYOUT@|$layout|g" -e "s|@KB_VARIANT@|$variant|g" "$TPL" > "$CONF" || exit 1
+umask 077
+tmp=$(mktemp "$RT/hyprland.XXXXXX") || exit 1
+sed -e "s|@SYS@|$SYS|g" -e "s|@KB_LAYOUT@|$layout|g" -e "s|@KB_VARIANT@|$variant|g" "$TPL" > "$tmp" && mv -f "$tmp" "$CONF" || { rm -f "$tmp"; exit 1; }
 
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=Hyprland

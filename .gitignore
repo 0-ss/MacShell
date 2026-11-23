@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+*.bak
+*.qml.bak
+.DS_Store

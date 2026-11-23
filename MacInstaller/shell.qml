@@ -753,7 +753,7 @@ Scope {
                         hoverEnabled: true
                         onClicked: mouse => {
                             if (mouse.x < 22) Qt.quit();
-                            else if (mouse.x < 44) root.shellDetached("hyprctl dispatch movetoworkspacesilent special:installer >/dev/null 2>&1");
+                            else if (mouse.x < 44) root.shellDetached("[ \"$(hyprctl dispatch 'hl.dsp.window.move({ workspace = \"special:installer\", follow = false })' 2>/dev/null)\" = ok ] || hyprctl dispatch movetoworkspacesilent special:installer >/dev/null 2>&1");
                             // full screen is greyed out: the window has a fixed size
                         }
                     }
