@@ -10,6 +10,7 @@ import Quickshell.Services.UPower
 import "I18n.js" as I18n
 import "Fonts.js" as Fonts
 import "FocusModes.js" as FocusModes
+import "SystemSettingsPanes.js" as SysPanes
 
 Window {
     id: prefsWindow
@@ -1185,10 +1186,13 @@ Window {
                 width: flick.width - 44
                 sourceComponent: ({
                     wifi: paneWifi, bluetooth: paneBt, network: paneNetwork, battery: paneBattery,
-                    general: paneGeneral, appearance: paneAppearance, controlcenter: paneCC, dock: paneDesktopDock,
+                    general: paneGeneral, storage: paneStorage, sysupdate: paneSysUpdate, datetime: paneDateTime,
+                    loginitems: paneLoginItems, sharing: paneSharing, accessibility: paneAccessibility,
+                    appearance: paneAppearance, controlcenter: paneCC, dock: paneDesktopDock,
                     displays: paneDisplays, menubar: paneMenuBar, wallpaper: paneWallpaper,
-                    notifications: paneNotif, sound: paneSound, focus: paneFocus,
-                    widgets: paneWidgets, lockscreen: paneLock, users: paneUsers, keyboard: paneKeyboard, mouse: paneMouse, trackpad: paneTrackpad,
+                    notifications: paneNotif, sound: paneSound, focus: paneFocus, privacy: panePrivacy,
+                    widgets: paneWidgets, lockscreen: paneLock, users: paneUsers, keyboard: paneKeyboard,
+                    mouse: paneMouse, trackpad: paneTrackpad, printers: panePrinters,
                     apps: paneApps, about: paneAbout
                 })[prefsWindow.panes[prefsWindow.cur].id]
                 onLoaded: fadeIn.restart()
@@ -2614,6 +2618,381 @@ Window {
                     title: I18n.tr("Reset Dock Items")
                     subtitle: I18n.tr("Go back to the default set of apps")
                     SButton { t: pal; text: I18n.tr("Reset"); onClicked: root.resetPins() }
+                }
+            }
+        }
+    }
+
+    // ── Storage ──
+    Component {
+        id: paneStorage
+        Column {
+            id: storagePaneCol
+            spacing: 10
+            property var info: ({ totalGb: 0, usedGb: 0, availGb: 0, segments: [] })
+            Component.onCompleted: stProc.running = true
+            Process {
+                id: stProc
+                command: ["sh", "-c",
+                    "df -Pk \"$HOME\" 2>/dev/null | awk 'NR==2{printf \"DF\\t%s\\t%s\\t%s\\n\",$2,$3,$4}'; " +
+                    "for pair in Documents:$HOME/Documents Downloads:$HOME/Downloads Pictures:$HOME/Pictures Videos:$HOME/Videos Cache:$HOME/.cache Trash:$HOME/.local/share/Trash; do " +
+                    "  n=${pair%%:*}; p=${pair#*:}; [ -d \"$p\" ] && du -sk \"$p\" 2>/dev/null | awk -v n=\"$n\" '{printf \"CAT\\t%s\\t%s\\n\",n,$1}'; done"]
+                stdout: StdioCollector { onStreamFinished: storagePaneCol.info = SysPanes.parseStorageBreakdown(text) }
+            }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal
+                    title: I18n.tr("Disk Usage")
+                    subtitle: storagePaneCol.info.totalGb > 0
+                              ? (storagePaneCol.info.usedGb.toFixed(1) + " GB " + I18n.tr("used of") + " " + storagePaneCol.info.totalGb.toFixed(1) + " GB (" + storagePaneCol.info.availGb.toFixed(1) + " GB " + I18n.tr("free") + ")")
+                              : I18n.tr("Scanning disk\u2026")
+                    SButton { t: pal; text: I18n.tr("Refresh"); onClicked: if (!stProc.running) stProc.running = true }
+                }
+                Item {
+                    width: parent.width; height: 22
+                    Rectangle {
+                        x: 12; anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - 24; height: 12; radius: 6
+                        color: pal.ctrl; clip: true
+                        Row {
+                            anchors.fill: parent; spacing: 1
+                            Repeater {
+                                model: storagePaneCol.info.segments || []
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    height: parent.height
+                                    width: Math.max(modelData.gb > 0.01 ? 6 : 0, (storagePaneCol.info.totalGb > 0 ? (modelData.gb / storagePaneCol.info.totalGb) : 0) * parent.width)
+                                    color: modelData.color
+                                }
+                            }
+                        }
+                    }
+                }
+                Repeater {
+                    model: storagePaneCol.info.segments || []
+                    delegate: SRow {
+                        required property var modelData
+                        t: pal
+                        title: modelData.name
+                        subtitle: modelData.gb.toFixed(2) + " GB"
+                        Rectangle { width: 10; height: 10; radius: 5; color: modelData.color }
+                    }
+                }
+            }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal; title: I18n.tr("Empty Trash")
+                    subtitle: I18n.tr("Permanently remove files from the Trash folder")
+                    SButton { t: pal; text: I18n.tr("Empty Trash"); onClicked: { root.emptyTrash(); stProc.running = true; } }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Clear MacShell Cache")
+                    subtitle: I18n.tr("Remove cached thumbnails and shader proxies in ~/.cache/macshell")
+                    SButton { t: pal; text: I18n.tr("Clear Cache"); onClicked: { Quickshell.execDetached(["sh", "-c", "rm -rf \"$HOME/.cache/macshell/glass\" \"$HOME/.cache/macshell/canvas\""]); stProc.running = true; } }
+                }
+            }
+        }
+    }
+
+    // ── Privacy & Security ──
+    Component {
+        id: panePrivacy
+        Column {
+            id: privPaneCol
+            spacing: 10
+            property string fwStatus: "Checking\u2026"
+            Component.onCompleted: fwProc.running = true
+            Process {
+                id: fwProc
+                command: ["sh", "-c", "if command -v ufw >/dev/null 2>&1; then ufw status 2>/dev/null | head -n1; elif command -v firewall-cmd >/dev/null 2>&1; then firewall-cmd --state 2>/dev/null; else echo 'No firewall tool detected'; fi"]
+                stdout: StdioCollector { onStreamFinished: privPaneCol.fwStatus = text.trim() || "Unknown" }
+            }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal; title: I18n.tr("Firewall")
+                    subtitle: privPaneCol.fwStatus
+                    SButton { t: pal; text: I18n.tr("Refresh"); onClicked: if (!fwProc.running) fwProc.running = true }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Microphone access")
+                    subtitle: (root.bar && root.bar.privacy && root.bar.privacy.mic.length > 0) ? root.bar.privacy.mic.join(", ") : I18n.tr("No active apps")
+                    Item { width: 1; height: 1 }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Camera access")
+                    subtitle: (root.bar && root.bar.privacy && root.bar.privacy.cam.length > 0) ? root.bar.privacy.cam.join(", ") : I18n.tr("No active apps")
+                    Item { width: 1; height: 1 }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Screen sharing / capture")
+                    subtitle: (root.bar && root.bar.privacy && root.bar.privacy.share.length > 0) ? root.bar.privacy.share.join(", ") : I18n.tr("No active apps")
+                    Item { width: 1; height: 1 }
+                }
+            }
+        }
+    }
+
+    // ── Accessibility ──
+    Component {
+        id: paneAccessibility
+        Column {
+            id: accPaneCol
+            spacing: 10
+            property real zoomLevel: 1.0
+            property int cursorSize: 24
+            SCard {
+                t: pal
+                SRow {
+                    t: pal; title: I18n.tr("Reduce motion")
+                    subtitle: I18n.tr("Simplify Spotlight, Dock, and popover animations")
+                    SSwitch { t: pal; checked: root.bar ? root.bar.reduceMotion : false; onToggled: v => { if (root.bar) root.bar.reduceMotion = v; } }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Screen zoom")
+                    subtitle: Math.round(accPaneCol.zoomLevel * 100) + "%"
+                    SSlider {
+                        t: pal; from: 1.0; to: 3.0; stepSize: 0.25; value: accPaneCol.zoomLevel; resetValue: 1.0
+                        leftLabel: "100%"; rightLabel: "300%"
+                        onMoved: v => {
+                            accPaneCol.zoomLevel = v;
+                            Quickshell.execDetached(["hyprctl", "keyword", "cursor:zoom_factor", v.toFixed(2)]);
+                        }
+                    }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Cursor size")
+                    subtitle: accPaneCol.cursorSize + " px"
+                    SSlider {
+                        t: pal; from: 16; to: 64; stepSize: 4; value: accPaneCol.cursorSize; resetValue: 24
+                        leftLabel: "16"; rightLabel: "64"
+                        onMoved: v => {
+                            accPaneCol.cursorSize = Math.round(v);
+                            Quickshell.execDetached(["hyprctl", "setcursor", "default", String(accPaneCol.cursorSize)]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Login Items / Autostart ──
+    Component {
+        id: paneLoginItems
+        Column {
+            id: loginPaneCol
+            spacing: 10
+            property var entries: []
+            Component.onCompleted: liProc.running = true
+            Process {
+                id: liProc
+                command: ["sh", "-c",
+                    "for f in \"$HOME/.config/autostart\"/*.desktop; do [ -f \"$f\" ] || continue; " +
+                    "n=$(sed -n 's/^Name=//p' \"$f\" | head -n1); h=$(grep -qi '^Hidden=true' \"$f\" && echo 1 || echo 0); printf '%s\\t%s\\t%s\\n' \"$f\" \"$n\" \"$h\"; done"]
+                stdout: StdioCollector { onStreamFinished: loginPaneCol.entries = SysPanes.parseAutostartList(text) }
+            }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal; title: I18n.tr("XDG Autostart Entries")
+                    subtitle: loginPaneCol.entries.length + " " + I18n.tr("items in ~/.config/autostart")
+                    SButton { t: pal; text: I18n.tr("Refresh"); onClicked: if (!liProc.running) liProc.running = true }
+                }
+                Repeater {
+                    model: loginPaneCol.entries
+                    delegate: SRow {
+                        id: liRow; required property var modelData
+                        t: pal; title: modelData.name; subtitle: modelData.path
+                        SSwitch {
+                            t: pal; checked: liRow.modelData.enabled
+                            onToggled: v => {
+                                Quickshell.execDetached(["sh", "-c",
+                                    "f=\"$1\"; v=\"$2\"; if grep -qi '^Hidden=' \"$f\"; then sed -i \"s/^Hidden=.*/Hidden=$v/i\" \"$f\"; else printf '\\nHidden=%s\\n' \"$v\" >> \"$f\"; fi",
+                                    "sh", liRow.modelData.path, v ? "false" : "true"]);
+                                liProc.running = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Date & Time ──
+    Component {
+        id: paneDateTime
+        Column {
+            id: dtPaneCol
+            spacing: 10
+            property var td: ({ timezone: "UTC", ntp: true })
+            Component.onCompleted: dtProc.running = true
+            Process {
+                id: dtProc
+                command: ["timedatectl", "status"]
+                stdout: StdioCollector { onStreamFinished: dtPaneCol.td = SysPanes.parseTimedatectl(text) }
+            }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal; title: I18n.tr("Time zone")
+                    subtitle: dtPaneCol.td.timezone
+                    SButton { t: pal; text: I18n.tr("Refresh"); onClicked: if (!dtProc.running) dtProc.running = true }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Set time and date automatically (NTP)")
+                    SSwitch {
+                        t: pal; checked: dtPaneCol.td.ntp
+                        onToggled: v => { Quickshell.execDetached(["timedatectl", "set-ntp", v ? "true" : "false"]); dtProc.running = true; }
+                    }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("24-hour time")
+                    SSwitch { t: pal; checked: root.bar ? root.bar.use24h : true; onToggled: v => { if (root.bar) root.bar.use24h = v; } }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Show date in menu bar")
+                    SSwitch { t: pal; checked: root.bar ? root.bar.showDate : true; onToggled: v => { if (root.bar) root.bar.showDate = v; } }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Show seconds")
+                    SSwitch { t: pal; checked: root.bar ? root.bar.showSeconds : false; onToggled: v => { if (root.bar) root.bar.showSeconds = v; } }
+                }
+            }
+        }
+    }
+
+    // ── Printers & Scanners ──
+    Component {
+        id: panePrinters
+        Column {
+            id: prPaneCol
+            spacing: 10
+            property var printers: []
+            Component.onCompleted: prProc.running = true
+            Process {
+                id: prProc
+                command: ["sh", "-c", "lpstat -p 2>/dev/null || true"]
+                stdout: StdioCollector { onStreamFinished: prPaneCol.printers = SysPanes.parsePrinters(text) }
+            }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal; title: I18n.tr("CUPS Printers")
+                    subtitle: prPaneCol.printers.length > 0 ? (prPaneCol.printers.length + " " + I18n.tr("configured")) : I18n.tr("No printers configured")
+                    Row {
+                        spacing: 6
+                        SButton { t: pal; text: I18n.tr("Refresh"); onClicked: if (!prProc.running) prProc.running = true }
+                        SButton { t: pal; text: I18n.tr("CUPS Admin"); onClicked: Quickshell.execDetached(["xdg-open", "http://localhost:631"]) }
+                    }
+                }
+                Repeater {
+                    model: prPaneCol.printers
+                    delegate: SRow {
+                        required property var modelData
+                        t: pal; title: modelData.name; subtitle: modelData.status
+                        Item { width: 1; height: 1 }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Sharing ──
+    Component {
+        id: paneSharing
+        Column {
+            id: shPaneCol
+            spacing: 10
+            property bool sshOn: false
+            property bool smbOn: false
+            property bool vncOn: false
+            property string hostName: ""
+            Component.onCompleted: shProbe.running = true
+            Process {
+                id: shProbe
+                command: ["sh", "-c", "printf '%s\\t%s\\t%s\\t%s\\n' \"$(hostname 2>/dev/null)\" \"$(systemctl is-active sshd 2>/dev/null || systemctl is-active ssh 2>/dev/null)\" \"$(systemctl is-active smb 2>/dev/null || systemctl is-active smbd 2>/dev/null)\" \"$(pgrep -x wayvnc >/dev/null 2>&1 && echo active || echo inactive)\""]
+                stdout: StdioCollector {
+                    onStreamFinished: {
+                        var p = text.trim().split("\t");
+                        shPaneCol.hostName = p[0] || "";
+                        shPaneCol.sshOn = p[1] === "active";
+                        shPaneCol.smbOn = p[2] === "active";
+                        shPaneCol.vncOn = p[3] === "active";
+                    }
+                }
+            }
+            SCard {
+                t: pal
+                SRow { t: pal; title: I18n.tr("Local Hostname"); subtitle: shPaneCol.hostName || "linux"; SButton { t: pal; text: I18n.tr("Refresh"); onClicked: if (!shProbe.running) shProbe.running = true } }
+                SRow {
+                    t: pal; title: I18n.tr("Remote Login (SSH)"); subtitle: shPaneCol.sshOn ? I18n.tr("Active") : I18n.tr("Inactive")
+                    SButton { t: pal; text: shPaneCol.sshOn ? I18n.tr("Stop") : I18n.tr("Start"); onClicked: { root.openTerminalCommand("sudo systemctl " + (shPaneCol.sshOn ? "stop" : "start") + " sshd || sudo systemctl " + (shPaneCol.sshOn ? "stop" : "start") + " ssh"); } }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("File Sharing (SMB / Samba)"); subtitle: shPaneCol.smbOn ? I18n.tr("Active") : I18n.tr("Inactive")
+                    SButton { t: pal; text: shPaneCol.smbOn ? I18n.tr("Stop") : I18n.tr("Start"); onClicked: { root.openTerminalCommand("sudo systemctl " + (shPaneCol.smbOn ? "stop" : "start") + " smb || sudo systemctl " + (shPaneCol.smbOn ? "stop" : "start") + " smbd"); } }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("Screen Sharing (wayvnc)"); subtitle: shPaneCol.vncOn ? I18n.tr("Running") : I18n.tr("Off")
+                    SSwitch {
+                        t: pal; checked: shPaneCol.vncOn
+                        onToggled: v => {
+                            if (v) Quickshell.execDetached(["sh", "-c", "command -v wayvnc >/dev/null 2>&1 && exec wayvnc 0.0.0.0 || notify-send 'Sharing' 'Install wayvnc for screen sharing'"]);
+                            else Quickshell.execDetached(["pkill", "-x", "wayvnc"]);
+                            shPaneCol.vncOn = v;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── System Software Update ──
+    Component {
+        id: paneSysUpdate
+        Column {
+            id: updPaneCol
+            spacing: 10
+            property var info: ({ count: 0, sample: [] })
+            property bool checking: false
+            Component.onCompleted: checkNow()
+            function checkNow() { if (!updProc.running) { checking = true; updProc.running = true; } }
+            Process {
+                id: updProc
+                command: ["sh", "-c",
+                    "if command -v checkupdates >/dev/null 2>&1; then checkupdates 2>/dev/null || true; " +
+                    "elif command -v pacman >/dev/null 2>&1; then pacman -Qu 2>/dev/null || true; " +
+                    "elif command -v apt >/dev/null 2>&1; then apt list --upgradable 2>/dev/null | tail -n +2; " +
+                    "elif command -v dnf >/dev/null 2>&1; then dnf check-update -q 2>/dev/null || true; fi"]
+                stdout: StdioCollector {
+                    onStreamFinished: {
+                        updPaneCol.info = SysPanes.parseUpdatesCount(text);
+                        updPaneCol.checking = false;
+                    }
+                }
+                onExited: updPaneCol.checking = false
+            }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal; title: I18n.tr("System Packages")
+                    subtitle: updPaneCol.checking ? I18n.tr("Checking for updates\u2026")
+                              : (updPaneCol.info.count > 0 ? (updPaneCol.info.count + " " + I18n.tr("updates available")) : I18n.tr("Your system is up to date"))
+                    Row {
+                        spacing: 6
+                        SButton { t: pal; text: I18n.tr("Check Again"); onClicked: updPaneCol.checkNow() }
+                        SButton {
+                            t: pal; text: I18n.tr("Update Now")
+                            onClicked: root.openTerminalCommand("if command -v yay >/dev/null 2>&1; then yay -Syu; elif command -v pacman >/dev/null 2>&1; then sudo pacman -Syu; elif command -v apt >/dev/null 2>&1; then sudo apt update && sudo apt upgrade; elif command -v dnf >/dev/null 2>&1; then sudo dnf upgrade; fi")
+                        }
+                    }
+                }
+                SRow {
+                    t: pal; title: I18n.tr("MacShell Updates")
+                    subtitle: I18n.tr("Check or update MacShell in About")
+                    SButton { t: pal; text: I18n.tr("Open About"); onClicked: root.openPrefs("about") }
                 }
             }
         }

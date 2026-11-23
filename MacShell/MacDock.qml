@@ -278,6 +278,12 @@ Scope {
         { id: "network",    sec: 1, name: "Network",         wg: "ethernet",   c1: "#3D9BFF", c2: "#0A6CFF", keys: "ethernet ip address vpn tailscale connection" },
         // 2 · System
         { id: "general",    sec: 2, name: "General",         glyph: "behavior", c1: "#8E8E93", c2: "#636366", keys: "language shell enable disable dock menu bar panel show hide off on" },
+        { id: "storage",    sec: 2, name: "Storage",         wg: "disk",       c1: "#8E8E93", c2: "#636366", keys: "disk space cleanup trash cache usage breakdown" },
+        { id: "sysupdate",  sec: 2, name: "Software Update", wg: "refresh",    c1: "#8E8E93", c2: "#636366", keys: "updates packages pacman apt dnf upgrade macshell" },
+        { id: "datetime",   sec: 2, name: "Date & Time",     wg: "clock",      c1: "#8E8E93", c2: "#636366", keys: "timezone ntp clock 24 hour date format" },
+        { id: "loginitems", sec: 2, name: "Login Items",     wg: "play",       c1: "#8E8E93", c2: "#636366", keys: "autostart startup background services xdg" },
+        { id: "sharing",    sec: 2, name: "Sharing",         wg: "ethernet",   c1: "#3D9BFF", c2: "#0A6CFF", keys: "ssh samba smb screen sharing wayvnc remote" },
+        { id: "accessibility", sec: 2, name: "Accessibility", wg: "smile",     c1: "#0A84FF", c2: "#0055D4", keys: "zoom cursor size reduce motion contrast filter" },
         { id: "appearance", sec: 2, name: "Appearance",      glyph: "appearance", c1: "#3A3A3C", c2: "#1C1C1E", keys: "theme dark light auto mode accent color glass liquid apple style blur font spotlight top bar menus" },
         { id: "wallpaper",  sec: 2, name: "Wallpaper",       glyph: "wallpaper", c1: "#5AC8FA", c2: "#007AFF", keys: "wallpaper background picture image video animated live motion desktop dynamic" },
         { id: "displays",   sec: 2, name: "Displays",        wg: "sun",        c1: "#3D9BFF", c2: "#0A6CFF", keys: "brightness night shift monitor resolution refresh scale" },
@@ -292,12 +298,14 @@ Scope {
         { id: "sound",      sec: 4, name: "Sound",           wg: "speaker",    c1: "#FF5E7E", c2: "#E8344F", keys: "volume output input microphone speakers headphones effects ui sounds" },
         { id: "focus",      sec: 4, name: "Focus",           wg: "moon",       c1: "#7D7AFF", c2: "#5856D6", keys: "do not disturb keep awake sleep" },
         // 5 · Security & Accounts
+        { id: "privacy",    sec: 5, name: "Privacy & Security", wg: "lock",    c1: "#3D9BFF", c2: "#0A6CFF", keys: "permissions camera mic firewall ufw portal security" },
         { id: "lockscreen", sec: 5, name: "Lock Screen",     wg: "lock",       c1: "#3A3A3C", c2: "#1C1C1E", keys: "lock password album lyrics media clock" },
         { id: "users",      sec: 5, name: "Users & Groups",  wg: "smile",      c1: "#3D9BFF", c2: "#0A6CFF", keys: "account user name picture avatar" },
-        // 6 · Input
+        // 6 · Input & Printers
         { id: "keyboard",   sec: 6, name: "Keyboard",        wg: "keyboard",   c1: "#A7A7AD", c2: "#7C7C82", keys: "repeat rate delay layout typing" },
         { id: "mouse",      sec: 6, name: "Mouse",           wg: "mouse",      c1: "#A7A7AD", c2: "#7C7C82", keys: "tracking speed scroll natural" },
         { id: "trackpad",   sec: 6, name: "Trackpad",        wg: "trackpad",   c1: "#A7A7AD", c2: "#7C7C82", keys: "tap click natural scroll touchpad gestures" },
+        { id: "printers",   sec: 6, name: "Printers & Scanners", wg: "print",  c1: "#A7A7AD", c2: "#7C7C82", keys: "cups print queue scanner lpstat" },
         // 7 · Apps & About
         { id: "apps",       sec: 7, name: "Applications",    glyph: "apps",     c1: "#FFB340", c2: "#FF9500", keys: "pinned apps keep remove reset dock" },
         { id: "about",      sec: 7, name: "About",           glyph: "about",    c1: "#A7A7AD", c2: "#7C7C82", keys: "version reset config folder macdock macbar macshell" }

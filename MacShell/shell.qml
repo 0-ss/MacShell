@@ -48,6 +48,9 @@ ShellRoot {
         property var wm: windowMgmt
         property var mc: missionControl
         property var quickLook: quickLookObj
+        property var capture: captureSuiteObj
+        property var dialogs: systemDialogsObj
+        property var polkit: polkitAuthObj
         function openSettings(pane) { macDock.openPrefs(pane); }
 
         // set by MacBar / MacDock / WindowDecor / WindowMgmt (Binding elements) when they need live window geometry
@@ -575,6 +578,9 @@ ShellRoot {
     WindowMgmt { id: windowMgmt; hub: sharedHub }
     MissionControl { id: missionControl; hub: sharedHub }
     QuickLook { id: quickLookObj; hub: sharedHub }
+    CaptureSuite { id: captureSuiteObj; hub: sharedHub }
+    SystemDialogs { id: systemDialogsObj; hub: sharedHub }
+    PolkitAuth { id: polkitAuthObj; hub: sharedHub }
 
     Component.onCompleted: {
         sharedHub.bar = macBar;
@@ -732,5 +738,32 @@ ShellRoot {
         function open(path: string): void { quickLookObj.openPath(path); }
         function toggle(path: string): void { quickLookObj.togglePath(path); }
         function close(): void { quickLookObj.close(); }
+    }
+    // qs -c MacShell ipc call capture toolbar | markup <path> | thumb <path>
+    IpcHandler {
+        target: "capture"
+        function toolbar(): void { captureSuiteObj.toggleToolbar(); }
+        function markup(path: string): void { captureSuiteObj.openMarkup(path); }
+        function thumb(path: string): void { captureSuiteObj.showThumbnail(path); }
+    }
+    // qs -c MacShell ipc call forcequit toggle | open | close
+    IpcHandler {
+        target: "forcequit"
+        function toggle(): void { systemDialogsObj.toggleForceQuit(); }
+        function open(): void { systemDialogsObj.openForceQuit(); }
+        function close(): void { systemDialogsObj.closeForceQuit(); }
+    }
+    // qs -c MacShell ipc call activity toggle | open | close
+    IpcHandler {
+        target: "activity"
+        function toggle(): void { systemDialogsObj.toggleActivity(); }
+        function open(): void { systemDialogsObj.openActivity(); }
+        function close(): void { systemDialogsObj.closeActivity(); }
+    }
+    // qs -c MacShell ipc call polkit prompt <msg> <cmd> | close
+    IpcHandler {
+        target: "polkit"
+        function prompt(msg: string, cmd: string): void { polkitAuthObj.prompt(msg, cmd, ""); }
+        function close(): void { polkitAuthObj.close(); }
     }
 }

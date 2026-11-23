@@ -4865,6 +4865,8 @@ Scope {
             }), "m_about"));
             m.push(msep());
             m.push(ico(mi("System Settings\u2026", "", function () { root.openSettings(); }), "gear"));
+            m.push(ico(mi("Force Quit\u2026", "", function () { if (hub && hub.dialogs) hub.dialogs.openForceQuit(); }), "close"));
+            m.push(ico(mi("Activity Monitor", "", function () { if (hub && hub.dialogs) hub.dialogs.openActivity(); }), "cpu"));
             m.push(msep());
             m.push(ico(mi("Sleep", "", function () { root.sleepMachine(); }), "moon"));
             m.push(ico(mc("Restart\u2026", function () { sh("systemctl reboot"); }), "m_restart"));
@@ -5054,16 +5056,27 @@ Scope {
         "fi",
         "[ \"$cl\" = 1 ] && wl-copy --type image/png < \"$f\"",
         "if [ \"$nt\" = 1 ]; then if [ \"$f\" = \"$tmp\" ]; then notify-send -a macbar 'Screenshot copied' 'Copied to the clipboard'; else notify-send -a macbar 'Screenshot saved' \"$f\"; fi; fi",
-        "[ \"$f\" = \"$tmp\" ] && rm -f \"$tmp\"",
+        "[ \"$f\" = \"$tmp\" ] && rm -f \"$tmp\" || printf 'SAVED:%s\\n' \"$f\"",
         "true"
     ].join("\n")
+    Process {
+        id: shotSaveProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var m = /^SAVED:(.+)$/m.exec(text);
+                if (m && m[1] && root.hub && root.hub.capture) root.hub.capture.showThumbnail(m[1].trim());
+            }
+        }
+    }
     // geom: "" = whole screen, "x,y WxH" = that area, "@" = `tmpPath` already holds the finished PNG (from the picker)
     function shotFinish(geom, tmpPath) {
         playSound("shutter", 0.8);
         var tmp = tmpPath || (shotTmp + "/macshot-out-" + Date.now() + ".png");
         var save = screenshotSave || !screenshotClipboard;          // never end up with nowhere to put it
-        Quickshell.execDetached(["sh", "-c", shotFinishScript, "sh", screenshotDir, save ? "1" : "0", screenshotClipboard ? "1" : "0",
-                                 screenshotNotify ? "1" : "0", tmp, geom, screenshotDesktop ? "1" : "0"]);
+        shotSaveProc.running = false;
+        shotSaveProc.command = ["sh", "-c", shotFinishScript, "sh", screenshotDir, save ? "1" : "0", screenshotClipboard ? "1" : "0",
+                                screenshotNotify ? "1" : "0", tmp, geom, screenshotDesktop ? "1" : "0"];
+        shotSaveProc.running = true;
     }
     function shotStart() {
         if (shotOpen) { shotClose(); return; }
@@ -7904,7 +7917,8 @@ Scope {
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onClicked: mouse => {
                                     if (mouse.button === Qt.RightButton) {
-                                        Quickshell.execDetached(["sh", "-c", "flatpak run org.gnome.SystemMonitor 2>/dev/null || gnome-system-monitor 2>/dev/null || btop 2>/dev/null || htop 2>/dev/null || " + (root.terminal || "kitty") + " -e btop || " + (root.terminal || "kitty") + " -e htop"]);
+                                        if (root.hub && root.hub.dialogs) root.hub.dialogs.openActivity();
+                                        else Quickshell.execDetached(["sh", "-c", "flatpak run org.gnome.SystemMonitor 2>/dev/null || gnome-system-monitor 2>/dev/null || btop 2>/dev/null || htop 2>/dev/null || " + (root.terminal || "kitty") + " -e btop || " + (root.terminal || "kitty") + " -e htop"]);
                                     } else {
                                         ui.openPop("sys", sysResBtn.mapToItem(ui, 0, 0).x + sysResBtn.width / 2);
                                     }
@@ -11925,7 +11939,8 @@ Scope {
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
                                         ui.pop = "";
-                                        Quickshell.execDetached(["sh", "-c", "flatpak run org.gnome.SystemMonitor 2>/dev/null || gnome-system-monitor 2>/dev/null || btop 2>/dev/null || htop 2>/dev/null || " + (root.terminal || "kitty") + " -e btop || " + (root.terminal || "kitty") + " -e htop"]);
+                                        if (root.hub && root.hub.dialogs) root.hub.dialogs.openActivity();
+                                        else Quickshell.execDetached(["sh", "-c", "flatpak run org.gnome.SystemMonitor 2>/dev/null || gnome-system-monitor 2>/dev/null || btop 2>/dev/null || htop 2>/dev/null || " + (root.terminal || "kitty") + " -e btop || " + (root.terminal || "kitty") + " -e htop"]);
                                     }
                                 }
                             }

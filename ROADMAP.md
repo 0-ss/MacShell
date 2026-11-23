@@ -68,20 +68,20 @@ Items are grouped by area. Each item includes a brief note on the current state 
 
 ## 6. Screenshots, System Dialogs & Settings
 
-- [ ] **Floating Screenshot Thumbnail** — Show a draggable preview thumbnail in the bottom-right corner after capturing, with click-to-edit and auto-dismiss.
-- [ ] **Built-in Markup / Annotation Editor** — Quick annotation tools (arrows, shapes, text, blur/redact, crop) directly on captured screenshots.
-- [ ] **Capture Toolbar (`Cmd+Shift+5` style)** — Unified on-screen bar to switch between region/window/screen screenshot and screen recording, plus timer delay, mic/system audio toggle, and destination picker.
-- [ ] **Liquid Glass Polkit Auth Agent** — Native macOS-style authentication prompt supporting password and fingerprint (`fprintd`).
-- [ ] **Force Quit Dialog & Native Activity Monitor** — Dedicated `Cmd+Opt+Esc` Force Quit window and a built-in Liquid Glass Activity Monitor (currently the button in `MacShell/MacBar.qml` launches external tools like `gnome-system-monitor` or `btop`).
-- [ ] **Missing System Settings Panes**:
-  - [ ] **Storage** — Color-coded disk usage breakdown bar and cleanup helpers.
-  - [ ] **Privacy & Security** — App permissions (camera/mic/screen portals) and firewall controls.
-  - [ ] **Accessibility** — Screen zoom, color filters, cursor size/shake-to-find (currently only Reduce Motion).
-  - [ ] **Login Items / Autostart** — Manage XDG autostart entries and background services.
-  - [ ] **Date & Time** — Timezone picker, NTP toggle, and date format options.
-  - [ ] **Printers & Scanners** — CUPS printer status and queue management.
-  - [ ] **Sharing** — Toggles for SSH, SMB/Samba, and screen sharing.
-  - [ ] **System Software Update** — Unified distro package update checker alongside MacShell's own updater.
+- [x] **Floating Screenshot Thumbnail** — `MacShell/CaptureSuite.qml` displays a bottom-right preview thumbnail after capture (`MacBar.qml` `shotSaveProc`) with hover pause, auto-dismiss, Copy, and click-to-Markup.
+- [x] **Built-in Markup / Annotation Editor** — `MacShell/CaptureSuite.qml` provides Canvas annotation tools (Arrow, Box, Pen, Redact, Text), color palette, Undo, and Save & Copy directly on captured screenshots (`capture markup <path>`).
+- [x] **Capture Toolbar (`Cmd+Shift+5` style)** — Bottom-center Liquid Glass bar in `MacShell/CaptureSuite.qml` (`capture toolbar` IPC) switching between Entire Screen, Window, Selection, and Screen Recording with 0s/5s/10s countdown delay.
+- [x] **Liquid Glass Polkit Auth Agent** — `MacShell/PolkitAuth.qml` provides a native macOS-style authentication prompt with password verification, `fprintd` fingerprint detection, and `polkit` IPC.
+- [x] **Force Quit Dialog & Native Activity Monitor** — `MacShell/SystemDialogs.qml` adds a `Force Quit Applications` dialog (`forcequit` IPC / Apple menu) and a native tabbed Liquid Glass Activity Monitor (`activity` IPC / Menu Bar System Monitor / Apple menu).
+- [x] **Missing System Settings Panes** (`MacShell/SystemSettingsPanes.js`, `MacShell/MacDock.qml`, `MacShell/SettingsWindow.qml`, all searchable in Spotlight):
+  - [x] **Storage** — Color-coded disk usage breakdown bar and Trash / MacShell cache cleanup helpers.
+  - [x] **Privacy & Security** — Active mic/camera/screen consumers and firewall (`ufw`/`firewall-cmd`) status.
+  - [x] **Accessibility** — Reduce Motion, Hyprland screen zoom slider, and cursor size controls.
+  - [x] **Login Items / Autostart** — Manage `~/.config/autostart/*.desktop` entries (`Hidden` toggle).
+  - [x] **Date & Time** — Timezone display, NTP toggle (`timedatectl`), and 24-hour/date/seconds options.
+  - [x] **Printers & Scanners** — CUPS printer status (`lpstat`) and CUPS Admin quick launch.
+  - [x] **Sharing** — Hostname and SSH, SMB/Samba, and Screen Sharing (`wayvnc`) controls.
+  - [x] **System Software Update** — Distro package update checker (`checkupdates`/`pacman`/`apt`/`dnf`) alongside MacShell updates.
 
 ---
 
