@@ -695,8 +695,8 @@ Scope {
             WlrLayershell.layer: WlrLayer.Top
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-            readonly property var data: root.stageByScreen[modelData.name] || ({ active: null, inactive: [] })
-            readonly property var stages: (data.inactive || []).slice(0, 5)
+            readonly property var stageData: root.stageByScreen[modelData.name] || ({ active: null, inactive: [] })
+            readonly property var stages: (stageData.inactive || []).slice(0, 5)
             readonly property bool stripOpen: !root.stageAutoHide || edgeHover.hovered || stripHover.hovered
             readonly property bool hasItems: stages.length > 0
 
