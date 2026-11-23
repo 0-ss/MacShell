@@ -58,7 +58,10 @@ Item {
     }
     onWidthChanged: sizeMoved()
     onHeightChanged: sizeMoved()
-    onGlassOnChanged: if (glassOn) updKeep()
+    onGlassOnChanged: {
+        if (glassOn) updKeep();
+        else keepValid = false;
+    }
     Timer {
         id: settleT
         interval: glassCap.settleMs
@@ -82,7 +85,7 @@ Item {
     property bool keepValid: false
     property var lastWant: null
     function updKeep() {
-        if (glassCap.hasContent && !fading && !settling) {
+        if (glassCap.hasContent && !fading && !settling && glassOn) {
             keepValid = true;
             if (keep.on) keep.scheduleUpdate();
         }
@@ -160,9 +163,10 @@ Item {
         readonly property bool on: glassCap.fx ? Quickshell.env("MACSHELL_KEEP") !== "0" : Quickshell.env("MACSHELL_KEEP") === "1"
         anchors.fill: parent
         z: -1
-        sourceItem: on ? cap : null
+        sourceItem: (on && glassCap.glassOn) ? cap : null
+        textureSize: Qt.size(Math.max(1, Math.round(glassCap.width * 0.5)), Math.max(1, Math.round(glassCap.height * 0.5)))
         hideSource: false
-        visible: on && glassCap.keepValid
+        visible: on && glassCap.keepValid && glassCap.glassOn
         // NOT live: copying every window's capture into a second texture on every frame doubled the GPU work of the glass (the lag when a
         // menu / Control Center opens over several windows). The copy is refreshed twice a second, and right before the window is resized
         // or a fade ends (when it matters), so after a loss the kept frame is at most half a second old.

@@ -2321,6 +2321,140 @@ Window {
                         onMoved: v => root.minimizeSpeed = Math.round(v * 100) / 100
                     }
                 }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Drag windows to screen edges to tile")
+                    subtitle: I18n.tr("Snap dragged titlebars to halves, quarters, or Fill Screen")
+                    SSwitch {
+                        t: pal
+                        checked: root.hub && root.hub.wm ? root.hub.wm.snapToEdges : true
+                        onToggled: v => { if (root.hub && root.hub.wm) root.hub.wm.snapToEdges = v; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Tiled window margins")
+                    SSlider {
+                        t: pal
+                        from: 0; to: 24; stepSize: 2
+                        value: root.hub && root.hub.wm ? root.hub.wm.tileGap : 8
+                        leftLabel: "0 px"; rightLabel: "24 px"
+                        resetValue: 8
+                        onMoved: v => { if (root.hub && root.hub.wm) root.hub.wm.tileGap = Math.round(v); }
+                    }
+                }
+            }
+
+            SLabel { t: pal; header: true; text: I18n.tr("Desktop & Stage Manager") }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal
+                    title: I18n.tr("Click wallpaper to reveal desktop")
+                    subtitle: I18n.tr("Push open windows aside when clicking empty desktop space")
+                    SSegmented {
+                        t: pal
+                        model: [I18n.tr("Always"), I18n.tr("Stage"), I18n.tr("Off")]
+                        segWidth: 74
+                        current: {
+                            var m = root.hub && root.hub.wm ? root.hub.wm.clickWallpaperReveal : "always";
+                            return Math.max(0, ["always", "stage", "off"].indexOf(m));
+                        }
+                        onPicked: i => { if (root.hub && root.hub.wm) root.hub.wm.clickWallpaperReveal = ["always", "stage", "off"][i]; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Stage Manager")
+                    subtitle: I18n.tr("Group windows into a left-edge strip of recent app stages")
+                    SSwitch {
+                        t: pal
+                        checked: root.hub && root.hub.wm ? root.hub.wm.stageManager : false
+                        onToggled: v => { if (root.hub && root.hub.wm) root.hub.wm.stageManager = v; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    visible: root.hub && root.hub.wm && root.hub.wm.stageManager
+                    title: I18n.tr("Auto-hide Stage Manager strip")
+                    subtitle: I18n.tr("Slide the left strip out of the way until you approach the left edge")
+                    SSwitch {
+                        t: pal
+                        checked: root.hub && root.hub.wm ? root.hub.wm.stageAutoHide : false
+                        onToggled: v => { if (root.hub && root.hub.wm) root.hub.wm.stageAutoHide = v; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Mission Control & App Expos\u00e9")
+                    subtitle: I18n.tr("Overview of all windows and Spaces, or spread one app's windows")
+                    Row {
+                        spacing: 6
+                        SButton { t: pal; text: I18n.tr("Mission Control"); onClicked: { prefsWindow.visible = false; if (root.hub && root.hub.mc) root.hub.mc.openMission(""); } }
+                        SButton { t: pal; text: I18n.tr("App Expos\u00e9"); onClicked: { prefsWindow.visible = false; if (root.hub && root.hub.mc) root.hub.mc.openExpose("", ""); } }
+                    }
+                }
+            }
+
+            SLabel { t: pal; header: true; text: I18n.tr("Hot Corners") }
+            SCard {
+                id: hcCard
+                t: pal
+                readonly property var hcActs: root.hub && root.hub.wm ? root.hub.wm.hotCornerActions : []
+                readonly property var hcLabels: hcActs.map(function (a) { return a.label; })
+                function hcIndex(id) {
+                    for (var i = 0; i < hcActs.length; i++) if (hcActs[i].id === id) return i;
+                    return 0;
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Top Left")
+                    SPopUp {
+                        t: pal; model: hcCard.hcLabels
+                        current: hcCard.hcIndex(root.hub && root.hub.wm ? root.hub.wm.hotCornerTL : "none")
+                        onPicked: i => { if (root.hub && root.hub.wm && hcCard.hcActs[i]) root.hub.wm.hotCornerTL = hcCard.hcActs[i].id; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Top Right")
+                    SPopUp {
+                        t: pal; model: hcCard.hcLabels
+                        current: hcCard.hcIndex(root.hub && root.hub.wm ? root.hub.wm.hotCornerTR : "none")
+                        onPicked: i => { if (root.hub && root.hub.wm && hcCard.hcActs[i]) root.hub.wm.hotCornerTR = hcCard.hcActs[i].id; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Bottom Left")
+                    SPopUp {
+                        t: pal; model: hcCard.hcLabels
+                        current: hcCard.hcIndex(root.hub && root.hub.wm ? root.hub.wm.hotCornerBL : "none")
+                        onPicked: i => { if (root.hub && root.hub.wm && hcCard.hcActs[i]) root.hub.wm.hotCornerBL = hcCard.hcActs[i].id; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Bottom Right")
+                    SPopUp {
+                        t: pal; model: hcCard.hcLabels
+                        current: hcCard.hcIndex(root.hub && root.hub.wm ? root.hub.wm.hotCornerBR : "none")
+                        onPicked: i => { if (root.hub && root.hub.wm && hcCard.hcActs[i]) root.hub.wm.hotCornerBR = hcCard.hcActs[i].id; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    visible: root.hub && root.hub.wm && root.hub.wm.anyHotCorner
+                    title: I18n.tr("Corner dwell delay")
+                    SSlider {
+                        t: pal
+                        from: 60; to: 500; stepSize: 20
+                        value: root.hub && root.hub.wm ? root.hub.wm.hotCornerDelay : 180
+                        leftLabel: "60 ms"; rightLabel: "500 ms"
+                        resetValue: 180
+                        onMoved: v => { if (root.hub && root.hub.wm) root.hub.wm.hotCornerDelay = Math.round(v); }
+                    }
+                }
             }
         }
     }

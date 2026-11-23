@@ -17,12 +17,12 @@ Items are grouped by area. Each item includes a brief note on the current state 
 
 ## 1. Window Management & Multitasking
 
-- [ ] **Mission Control** — Overview of all open windows across workspaces plus a top Spaces bar with live workspace thumbnails, drag-and-drop of windows between workspaces, and creating/closing workspaces.
-- [ ] **App Exposé** — Spread out all open windows of a single application (triggered via shortcut or Dock interaction).
-- [ ] **Stage Manager** — Optional left-edge strip of grouped app stages with live thumbnails to switch between window sets.
-- [ ] **macOS Window Tiling & Snap-to-Edges** — Dragging windows to screen edges/corners to snap into halves/quarters, a hover tile menu on the green traffic-light button, and *Window → Move & Resize* layout presets.
-- [ ] **Hot Corners (Active Screen Corners)** — Configurable actions per corner (Mission Control, Show Desktop, Lock Screen, Notification Center, Quick Note, Start Screen Saver).
-- [ ] **Click Wallpaper to Reveal Desktop** — Clicking empty desktop space pushes all open windows to the screen edges and restores them on the next click.
+- [x] **Mission Control** — `MacShell/MissionControl.qml` provides an overview of open windows across workspaces, a top Spaces bar with proportional workspace thumbnails, drag-and-drop of windows between workspaces, creating/closing workspaces, and `missioncontrol` IPC (`SUPER + Up`).
+- [x] **App Exposé** — Spreads out all open windows of a single application (plus a bottom tray for minimized windows) via `expose` IPC (`SUPER + Down`), Dock right-click (*Show All Windows*), Shift+Click on Dock app icons, Menu Bar (*Window → App Exposé*), and Hot Corners.
+- [x] **Stage Manager** — Opt-in left-edge strip in `MacShell/WindowMgmt.qml` grouping inactive apps into live-thumbnail stages (`special:stage`), with click-to-switch, Shift+Click / `+` merge into the active stage, optional auto-hide, Settings & Menu Bar toggles, `stagemanager` IPC, and automatic window restore on disable/exit.
+- [x] **macOS Window Tiling & Snap-to-Edges** — Pure geometry layout engine (`MacShell/WindowMgmt.js` + `MacShell/WindowMgmt.qml`) with halves, quarters, thirds, Fill, Center, Left & Right pair arrangement, pre-tile Restore, live edge/corner drag-snap preview in `WindowDecor.qml`, green traffic-light hover tile menu, *Window → Move & Resize* menu items in `MacBar.qml`, and `tile` IPC.
+- [x] **Hot Corners (Active Screen Corners)** — Configurable per-corner triggers (`Mission Control`, `App Exposé`, `Show Desktop`, `Notification Center`, `Quick Note`, `Lock Screen`, `Start Screen Saver`, `Spotlight`) with dwell delay, fullscreen suppression, zero-window idle overhead, and built-in floating Quick Note sheet.
+- [x] **Click Wallpaper to Reveal Desktop** — Clicking empty desktop space in `MacShell/Desktop.qml` (configurable: *Always* / *Stage Manager* / *Off*) moves open workspace windows aside (`special:desktop-peek`) with a macOS-style edge vignette frame and restores them on the next click, edge click, or new window (`desktop` IPC).
 
 ---
 

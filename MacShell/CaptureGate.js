@@ -15,6 +15,16 @@ var SLOT_MS = 45;
 var STORM_WINDOW_MS = 2000;
 var STORM_FAILS = 4;
 var STORM_HOLD_MS = 1200;
+var _listeners = [];
+
+function registerFailListener(fn) {
+    if (typeof fn === "function" && _listeners.indexOf(fn) < 0) _listeners.push(fn);
+}
+
+function unregisterFailListener(fn) {
+    var i = _listeners.indexOf(fn);
+    if (i >= 0) _listeners.splice(i, 1);
+}
 
 // a capture lost its picture / failed to get one
 function noteFail() {
@@ -22,6 +32,9 @@ function noteFail() {
     _fails.push(n);
     if (_fails.length > 64) _fails.shift();
     if (recentFails(STORM_WINDOW_MS) >= STORM_FAILS) _stormUntil = Math.max(_stormUntil, n + STORM_HOLD_MS);
+    for (var i = 0; i < _listeners.length; i++) {
+        try { _listeners[i](); } catch (err) { }
+    }
 }
 
 // how many captures failed in the last `ms`

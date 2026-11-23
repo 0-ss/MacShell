@@ -3202,7 +3202,7 @@ Scope {
         settleTimer.restart();
     }
     Timer { id: settleTimer; interval: 900; onTriggered: { root.refreshWifi(); root.refreshBt(); } }
-    Timer { interval: 6000; repeat: true; running: true; triggeredOnStart: true; onTriggered: { root.refreshWifi(); root.refreshBt(); } }
+    Timer { interval: root.popCount > 0 ? 6000 : 15000; repeat: true; running: true; triggeredOnStart: true; onTriggered: { root.refreshWifi(); root.refreshBt(); } }
 
     // brightness
     property real brightness: 0.5
@@ -3270,7 +3270,7 @@ Scope {
         brightApply.restart();
         showOsd("brightness", brightness);
     }
-    Timer { interval: root.brightMode === "bl" ? 850 : 10000; repeat: true; running: root.brightMode !== "ddc"; onTriggered: root.refreshBrightness() }
+    Timer { interval: 2500; repeat: true; running: root.brightMode === "bl"; onTriggered: root.refreshBrightness() }
     // ═════════════ KEYBOARD LAYOUT ═════════════
     // Hyprland's event gives an immediate update; a small reconciliation poll handles dropped events and
     // keyboards whose active keymap changes without a usable activelayout payload.
@@ -4367,6 +4367,9 @@ Scope {
                 m.push(mchk("Dark Mode", "", root.darkMode, function () { root.setAppearance(root.darkMode ? "light" : "dark"); }));
             } else if (name === "window") {
                 if (has) {
+                    var tileAct = function (preset) {
+                        return function () { if (hub && hub.wm) hub.wm.tileWindow(preset, aw ? aw.address : ""); };
+                    };
                     m.push(mi("Minimize", "", function () {
                         if (hub && hub.minimizeWindow) hub.minimizeWindow(aw ? aw.address : "");
                         else disp('hl.dsp.window.move({ workspace = "special:minimized", follow = false })')();
@@ -4374,15 +4377,29 @@ Scope {
                     m.push(mchk("Zoom", "", fsMode === 1, disp('hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })')));
                     m.push(mi(floating ? "Tile Window" : "Float Window", "", disp('hl.dsp.window.float({ action = "toggle" })')));
                     m.push(msep());
-                    m.push(mi("Move Window Left", "", disp('hl.dsp.window.move({ direction = "left" })')));
-                    m.push(mi("Move Window Right", "", disp('hl.dsp.window.move({ direction = "right" })')));
-                    m.push(mi("Make Wider", "", disp('hl.dsp.window.resize({ x = 100, y = 0, relative = true })')));
-                    m.push(mi("Make Narrower", "", disp('hl.dsp.window.resize({ x = -100, y = 0, relative = true })')));
+                    m.push(mi("Fill", "", tileAct("fill")));
+                    m.push(mi("Center", "", tileAct("center")));
+                    m.push(mi("Move & Resize: Left Half", "", tileAct("left")));
+                    m.push(mi("Move & Resize: Right Half", "", tileAct("right")));
+                    m.push(mi("Move & Resize: Top Half", "", tileAct("top")));
+                    m.push(mi("Move & Resize: Bottom Half", "", tileAct("bottom")));
+                    m.push(mi("Move & Resize: Top Left Quarter", "", tileAct("top-left")));
+                    m.push(mi("Move & Resize: Top Right Quarter", "", tileAct("top-right")));
+                    m.push(mi("Move & Resize: Bottom Left Quarter", "", tileAct("bottom-left")));
+                    m.push(mi("Move & Resize: Bottom Right Quarter", "", tileAct("bottom-right")));
+                    m.push(mi("Move & Resize: Left & Right", "", tileAct("arrange-left-right")));
+                    m.push(mi("Return to Previous Size", "", tileAct("restore")));
+                    m.push(msep());
                     if (Quickshell.screens.length > 1) m.push(mi("Move to Next Monitor", "", disp('hl.dsp.window.move({ monitor = "+1" })')));
                     m.push(mi("Move to Next Workspace", "", disp('hl.dsp.window.move({ workspace = "+1" })')));
                     m.push(mi("Move to Previous Workspace", "", disp('hl.dsp.window.move({ workspace = "-1" })')));
                     m.push(msep());
                 }
+                m.push(mi("Mission Control", "", function () { if (hub && hub.mc) hub.mc.toggleMission(""); }));
+                if (has) m.push(mi("App Expos\u00e9", "", function () { if (hub && hub.mc) hub.mc.toggleExpose(id, ""); }));
+                m.push(mchk("Stage Manager", "", !!(hub && hub.wm && hub.wm.stageManager), function () { if (hub && hub.wm) hub.wm.stageManager = !hub.wm.stageManager; }));
+                m.push(mi((hub && hub.wm && hub.wm.desktopRevealed) ? "Restore Desktop Windows" : "Show Desktop", "", function () { if (hub && hub.wm) hub.wm.toggleRevealDesktop(""); }));
+                m.push(msep());
                 m.push(mi("Show Hidden Windows", "", disp('hl.dsp.workspace.toggle_special("hidden")')));
                 m.push(mi("Show Minimized Windows", "", disp('hl.dsp.workspace.toggle_special("minimized")')));
                 var tls = ToplevelManager.toplevels.values;
@@ -5476,7 +5493,7 @@ Scope {
     }
     Process {
         id: wpApplyProc
-        onExited: { root.wallpaperSampleForce = true; wallpaperColorTimer.restart(); }
+        onExited: { root.wallpaperSampleForce = true; wallpaperColorTimer.restart(); if (root.hub && root.hub.refreshWallpaper) root.hub.refreshWallpaper(); }
         stdout: StdioCollector { onStreamFinished: if (text.trim() !== "") console.log("[wallpaper]", text.trim()) }
         stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") console.log("[wallpaper] error:", text.trim()) }
     }
@@ -6076,7 +6093,7 @@ Scope {
                 }
                 // refresh while the pointer rests on the bar with nothing open; a snapshot is "fresh" for 3 s
                 Timer { interval: 600; repeat: true; running: barHover.hovered && ui.pop === ""; onTriggered: screenSnap.grab() }
-                Timer { interval: 250; repeat: true; running: root.liquidActive; onTriggered: ui.snapFresh = (Date.now() - screenSnap.takenAt) < 3000 || (ui.pop !== "" && ui.snapFresh) }
+                Timer { interval: 250; repeat: true; running: root.liquidActive && (screenSnap.takenAt > 0 || ui.snapFresh); onTriggered: ui.snapFresh = (Date.now() - screenSnap.takenAt) < 3000 || (ui.pop !== "" && ui.snapFresh) }
 
                 // keeps the (otherwise unseen) backdrop rendering so its window captures stay valid; draws one 1%-opaque pixel
                 ShaderEffectSource {
@@ -6300,7 +6317,7 @@ Scope {
                                     // or 0.7 Hz while idle so menus open on warm frames.
                                     readonly property bool busy: bd.hostShown && (flatRoot.needed || (root.barGlass && gw.y < root.barH + 40))
                                     Timer {
-                                        interval: sv.hush ? 1500 : (sv.busy ? 250 : 1500); repeat: true
+                                        interval: sv.hush ? 1500 : (sv.busy ? 250 : 3000); repeat: true
                                         running: gw.captureActive && !root.captureHeld && !root.backdropDraining && !sv.wantLive && sv.armed
                                                  && (!sv.hush || (bd.hostShown && flatRoot.needed))
                                         onTriggered: sv.snap()

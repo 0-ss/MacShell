@@ -23,6 +23,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
+import "I18n.js" as I18n
 import "Fonts.js" as Fonts
 
 Scope {
@@ -91,6 +92,23 @@ Scope {
     property string dragAddr: ""
     property real dragX: 0
     property real dragY: 0
+
+    // green traffic-light hover tile menu state
+    property string tileMenuAddr: ""
+    property string tileMenuScreen: ""
+    property real tileMenuX: 0
+    property real tileMenuY: 0
+    readonly property bool tileMenuOpen: tileMenuAddr !== ""
+    function openTileMenu(screenName, addr, sx, sy) {
+        tileMenuHideT.stop();
+        tileMenuScreen = screenName;
+        tileMenuAddr = addr;
+        tileMenuX = sx;
+        tileMenuY = sy;
+    }
+    function scheduleCloseTileMenu() { tileMenuHideT.restart(); }
+    function closeTileMenu() { tileMenuHideT.stop(); tileMenuAddr = ""; }
+    Timer { id: tileMenuHideT; interval: 220; onTriggered: root.tileMenuAddr = "" }
 
     onClientsChanged: recompute()
     onMonsChanged: recompute()
@@ -249,6 +267,12 @@ Scope {
                 Slot { idx: 21; rects: w.rects }
                 Slot { idx: 22; rects: w.rects }
                 Slot { idx: 23; rects: w.rects }
+                Region {
+                    x: tilePop.shown ? Math.round(tilePop.x) : 0
+                    y: tilePop.shown ? Math.round(tilePop.y - 10) : 0
+                    width: tilePop.shown ? Math.round(tilePop.width) : 0
+                    height: tilePop.shown ? Math.round(tilePop.height + 10) : 0
+                }
             }
 
             Repeater {
@@ -359,9 +383,22 @@ Scope {
                             root.dragX = nx; root.dragY = ny; root.dragAddr = deco.m.addr;
                             root.recompute();
                             root.moveWin(deco.m.addr, nx, ny);
+                            if (root.hub && root.hub.wm && root.hub.wm.updateDragSnap)
+                                root.hub.wm.updateDragSnap(w.modelData.name, deco.m.addr, deco.m.monX + p.x, deco.m.monY + p.y);
                         }
-                        onReleased: { moving = false; root.dragAddr = ""; root.recompute(); }
-                        onCanceled: { moving = false; root.dragAddr = ""; root.recompute(); }
+                        onReleased: {
+                            var wasMoving = moving;
+                            var addr = deco.m ? deco.m.addr : "";
+                            moving = false; root.dragAddr = "";
+                            if (wasMoving && addr !== "" && root.hub && root.hub.wm && root.hub.wm.commitDragSnap)
+                                root.hub.wm.commitDragSnap(addr);
+                            root.recompute();
+                        }
+                        onCanceled: {
+                            moving = false; root.dragAddr = "";
+                            if (root.hub && root.hub.wm && root.hub.wm.cancelDragSnap) root.hub.wm.cancelDragSnap();
+                            root.recompute();
+                        }
                         onDoubleClicked: if (deco.m) root.maximizeToggle(deco.m.addr)
                     }
 
@@ -396,8 +433,27 @@ Scope {
                                     MouseArea {
                                         id: lMa
                                         anchors.fill: parent; anchors.margins: -3
+                                        hoverEnabled: true
                                         acceptedButtons: Qt.LeftButton
+                                        Timer {
+                                            id: tileDwellT
+                                            interval: 300
+                                            onTriggered: {
+                                                if (!deco.m || light.index !== 2) return;
+                                                var pt = light.mapToItem(w.contentItem, 0, light.height);
+                                                root.openTileMenu(w.modelData.name, deco.m.addr, pt.x - 16, pt.y + 8);
+                                            }
+                                        }
+                                        onEntered: {
+                                            if (light.index === 2 && deco.m) tileDwellT.restart();
+                                        }
+                                        onExited: {
+                                            tileDwellT.stop();
+                                            if (light.index === 2 && root.tileMenuOpen) root.scheduleCloseTileMenu();
+                                        }
                                         onClicked: mouse => {
+                                            tileDwellT.stop();
+                                            root.closeTileMenu();
                                             if (!deco.m) return;
                                             var a = deco.m.addr;
                                             if (light.index === 0) root.closeWin(a);
@@ -426,6 +482,137 @@ Scope {
                         border.width: 1
                         border.color: root.outlineInner
                         opacity: deco.active ? 1 : 0.5
+                    }
+                }
+            }
+
+            // macOS Sequoia/Tahoe green traffic-light hover tile menu
+            Rectangle {
+                id: tilePop
+                readonly property bool shown: root.tileMenuOpen && root.tileMenuScreen === w.modelData.name
+                visible: shown
+                z: 200
+                x: Math.max(8, Math.min(w.width - width - 8, root.tileMenuX))
+                y: Math.max(32, Math.min(w.height - height - 8, root.tileMenuY))
+                width: 226
+                height: tileCol.implicitHeight + 18
+                radius: 12
+                color: root.darkMode ? Qt.rgba(0.15, 0.15, 0.17, 0.96) : Qt.rgba(0.98, 0.98, 0.99, 0.96)
+                border.width: 1
+                border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.14)
+
+                HoverHandler {
+                    id: popHover
+                    onHoveredChanged: {
+                        if (hovered) tileMenuHideT.stop();
+                        else root.scheduleCloseTileMenu();
+                    }
+                }
+
+                function pick(preset) {
+                    var a = root.tileMenuAddr;
+                    root.closeTileMenu();
+                    if (preset === "fullscreen") {
+                        root.zoomWin(a, false);
+                    } else if (root.hub && root.hub.wm) {
+                        root.hub.wm.tileWindow(preset, a);
+                    }
+                }
+
+                Column {
+                    id: tileCol
+                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: 9 }
+                    spacing: 8
+
+                    Text {
+                        text: I18n.tr("Move & Resize")
+                        color: root.darkMode ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.50)
+                        font.family: Fonts.forWeight(Font.DemiBold, root.fam)
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 10
+                    }
+
+                    // Halves row (Left, Right, Top, Bottom)
+                    Row {
+                        spacing: 6
+                        Repeater {
+                            model: [
+                                { id: "left",   x: 2, y: 2, w: 18, h: 22, tip: "Left" },
+                                { id: "right",  x: 22, y: 2, w: 18, h: 22, tip: "Right" },
+                                { id: "top",    x: 2, y: 2, w: 38, h: 10, tip: "Top" },
+                                { id: "bottom", x: 2, y: 14, w: 38, h: 10, tip: "Bottom" }
+                            ]
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: 46; height: 30; radius: 6
+                                color: hMa.containsMouse ? (root.dock ? root.dock.accent : "#0A84FF")
+                                     : (root.darkMode ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06))
+                                Rectangle {
+                                    x: 2 + modelData.x; y: 2 + modelData.y; width: modelData.w; height: modelData.h; radius: 3
+                                    color: hMa.containsMouse ? "#FFFFFF" : (root.darkMode ? Qt.rgba(1, 1, 1, 0.72) : Qt.rgba(0, 0, 0, 0.55))
+                                }
+                                MouseArea {
+                                    id: hMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: tilePop.pick(modelData.id)
+                                }
+                            }
+                        }
+                    }
+
+                    // Quarters row
+                    Row {
+                        spacing: 6
+                        Repeater {
+                            model: [
+                                { id: "top-left",     x: 2,  y: 2,  w: 18, h: 10 },
+                                { id: "top-right",    x: 22, y: 2,  w: 18, h: 10 },
+                                { id: "bottom-left",  x: 2,  y: 14, w: 18, h: 10 },
+                                { id: "bottom-right", x: 22, y: 14, w: 18, h: 10 }
+                            ]
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: 46; height: 30; radius: 6
+                                color: qMa.containsMouse ? (root.dock ? root.dock.accent : "#0A84FF")
+                                     : (root.darkMode ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06))
+                                Rectangle {
+                                    x: 2 + modelData.x; y: 2 + modelData.y; width: modelData.w; height: modelData.h; radius: 3
+                                    color: qMa.containsMouse ? "#FFFFFF" : (root.darkMode ? Qt.rgba(1, 1, 1, 0.72) : Qt.rgba(0, 0, 0, 0.55))
+                                }
+                                MouseArea {
+                                    id: qMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: tilePop.pick(modelData.id)
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { width: parent.width; height: 1; color: root.darkMode ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10) }
+
+                    // Quick layout action rows
+                    Repeater {
+                        model: [
+                            { id: "fill",               label: I18n.tr("Fill") },
+                            { id: "center",             label: I18n.tr("Center") },
+                            { id: "arrange-left-right", label: I18n.tr("Left & Right") },
+                            { id: "restore",            label: I18n.tr("Return to Previous Size") },
+                            { id: "fullscreen",         label: I18n.tr("Enter Full Screen") }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: tileCol.width; height: 24; radius: 6
+                            color: actMa.containsMouse ? (root.dock ? root.dock.accent : "#0A84FF") : "transparent"
+                            Text {
+                                anchors { left: parent.left; leftMargin: 8; verticalCenter: parent.verticalCenter }
+                                text: modelData.label
+                                color: actMa.containsMouse ? "#FFFFFF" : (root.darkMode ? "#F5F5F7" : "#1D1D1F")
+                                font.family: root.fam
+                                font.pixelSize: 12
+                            }
+                            MouseArea {
+                                id: actMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: tilePop.pick(modelData.id)
+                            }
+                        }
                     }
                 }
             }

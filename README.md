@@ -352,6 +352,12 @@ Also make sure **blur is enabled** in your Hyprland `decoration` settings, or th
 | `settings` | `open` (works even if both the bar and the Dock are disabled) |
 | `widgets` | `refresh` (re-fetch the weather), `edit true\|false` (move / remove desktop widgets) |
 | `glass` | `captures true\|false` (window previews on/off, same as Settings → Dock Behavior → *Live window capture*) |
+| `missioncontrol` | `toggle`, `open`, `close` (Mission Control overview & Spaces bar) |
+| `expose` | `toggle`, `open`, `close`, `app <class>` (App Exposé for the active or named app) |
+| `stagemanager` | `toggle`, `on`, `off` (Stage Manager left-edge strip) |
+| `tile` | `apply <preset>`, `left`, `right`, `top`, `bottom`, `topLeft`, `topRight`, `bottomLeft`, `bottomRight`, `fill`, `center`, `restore`, `arrangeLeftRight` |
+| `desktop` | `toggle`, `reveal`, `restore` (Show / Reveal Desktop) |
+| `quicknote` | `toggle`, `open`, `close` (floating Quick Note sheet) |
 
 ### Search screenshots in Spotlight
 

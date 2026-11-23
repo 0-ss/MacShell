@@ -1864,6 +1864,9 @@ hl.bind("SUPER + Space",      hl.dsp.exec_cmd(qs .. "spotlight toggle"))
 hl.bind("ALT + TAB",          hl.dsp.exec_cmd(qs .. "switcher next"))
 hl.bind("CTRL + ALT + W",     hl.dsp.exec_cmd(qs .. "wallpapers toggle"))
 hl.bind("PRINT",              hl.dsp.exec_cmd(qs .. "screenshot region"))
+hl.bind("SUPER + Up",         hl.dsp.exec_cmd(qs .. "missioncontrol toggle"))
+hl.bind("SUPER + Down",       hl.dsp.exec_cmd(qs .. "expose toggle"))
+hl.bind("SUPER + D",          hl.dsp.exec_cmd(qs .. "desktop toggle"))
 
 -- Hardware keys (laptop buttons too): volume, mute, brightness, media. MacShell handles them itself and shows its
 -- on-screen display. If the shell is not running, wpctl / brightnessctl do the work instead.
@@ -1926,6 +1929,8 @@ lua_block() { # lua_block <with-rules 0|1>
         printf '%s\n' 'hl.layer_rule({ name = "macspot",  match = { namespace = "macspot"  }, blur = true, ignore_alpha = 0.05, no_anim = true })'
         printf '%s\n' 'hl.layer_rule({ name = "macbarbg", match = { namespace = "macbarbg" }, blur = true, ignore_alpha = 0.05, no_anim = true })'
         printf '%s\n' 'hl.layer_rule({ name = "macshot",  match = { namespace = "macshot"  }, no_anim = true })'
+        printf '%s\n' 'hl.layer_rule({ name = "macmc",    match = { namespace = "macmc"    }, no_anim = true })'
+        printf '%s\n' 'hl.layer_rule({ name = "macsnap",  match = { namespace = "macsnap"  }, no_anim = true })'
     fi
     printf '%s\n' "$MARK_END"
 }

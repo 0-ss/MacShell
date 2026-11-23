@@ -282,7 +282,7 @@ Scope {
         { id: "displays",   sec: 2, name: "Displays",        wg: "sun",        c1: "#3D9BFF", c2: "#0A6CFF", keys: "brightness night shift monitor resolution refresh scale" },
         { id: "battery",    sec: 2, name: "Battery",         wg: "bolt",       c1: "#4CD964", c2: "#28A745", keys: "power energy charge profile performance game mode gaming fullscreen" },
         // 3 · Desktop
-        { id: "dock",       sec: 3, name: "Desktop & Dock",  glyph: "dock",     c1: "#2C2C2E", c2: "#1C1C1E", keys: "size icon magnification zoom spacing margin distance corner radius round square edge hide auto labels indicators bounce trash monitor preview app switcher alt tab titlebar titlebars traffic lights minimize genie animation" },
+        { id: "dock",       sec: 3, name: "Desktop & Dock",  glyph: "dock",     c1: "#2C2C2E", c2: "#1C1C1E", keys: "size icon magnification zoom spacing margin distance corner radius round square edge hide auto labels indicators bounce trash monitor preview app switcher alt tab titlebar titlebars traffic lights minimize genie animation mission control expose stage manager hot corners tiling snap reveal desktop multitasking quick note" },
         { id: "menubar",    sec: 3, name: "Menu Bar",        glyph: "menubar",  c1: "#3D9BFF", c2: "#0A6CFF", keys: "panel bar height clock date seconds 24 hour battery tray search spotlight week monday style liquid bluetooth screenshots" },
         { id: "controlcenter", sec: 3, name: "Control Center", wg: "cc",       c1: "#8E8E93", c2: "#636366", keys: "modules tiles controls" },
         { id: "widgets",    sec: 3, name: "Widgets",         glyph: "widgets",  c1: "#FF9F0A", c2: "#FF7A00", keys: "desktop widgets weather clock calendar player image photo gif sysmon reminders batteries notes photos alarms stocks add remove arrange edit size temperature fahrenheit celsius city location" },
@@ -759,6 +759,11 @@ Scope {
         }
         var wins = windowsFor(item.key);
         if (wins.length > 0) {
+            m.push({ kind: "item", label: I18n.tr("Show All Windows"),
+                     run: function () {
+                         if (root.hub && root.hub.mc) root.hub.mc.openExpose(item.appId || item.key, "");
+                     } });
+            m.push({ kind: "sep" });
             for (var i = 0; i < wins.length && i < 8; i++) {
                 (function (w) {
                     var t = w.title && w.title.length > 0 ? w.title : item.name;
@@ -1659,15 +1664,15 @@ Scope {
                             id: flatSrc
                             anchors.fill: parent
                             sourceItem: bd
-                            live: true
+                            live: !ui.tucked
                             hideSource: false
                         }
                         // Edge padding: the glass blurs and refracts up to ~64 px beyond the screen edge, where the backdrop used to be empty (alpha 0),
                         // which pulled the blur toward see-through near the screen edges (e.g. popovers on the right). Mirror the edge pixels outward instead.
-                        ShaderEffectSource { x: flatRoot.width; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(flatRoot.width - 160, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: true; hideSource: false }
-                        ShaderEffectSource { x: -160; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: true; hideSource: false }
-                        ShaderEffectSource { x: 0; y: -160; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: true; hideSource: false }
-                        ShaderEffectSource { x: 0; y: flatRoot.height; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, flatRoot.height - 160, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: true; hideSource: false }
+                        ShaderEffectSource { x: flatRoot.width; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(flatRoot.width - 160, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: !ui.tucked; hideSource: false }
+                        ShaderEffectSource { x: -160; y: 0; width: 160; height: flatRoot.height; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, 160, flatRoot.height); textureMirroring: ShaderEffectSource.MirrorHorizontally; live: !ui.tucked; hideSource: false }
+                        ShaderEffectSource { x: 0; y: -160; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, 0, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: !ui.tucked; hideSource: false }
+                        ShaderEffectSource { x: 0; y: flatRoot.height; width: flatRoot.width; height: 160; sourceItem: flatSrc; sourceRect: Qt.rect(0, flatRoot.height - 160, flatRoot.width, 160); textureMirroring: ShaderEffectSource.MirrorVertically; live: !ui.tucked; hideSource: false }
                     Item {
                         id: bd
                         x: 0; y: 0
@@ -1772,9 +1777,9 @@ Scope {
                                     hold: quiet || gw.gone || gw.closing
                                     wantLive: root.glassRT && canRun && gw.overlap && !ui.tucked
                                     Timer {
-                                        interval: root.glassRT ? (gw.overlap ? 33 : 500) : 66
+                                        interval: root.glassRT ? (gw.overlap ? 33 : (ui.tucked ? 3000 : 1200)) : 66
                                         repeat: true
-                                        running: sc.canRun && !sc.wantLive && sc.armed
+                                        running: sc.canRun && !sc.wantLive && sc.armed && (!ui.tucked || gw.overlap)
                                         onTriggered: sc.snap()
                                     }
                                     onHeldChanged: { if (held !== null && sc.canRun) firstShot.restart(); }
@@ -2271,9 +2276,10 @@ Scope {
                                 }
                                 ShaderEffectSource {
                                     id: fillTex
-                                    sourceItem: fillFx
+                                    readonly property bool needed: root.iconTile && !cell.isSep && !cell.thumbReady
+                                    sourceItem: needed ? fillFx : null
                                     hideSource: true
-                                    live: true
+                                    live: needed && !ui.tucked
                                     visible: false
                                 }
                                 ShaderEffect {
@@ -2307,9 +2313,10 @@ Scope {
                                 }
                                 ShaderEffectSource {
                                     id: iconTex
-                                    sourceItem: iconFx
+                                    readonly property bool needed: root.iconTile && !cell.isSep && !cell.thumbReady
+                                    sourceItem: needed ? iconFx : null
                                     hideSource: root.iconTile
-                                    live: true
+                                    live: needed && !ui.tucked
                                     smooth: true
                                     mipmap: true
                                     visible: false
@@ -2356,7 +2363,7 @@ Scope {
                                         // frame every 2 s — live previews of every window were ~8% CPU at idle
                                         wantLive: !ui.tucked && !root.previewHold && !cell.closingWin && !cell.leavingCell && hh.hovered
                                         Timer {
-                                            interval: 2000; repeat: true; triggeredOnStart: true
+                                            interval: 4000; repeat: true; triggeredOnStart: true
                                             running: !sv.wantLive && !ui.tucked && !root.previewHold && !cell.closingWin && sv.armed
                                             onTriggered: sv.snap()
                                         }
@@ -2576,6 +2583,9 @@ Scope {
                                             ui.menuCell = cell;
                                             ui.menuItem = cell.modelData;
                                             ui.syncMenu();
+                                        } else if ((mouse.modifiers & Qt.ShiftModifier) !== 0 && cell.modelData.kind === "app" && !cell.modelData.special
+                                                   && root.windowsFor(cell.modelData.key).length > 0 && root.hub && root.hub.mc) {
+                                            root.hub.mc.openExpose(cell.modelData.appId || cell.modelData.key, win.modelData.name);
                                         } else {
                                             root.activate(cell.modelData, mouse.button === Qt.MiddleButton);
                                         }

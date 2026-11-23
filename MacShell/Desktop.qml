@@ -442,10 +442,15 @@ Scope {
             "mkdir -p \"$1\"; cd \"$1\" && find . -mindepth 1 -maxdepth 1 ! -name '.*' -printf '%Y\\t%y\\t%f\\n' 2>/dev/null | LC_ALL=C sort -t\"$(printf '\\t')\" -k1,1 -k3,3f | head -200", "sh", root.dir];
         lsProc.running = true;
     }
+    property string lastScanText: ""
+    property bool deskPoll: false
+    property bool deskWatchReady: false
     Process {
         id: lsProc
         stdout: StdioCollector {
             onStreamFinished: {
+                if (text === root.lastScanText) return;
+                root.lastScanText = text;
                 var out = [], ls = text.split("\n");
                 for (var i = 0; i < ls.length; i++) {
                     var c = ls[i].split("\t");
@@ -458,6 +463,24 @@ Scope {
                 root.items = out;
             }
         }
+    }
+    Process {
+        id: deskWatchProbe
+        running: root.enabled
+        command: ["sh", "-c", "mkdir -p \"$1\"; command -v inotifywait >/dev/null 2>&1 && echo w || echo p", "sh", root.dir]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.deskPoll = text.trim() !== "w";
+                root.deskWatchReady = true;
+                root.scan();
+            }
+        }
+    }
+    Process {
+        id: deskWatch
+        running: root.enabled && root.deskWatchReady && !root.deskPoll
+        command: ["inotifywait", "-m", "-q", "-e", "create", "-e", "delete", "-e", "moved_to", "-e", "moved_from", "-e", "attrib", root.dir]
+        stdout: SplitParser { onRead: data => rescan.restart() }
     }
     FileView {
         id: placeFile
@@ -531,7 +554,7 @@ Scope {
         rescan.restart();
     }
     Timer { id: rescan; interval: 400; onTriggered: root.scan() }
-    Timer { interval: 3000; repeat: true; running: root.enabled; triggeredOnStart: true; onTriggered: root.scan() }
+    Timer { interval: 3000; repeat: true; running: root.enabled && root.deskPoll; triggeredOnStart: true; onTriggered: root.scan() }
 
     Variants {
         model: root.enabled ? Quickshell.screens : []
@@ -749,6 +772,7 @@ Scope {
                     property var pressedItem: null        // icon the press landed on
                     property string collapseTo: ""        // click on one of several selected icons (no drag) → select just it
                     property var baseSel: ({})            // selection a marquee starts from
+                    property bool hadSelectionAtPress: false
                     property bool moved: false
                     property bool ignoring: false         // the press landed on a widget: the desktop does nothing (no menu, no selection)
 
@@ -760,6 +784,7 @@ Scope {
                             return;
                         }
                         px = mouse.x; py = mouse.y; moved = false; collapseTo = "";
+                        hadSelectionAtPress = root.selectionCount > 0;
                         addMode = (mouse.modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) !== 0;
                         pressedItem = w.iconAt(mouse.x, mouse.y);
                         if (mouse.button === Qt.RightButton) {
@@ -803,6 +828,9 @@ Scope {
                         if (ignoring) return;
                         if (w.dragActive) w.finishDrag(mouse.x, mouse.y);
                         else if (!moved && collapseTo !== "") root.selectOnly(collapseTo);
+                        else if (!moved && !pressedItem && mouse.button === Qt.LeftButton && !hadSelectionAtPress
+                                 && !addMode && !w.sheetOpen && !dctx.open && root.hub && root.hub.wm && root.hub.wm.handleWallpaperClick)
+                            root.hub.wm.handleWallpaperClick(w.modelData.name);
                         w.marqueeActive = false;
                         pressedItem = null;
                     }

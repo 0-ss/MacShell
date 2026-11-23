@@ -45,12 +45,15 @@ ShellRoot {
         property var about: aboutApp
         property var decor: windowDecor
         property var minimizeFx: minimizeFxObj
+        property var wm: windowMgmt
+        property var mc: missionControl
         function openSettings(pane) { macDock.openPrefs(pane); }
 
-        // set by MacBar / MacDock / WindowDecor (Binding elements) when they need live window geometry
+        // set by MacBar / MacDock / WindowDecor / WindowMgmt (Binding elements) when they need live window geometry
         property bool barWantsGeo: false
         property bool dockWantsGeo: false
         property bool decorWantsGeo: false
+        property bool wmWantsGeo: false
         property bool barWantsWallpaper: false
         property bool dockWantsWallpaper: false
         property bool widgetsWantWallpaper: false
@@ -243,12 +246,11 @@ ShellRoot {
         // destroyed and rebuilt: the burst of those is what takes the Wayland connection down ("invalid object NN"). When several captures
         // fail within two seconds (CaptureGate.js counts them) every stream and single shot sits out until it has been quiet for 1.2 s.
         property bool storm: false
-        Timer {
-            interval: 200; repeat: true; running: true
-            onTriggered: {
-                if (CaptureGate.isStorm()) { stormEnd.restart(); if (!sharedHub.storm) sharedHub.storm = true; }
-            }
+        function onCaptureFail() {
+            if (CaptureGate.isStorm()) { stormEnd.restart(); if (!sharedHub.storm) sharedHub.storm = true; }
         }
+        Component.onCompleted: CaptureGate.registerFailListener(onCaptureFail)
+        Component.onDestruction: CaptureGate.unregisterFailListener(onCaptureFail)
         Timer { id: stormEnd; interval: 1200; onTriggered: sharedHub.storm = false }
         // Dock previews no longer pause as a whole while windows open / close (that froze every preview for ~1.5 s):
         // only the CLOSING window's own preview stops its live capture, the moment Hyprland announces the close
@@ -428,7 +430,7 @@ ShellRoot {
         Timer {
             interval: sharedHub.geoHot ? 90 : 250
             repeat: true
-            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo || sharedHub.decorWantsGeo) && !sharedHub.ipcOk
+            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo || sharedHub.decorWantsGeo || sharedHub.wmWantsGeo) && !sharedHub.ipcOk
             triggeredOnStart: true
             onTriggered: if (!geoProc.running) geoProc.running = true
         }
@@ -503,7 +505,7 @@ ShellRoot {
             // fast (60 Hz) for 1.5 s after any window event, otherwise a relaxed 2.5 Hz check (idle CPU)
             interval: sharedHub.geoHot ? 16 : 400
             repeat: true
-            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo || sharedHub.decorWantsGeo) && !sharedHub.ipcBroken
+            running: (sharedHub.barWantsGeo || sharedHub.dockWantsGeo || sharedHub.decorWantsGeo || sharedHub.wmWantsGeo) && !sharedHub.ipcBroken
             triggeredOnStart: true
             onTriggered: sharedHub.ipcPoll()
         }
@@ -552,7 +554,7 @@ ShellRoot {
         }
 
         Timer {
-            interval: 4000        // was 15 s: a wallpaper change reaches the glass within a few seconds
+            interval: 15000
             repeat: true
             running: sharedHub.barWantsWallpaper || sharedHub.dockWantsWallpaper || sharedHub.widgetsWantWallpaper
             onTriggered: sharedHub.refreshWallpaper()
@@ -569,6 +571,8 @@ ShellRoot {
     AboutApp { id: aboutApp; hub: sharedHub }
     WindowDecor { id: windowDecor; hub: sharedHub }
     MinimizeFx { id: minimizeFxObj; hub: sharedHub; effect: macDock.minimizeEffect; speed: macDock.minimizeSpeed }
+    WindowMgmt { id: windowMgmt; hub: sharedHub }
+    MissionControl { id: missionControl; hub: sharedHub }
 
     Component.onCompleted: {
         sharedHub.bar = macBar;
@@ -641,5 +645,58 @@ ShellRoot {
         target: "minimize"
         function active(): void { sharedHub.minimizeWindow(""); }
         function restoreLast(): void { sharedHub.restoreLastMinimized(); }
+    }
+    // qs -c MacShell ipc call missioncontrol toggle | open | close
+    IpcHandler {
+        target: "missioncontrol"
+        function toggle(): void { missionControl.toggleMission(""); }
+        function open(): void { missionControl.openMission(""); }
+        function close(): void { missionControl.close(); }
+    }
+    // qs -c MacShell ipc call expose toggle | open | close | app <class>
+    IpcHandler {
+        target: "expose"
+        function toggle(): void { missionControl.toggleExpose("", ""); }
+        function open(): void { missionControl.openExpose("", ""); }
+        function close(): void { missionControl.close(); }
+        function app(name: string): void { missionControl.openExpose(name, ""); }
+    }
+    // qs -c MacShell ipc call stagemanager toggle | on | off
+    IpcHandler {
+        target: "stagemanager"
+        function toggle(): void { windowMgmt.stageManager = !windowMgmt.stageManager; }
+        function on(): void { windowMgmt.stageManager = true; }
+        function off(): void { windowMgmt.stageManager = false; }
+    }
+    // qs -c MacShell ipc call tile apply <preset> | left | right | top | bottom | topLeft | topRight | bottomLeft | bottomRight | fill | center | restore | arrangeLeftRight
+    IpcHandler {
+        target: "tile"
+        function apply(preset: string): void { windowMgmt.tileWindow(preset, ""); }
+        function left(): void { windowMgmt.tileWindow("left", ""); }
+        function right(): void { windowMgmt.tileWindow("right", ""); }
+        function top(): void { windowMgmt.tileWindow("top", ""); }
+        function bottom(): void { windowMgmt.tileWindow("bottom", ""); }
+        function topLeft(): void { windowMgmt.tileWindow("top-left", ""); }
+        function topRight(): void { windowMgmt.tileWindow("top-right", ""); }
+        function bottomLeft(): void { windowMgmt.tileWindow("bottom-left", ""); }
+        function bottomRight(): void { windowMgmt.tileWindow("bottom-right", ""); }
+        function fill(): void { windowMgmt.tileWindow("fill", ""); }
+        function center(): void { windowMgmt.tileWindow("center", ""); }
+        function restore(): void { windowMgmt.restoreTiledWindow(""); }
+        function arrangeLeftRight(): void { windowMgmt.arrangePair("left-right"); }
+    }
+    // qs -c MacShell ipc call desktop toggle | reveal | restore
+    IpcHandler {
+        target: "desktop"
+        function toggle(): void { windowMgmt.toggleRevealDesktop(""); }
+        function reveal(): void { windowMgmt.revealDesktop(""); }
+        function restore(): void { windowMgmt.restoreDesktop(); }
+    }
+    // qs -c MacShell ipc call quicknote toggle | open | close
+    IpcHandler {
+        target: "quicknote"
+        function toggle(): void { windowMgmt.toggleQuickNote(); }
+        function open(): void { windowMgmt.openQuickNote(); }
+        function close(): void { windowMgmt.closeQuickNote(); }
     }
 }
