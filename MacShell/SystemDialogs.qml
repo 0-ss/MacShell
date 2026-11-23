@@ -21,8 +21,12 @@ Scope {
     property bool forceQuitOpen: false
     property int fqSelected: 0
     property bool fqConfirmArmed: false
-    function openForceQuit() { forceQuitOpen = true; fqSelected = 0; fqConfirmArmed = false; }
-    function closeForceQuit() { forceQuitOpen = false; fqConfirmArmed = false; }
+    property string fqArmedKey: ""
+    property int fqArmedPid: 0
+    property string fqArmedName: ""
+    function clearFqArm() { fqConfirmArmed = false; fqArmedKey = ""; fqArmedPid = 0; fqArmedName = ""; }
+    function openForceQuit() { forceQuitOpen = true; fqSelected = 0; clearFqArm(); }
+    function closeForceQuit() { forceQuitOpen = false; clearFqArm(); }
     function toggleForceQuit() { if (forceQuitOpen) closeForceQuit(); else openForceQuit(); }
 
     // ── Native Activity Monitor state ──
@@ -182,7 +186,7 @@ Scope {
                                         color: root.fqSelected === fqRow.index ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F")
                                         font.family: Fonts.forWeight(Font.Medium, root.fam); font.pixelSize: 13
                                     }
-                                    MouseArea { anchors.fill: parent; onClicked: { root.fqSelected = fqRow.index; root.fqConfirmArmed = false; } }
+                                    MouseArea { anchors.fill: parent; onClicked: { root.fqSelected = fqRow.index; root.clearFqArm(); } }
                                 }
                             }
                             Text {
@@ -203,15 +207,30 @@ Scope {
                             Rectangle {
                                 anchors.right: parent.right; height: 30; radius: 8; width: fqKill.implicitWidth + 24
                                 color: runningApps.length > 0 ? (root.fqConfirmArmed ? "#D70015" : "#FF453A") : Qt.rgba(1, 1, 1, 0.15)
-                                Text { id: fqKill; anchors.centerIn: parent; text: root.fqConfirmArmed ? I18n.tr("Confirm Force Quit") : I18n.tr("Force Quit"); color: "#FFFFFF"; font.pixelSize: 12; font.weight: Font.DemiBold }
+                                Text { id: fqKill; anchors.centerIn: parent; text: root.fqConfirmArmed ? (I18n.tr("Confirm: ") + root.fqArmedName) : I18n.tr("Force Quit"); color: "#FFFFFF"; font.pixelSize: 12; font.weight: Font.DemiBold }
                                 MouseArea {
                                     anchors.fill: parent; enabled: runningApps.length > 0; cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        if (!root.fqConfirmArmed) { root.fqConfirmArmed = true; return; }
-                                        var idx = Math.max(0, Math.min(root.fqSelected, runningApps.length - 1));
-                                        var target = runningApps[idx];
-                                        if (target && target.pid > 0) Quickshell.execDetached(["kill", "-9", String(target.pid)]);
-                                        else if (target) Quickshell.execDetached(["pkill", "-9", "-f", target.name]);
+                                        if (!root.fqConfirmArmed) {
+                                            var idx = Math.max(0, Math.min(root.fqSelected, runningApps.length - 1));
+                                            var t0 = runningApps[idx];
+                                            if (!t0) return;
+                                            root.fqArmedKey = t0.key;
+                                            root.fqArmedPid = t0.pid;
+                                            root.fqArmedName = t0.name;
+                                            root.fqConfirmArmed = true;
+                                            return;
+                                        }
+                                        // Verify the exact armed app is still present before sending SIGKILL
+                                        var match = null;
+                                        for (var ri = 0; ri < runningApps.length; ri++) {
+                                            if (runningApps[ri].key === root.fqArmedKey && runningApps[ri].pid === root.fqArmedPid) {
+                                                match = runningApps[ri]; break;
+                                            }
+                                        }
+                                        if (!match) { root.clearFqArm(); return; }
+                                        if (match.pid > 0) Quickshell.execDetached(["kill", "-9", String(match.pid)]);
+                                        else Quickshell.execDetached(["pkill", "-9", "-x", match.name]);
                                         root.closeForceQuit();
                                     }
                                 }
