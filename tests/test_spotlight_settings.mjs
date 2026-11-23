@@ -22,11 +22,11 @@ const settingsPanes = new Function(`return (${panesLit});`)();
 assert.ok(settingsPanes.length >= 20, "settingsPanes catalog must contain Settings panes");
 
 const settingsBody = extractBracketed(barQml, "function settingsItems(q, limit)", "{", "}").slice(1, -1);
-const actionBody = extractBracketed(barQml, "function actionItems(q)", "{", "}").slice(1, -1);
+const actionBody = extractBracketed(barQml, "function actionItems(q, prefixOnly)", "{", "}").slice(1, -1);
 const homeBody = extractBracketed(barQml, "function homeItems(q)", "{", "}").slice(1, -1);
 
 const settingsItemsFn = new Function("q", "limit", "hub", "root", "I18n", settingsBody);
-const actionItemsFn = new Function("q", "root", "openSettings", "sh", "I18n", actionBody);
+const actionItemsFn = new Function("q", "root", "openSettings", "sh", "I18n", "prefixOnly", actionBody);
 const homeItemsFn = new Function(
     "q", "isScreenshotQuery", "screenshotItems", "recentItems", "recentLoading",
     "fileQuery", "updateFileSearch", "fileItems", "fileSearchPending",
@@ -44,7 +44,8 @@ function query(q, opts = {}) {
     return { items, opened };
 }
 
-function queryHome(q, { apps = [], wins = [], enabled = true } = {}) {
+function queryHome(q, { apps = [], wins = [], enabled = true, translate = I18n.tr } = {}) {
+    const I18n = { tr: translate };
     const opened = [];
     let locked = false;
     const hub = { dock: { settingsEnabled: enabled, settingsPanes } };
@@ -62,7 +63,7 @@ function queryHome(q, { apps = [], wins = [], enabled = true } = {}) {
         () => null,
         () => null,
         () => wins,
-        (aq) => actionItemsFn(aq, root, (id) => root.openSettings(id), () => {}, I18n),
+        (aq, prefixOnly) => actionItemsFn(aq, root, (id) => root.openSettings(id), () => {}, I18n, prefixOnly),
         (sq, lim) => settingsItemsFn(sq, lim, hub, root, I18n),
         { execDetached: () => {} },
         I18n,
@@ -151,6 +152,22 @@ function queryHome(q, { apps = [], wins = [], enabled = true } = {}) {
         res.items.slice(0, 6).map((it) => it.title),
         ["Lock App 1", "Lock App 2", "Lock App 3", "Lock App 4", "Lock Window 1", "Lock Window 2"],
     );
+}
+
+// Explicit Settings queries lead with the built-in action even when other apps and windows match.
+{
+    const apps = [1, 2, 3, 4].map((n) => ({ title: `External Settings ${n}`, sub: "Application" }));
+    const wins = [1, 2].map((n) => ({ title: `Settings window ${n}`, sub: "Open Window" }));
+    for (const q of [" Settings ", "system settings", "einstellungen"]) {
+        const res = queryHome(q, {
+            apps, wins,
+            translate: (text) => text === "System Settings…" ? "Systemeinstellungen…" : text,
+        });
+        assert.equal(res.items[0].title, "Systemeinstellungen…");
+        assert.equal(res.items[0].sub, "Action");
+        res.items[0].run();
+        assert.deepEqual(res.opened, [undefined]);
+    }
 }
 
 // Short, punctuation-only, and disabled settings queries return nothing
