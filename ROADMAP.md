@@ -87,7 +87,7 @@ Items are grouped by area. Each item includes a brief note on the current state 
 
 ## 7. Ecosystem & Linux Integrations
 
-- [ ] **AirDrop / Continuity / Phone Mirroring** — Integrate KDE Connect / GSConnect, LocalSend, and `scrcpy` into the Control Center, share menus, and notifications for file drops, universal clipboard, and phone mirroring.
-- [ ] **Time Machine UI** — Visual snapshot browser and file restore interface backed by Btrfs + Snapper (or Timeshift).
-- [ ] **Aerial Screensavers** — Slow-motion video screensavers in `MacLock` that smoothly slow down and freeze into the desktop wallpaper upon unlock.
-- [ ] **Finder Integration / Companion** — Deeper file-manager experience (column view, Finder tags, inspector, quick actions) or a dedicated macOS-style file browser.
+- [x] **AirDrop / Continuity / Phone Mirroring** — `MacShell/EcosystemApps.qml` + `MacShell/Ecosystem.js` integrate KDE Connect / GSConnect (device discovery, Universal Clipboard send, Ring, file share), LocalSend, and `scrcpy` phone mirroring into Continuity Hub (`continuity` IPC), Control Center, Spotlight, and Desktop *Share via AirDrop…* context menus.
+- [x] **Time Machine UI** — Visual snapshot browser and non-destructive file restore UI in `MacShell/EcosystemApps.qml` backed by Btrfs + Snapper (`snapper --csvout list`) with Timeshift fallback, Quick Look preview, and `timemachine` IPC.
+- [x] **Aerial Screensavers** — Slow-motion video screensavers in `MacLock/shell.qml` + `MacLock/LockScreen.qml` (`aerialVideo` / `aerialRate` in `~/.config/maclock/settings.json`) that smoothly decelerate and freeze into the desktop on unlock.
+- [x] **Finder Integration / Companion** — Built-in Liquid Glass Finder Companion in `MacShell/EcosystemApps.qml` (`finder` IPC / Spotlight) with Favorites sidebar, 3-column Miller View, persistent Finder Color Tags (`~/.config/macshell/finder-tags.json`), and live Inspector with Quick Actions (Open, Quick Look, Markup, AirDrop Share, Copy Path).

@@ -1083,7 +1083,10 @@ Scope {
                         if (a.selectionCount <= 1) { m.push({ t: "Quick Preview", k: "ql" }); m.push({ t: "Rename\u2026", k: "rename" }); }
                         if (hasDir) { m.push({ t: "sep" }); m.push({ t: "colors" }); m.push({ t: "Folder Icon\u2026", k: "glyph" }); m.push({ t: "Folder Emoji\u2026", k: "emoji" }); }
                         m.push({ t: "sep" });
-                        if (a.selectionCount <= 1) m.push({ t: "Copy Path", k: "copy" });
+                        if (a.selectionCount <= 1) {
+                            m.push({ t: "Share via AirDrop\u2026", k: "share" });
+                            m.push({ t: "Copy Path", k: "copy" });
+                        }
                         m.push({ t: "Move to Trash", k: "trash", danger: true });
                         m.push({ t: "sep" }); m.push({ t: "New Folder", k: "newfolder" });
                         return m;
@@ -1120,6 +1123,7 @@ Scope {
                             a.setFolderColor(dirs, k.substring(6));
                         }
                         else if (k === "copy" && it) Quickshell.execDetached(["sh", "-c", "printf '%s' \"$1\" | wl-copy", "sh", it.path]);
+                        else if (k === "share" && it && a.hub && a.hub.eco) a.hub.eco.shareFile(it.path);
                         else if (k === "trash" && it) {
                             w.flyToTrash(sel, 0, 0, dctx.clickX, dctx.clickY);      // the same fly-into-the-Trash as a drag and drop
                             a.trashMany(sel.map(function (s) { return s.path; }));

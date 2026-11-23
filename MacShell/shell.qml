@@ -51,6 +51,7 @@ ShellRoot {
         property var capture: captureSuiteObj
         property var dialogs: systemDialogsObj
         property var polkit: polkitAuthObj
+        property var eco: ecosystemAppsObj
         function openSettings(pane) { macDock.openPrefs(pane); }
 
         // set by MacBar / MacDock / WindowDecor / WindowMgmt (Binding elements) when they need live window geometry
@@ -581,6 +582,7 @@ ShellRoot {
     CaptureSuite { id: captureSuiteObj; hub: sharedHub }
     SystemDialogs { id: systemDialogsObj; hub: sharedHub }
     PolkitAuth { id: polkitAuthObj; hub: sharedHub }
+    EcosystemApps { id: ecosystemAppsObj; hub: sharedHub }
 
     Component.onCompleted: {
         sharedHub.bar = macBar;
@@ -765,5 +767,27 @@ ShellRoot {
         target: "polkit"
         function prompt(msg: string, cmd: string): void { polkitAuthObj.prompt(msg, cmd, ""); }
         function close(): void { polkitAuthObj.close(); }
+    }
+    // qs -c MacShell ipc call continuity toggle | open | close | share <path>
+    IpcHandler {
+        target: "continuity"
+        function toggle(): void { ecosystemAppsObj.toggleContinuity(); }
+        function open(): void { ecosystemAppsObj.openContinuity(); }
+        function close(): void { ecosystemAppsObj.closeContinuity(); }
+        function share(path: string): void { ecosystemAppsObj.shareFile(path); }
+    }
+    // qs -c MacShell ipc call timemachine toggle | open | close
+    IpcHandler {
+        target: "timemachine"
+        function toggle(): void { ecosystemAppsObj.toggleTimeMachine(); }
+        function open(): void { ecosystemAppsObj.openTimeMachine(); }
+        function close(): void { ecosystemAppsObj.closeTimeMachine(); }
+    }
+    // qs -c MacShell ipc call finder toggle | open <dir> | close
+    IpcHandler {
+        target: "finder"
+        function toggle(): void { ecosystemAppsObj.toggleFinder(""); }
+        function open(dir: string): void { ecosystemAppsObj.openFinder(dir); }
+        function close(): void { ecosystemAppsObj.closeFinder(); }
     }
 }

@@ -56,6 +56,8 @@ ShellRoot {
         property var now: new Date()
         property string wallpaper: ""
         property string wallpaperVideo: ""      // animated wallpaper set in MacShell (~/.config/macshell/wallpaper-video)
+        property string aerialVideo: ""         // optional slow-motion Aerial screensaver video (~/.config/maclock/settings.json)
+        property real aerialRate: 0.75          // slow-motion playback rate for Aerial screensavers
         property string userName: Quickshell.env("USER") || ""
         property string avatar: ""
         property int wifiLevel: -1          // -1 unknown/hidden, 0 off, 1..3 bars
@@ -133,6 +135,9 @@ ShellRoot {
             var data = readSettings();
             lockState.mediaSlot = data.mediaSlot === "bottom" ? "bottom" : "top";
             lockState.canvasMode = typeof data.canvasMode === "string" ? data.canvasMode : "both";
+            lockState.aerialVideo = typeof data.aerialVideo === "string" ? data.aerialVideo.trim() : "";
+            lockState.aerialRate = (typeof data.aerialRate === "number" && isFinite(data.aerialRate))
+                ? Math.max(0.25, Math.min(1.0, data.aerialRate)) : 0.75;
         }
         onLoadFailed: lockState.canvasMode = "both"
     }
