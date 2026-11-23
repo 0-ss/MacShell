@@ -2022,6 +2022,67 @@ Window {
                     subtitle: I18n.tr("Sizes every icon to the same grid")
                     SSwitch { t: pal; checked: root.iconTile; onToggled: v => root.iconTile = v }
                 }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Position on screen")
+                    subtitle: I18n.tr("Place the Dock along the bottom, left, or right screen edge")
+                    SSegmented {
+                        t: pal
+                        model: [I18n.tr("Left"), I18n.tr("Bottom"), I18n.tr("Right")]
+                        segWidth: 74
+                        current: root.dockPosition === "left" ? 0 : (root.dockPosition === "right" ? 2 : 1)
+                        onPicked: i => { root.dockPosition = ["left", "bottom", "right"][i]; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Notification badges")
+                    subtitle: I18n.tr("Show red unread counters on Dock app icons")
+                    SSwitch { t: pal; checked: root.showBadges; onToggled: v => root.showBadges = v }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Show recent applications in Dock")
+                    subtitle: I18n.tr("Keep up to 3 recently closed apps between pinned apps and Trash")
+                    SSwitch { t: pal; checked: root.showRecentApps; onToggled: v => root.showRecentApps = v }
+                }
+            }
+
+            SLabel { t: pal; header: true; text: I18n.tr("Dock Folders & Stacks") }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal
+                    title: I18n.tr("Quick pin folders")
+                    subtitle: I18n.tr("Pin folders next to Trash with Fan, Grid, or List popovers")
+                    Row {
+                        spacing: 6
+                        SButton { t: pal; text: "Downloads"; onClicked: root.addDockFolder("~/Downloads", "fan") }
+                        SButton { t: pal; text: "Documents"; onClicked: root.addDockFolder("~/Documents", "grid") }
+                        SButton { t: pal; text: "Pictures"; onClicked: root.addDockFolder("~/Pictures", "grid") }
+                    }
+                }
+                Repeater {
+                    model: root.dockFolders || []
+                    delegate: SRow {
+                        id: dfRow
+                        required property var modelData
+                        t: pal
+                        title: modelData.name || modelData.path
+                        subtitle: modelData.path
+                        Row {
+                            spacing: 6
+                            SSegmented {
+                                t: pal
+                                model: ["Fan", "Grid", "List"]
+                                segWidth: 46
+                                current: dfRow.modelData.view === "grid" ? 1 : (dfRow.modelData.view === "list" ? 2 : 0)
+                                onPicked: i => root.setDockFolderView(dfRow.modelData.path, ["fan", "grid", "list"][i])
+                            }
+                            SButton { t: pal; text: I18n.tr("Remove"); onClicked: root.removeDockFolder(dfRow.modelData.path) }
+                        }
+                    }
+                }
             }
 
             SCard {

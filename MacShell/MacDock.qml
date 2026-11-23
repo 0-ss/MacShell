@@ -30,6 +30,7 @@ import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
 import "I18n.js" as I18n
 import "Fonts.js" as Fonts
+import "DockLogic.js" as DockLogic
 
 Scope {
     id: root
@@ -307,6 +308,116 @@ Scope {
         dock: root
     }
 
+    property string dockPosition: "bottom"     // "bottom" | "left" | "right"
+    readonly property bool isVertical: DockLogic.isVerticalPosition(dockPosition)
+    property bool showBadges: true
+    property bool showRecentApps: true
+    property int maxRecentApps: 3
+    property var recentApps: []
+    property var dockFolders: [{ path: Quickshell.env("HOME") + "/Downloads", name: "Downloads", view: "fan" }]
+    property var badgeOverrides: ({})
+    property var prevRunningKeys: ({})
+
+    function setBadgeOverride(appName, count) {
+        var k = String(appName || "").trim().toLowerCase();
+        if (!k) return;
+        var next = {};
+        for (var bk in badgeOverrides) next[bk] = badgeOverrides[bk];
+        var n = parseInt(count, 10) || 0;
+        if (n <= 0) delete next[k]; else next[k] = n;
+        badgeOverrides = next;
+    }
+    function addDockFolder(path, view) {
+        var home = Quickshell.env("HOME") || "";
+        var list = DockLogic.normalizeFolders((dockFolders || []).concat([{ path: path, view: view || "fan" }]), home);
+        dockFolders = list;
+        rebuild();
+    }
+    function removeDockFolder(path) {
+        var clean = DockLogic.expandHome(path, Quickshell.env("HOME") || "");
+        dockFolders = (dockFolders || []).filter(function (f) { return f.path !== clean; });
+        rebuild();
+    }
+    function setDockFolderView(path, view) {
+        var clean = DockLogic.expandHome(path, Quickshell.env("HOME") || "");
+        dockFolders = (dockFolders || []).map(function (f) {
+            return f.path === clean ? { path: f.path, name: f.name, view: view } : f;
+        });
+        rebuild();
+    }
+    function removeRecentApp(key) {
+        var k = String(key || "").toLowerCase();
+        recentApps = (recentApps || []).filter(function (x) { return x !== k; });
+        rebuild();
+    }
+
+    // ── Dock Folder Stack listing (runs only when user clicks a Dock folder) ──
+    property var stackFolder: null       // { path, name, view }
+    property var stackItems: []
+    property bool stackLoading: false
+    property string stackScreen: ""
+    property real stackAnchorX: 0
+    property real stackAnchorY: 0
+    Process {
+        id: stackListProc
+        property string targetPath: ""
+        command: ["sh", "-c", "cd \"$1\" 2>/dev/null || exit 0; find . -maxdepth 1 -mindepth 1 -printf '%T@\\t%y\\t%f\\n' 2>/dev/null | sort -rn | head -n 36", "sh", targetPath]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.stackItems = DockLogic.parseFolderListing(text, stackListProc.targetPath);
+                root.stackLoading = false;
+            }
+        }
+        onExited: root.stackLoading = false
+    }
+    function openFolderStack(folder, screenName, ax, ay) {
+        if (!folder || !folder.path) return;
+        if (stackFolder && stackFolder.path === folder.path && stackScreen === screenName) {
+            stackFolder = null;
+            return;
+        }
+        stackFolder = folder;
+        stackScreen = screenName || "";
+        stackAnchorX = ax || 0;
+        stackAnchorY = ay || 0;
+        stackItems = [];
+        stackLoading = true;
+        stackListProc.running = false;
+        stackListProc.targetPath = folder.path;
+        stackListProc.running = true;
+    }
+    function closeFolderStack() { stackFolder = null; }
+
+    function openFilesWithApp(item, paths) {
+        if (!item || !Array.isArray(paths) || paths.length === 0) return;
+        var execStr = "";
+        var ent = null;
+        var rid = item.appId || item.key;
+        try { ent = DesktopEntries.byId(rid); } catch (e) {}
+        if (!ent && DesktopEntries.heuristicLookup) { try { ent = DesktopEntries.heuristicLookup(item.key); } catch (e2) {} }
+        if (ent && ent.command && ent.command.length > 0) execStr = ent.command.join(" ");
+        else if (ent && ent.execString) execStr = ent.execString;
+        var args = DockLogic.buildOpenFilesArgs(execStr, paths);
+        if (args) Quickshell.execDetached(args);
+    }
+    function dropFilesOnApp(appKey, paths) {
+        var it = itemMap[appKey];
+        if (!it) return;
+        if (it.special === "folder" && it.folderPath) {
+            Quickshell.execDetached(["sh", "-c", "dest=\"$1\"; shift; for f in \"$@\"; do mv -n -- \"$f\" \"$dest/\"; done", "sh", it.folderPath].concat(paths));
+            return;
+        }
+        openFilesWithApp(it, paths);
+    }
+    function appDropHit(screenName, sx, sy) {
+        var p = trashProbes[screenName];
+        return (p && typeof p.appDropHit === "function") ? p.appDropHit(sx, sy) : "";
+    }
+    function appDropArm(screenName, key) {
+        var p = trashProbes[screenName];
+        if (p) p.dropAppKey = String(key || "");
+    }
+
     readonly property real effMag: magnificationEnabled ? magnification : 1
     // hover labels and the right-click menu scale with the Dock (52 px icons = the reference size)
     readonly property real labelK: Math.max(0.7, Math.min(2.2, iconSize / 52))
@@ -389,6 +500,8 @@ Scope {
         iconTint = false; iconTintColor = "#0a84ff"; iconTintStrength = 1.0;
         hideMode = "smart"; hideDelay = 450; monitor = "";
         showTrash = true; showLabels = true; showIndicators = true; showRunningApps = true; iconTile = true; bounceOnLaunch = true; showThumbs = true; windowCapture = true; glassLive = true;
+        dockPosition = "bottom"; showBadges = true; showRecentApps = true; maxRecentApps = 3; recentApps = [];
+        dockFolders = [{ path: Quickshell.env("HOME") + "/Downloads", name: "Downloads", view: "fan" }];
         minimizeEffect = "genie"; minimizeSpeed = 0.42;
         if (hub && hub.decor) { hub.decor.enabled = false; hub.decor.showTitle = true; }
     }
@@ -397,12 +510,13 @@ Scope {
     readonly property string settingsSig: [dockEnabled, settingsEnabled, desktopIcons, desktopIconSize, iconSize, magnification, magnificationEnabled, spacing, margin,
         cornerRadius, darkMode, appearanceMode, glassOpacity, glassBlur, glassLiquid, dockStyle, wallpaperPath, String(accent), fontFamily, hideMode, hideDelay, monitor,
         showTrash, showLabels, showIndicators, bounceOnLaunch, showThumbs, windowCapture, glassLive, iconTint, iconTintColor, iconTintStrength, showRunningApps, iconTile,
-        minimizeEffect, minimizeSpeed].join("|")
+        minimizeEffect, minimizeSpeed, dockPosition, showBadges, showRecentApps, maxRecentApps, JSON.stringify(recentApps), JSON.stringify(dockFolders)].join("|")
     property bool settingsReady: false
     onSettingsSigChanged: if (settingsReady) saveTimer.restart()
     onShowTrashChanged: { rebuild(); if (showTrash) trashCheck(); }
     onShowThumbsChanged: rebuild()
     onWindowCaptureChanged: rebuild()
+    onShowRecentAppsChanged: rebuild()
 
     function saveSettings() {
         var o = {
@@ -415,7 +529,9 @@ Scope {
             showTrash: showTrash, showLabels: showLabels, showIndicators: showIndicators, showRunningApps: showRunningApps, iconTile: iconTile,
             bounceOnLaunch: bounceOnLaunch, showThumbs: showThumbs, windowCapture: windowCapture, glassLive: glassLive,
             iconTint: iconTint, iconTintColor: iconTintColor, iconTintStrength: iconTintStrength,
-            minimizeEffect: minimizeEffect, minimizeSpeed: minimizeSpeed
+            minimizeEffect: minimizeEffect, minimizeSpeed: minimizeSpeed,
+            dockPosition: dockPosition, showBadges: showBadges, showRecentApps: showRecentApps, maxRecentApps: maxRecentApps,
+            recentApps: recentApps, dockFolders: dockFolders
         };
         settingsStore.setText(JSON.stringify(o, null, 2));
     }
@@ -425,11 +541,13 @@ Scope {
         var keys = ["dockEnabled", "settingsEnabled", "desktopIcons", "desktopIconSize", "iconSize", "magnification", "magnificationEnabled", "spacing", "margin", "cornerRadius",
                     "darkMode", "appearanceMode", "glassOpacity", "dockStyle", "wallpaperPath", "glassDebug", "glassRim", "glassGrain", "glassLiquid", "glassBlur", "accent", "fontFamily", "hideMode", "hideDelay", "monitor",
                     "showTrash", "showLabels", "showIndicators", "showRunningApps", "iconTile", "bounceOnLaunch", "showThumbs", "windowCapture", "glassLive", "iconTint", "iconTintColor", "iconTintStrength",
-                    "minimizeEffect", "minimizeSpeed"];
+                    "minimizeEffect", "minimizeSpeed", "dockPosition", "showBadges", "showRecentApps", "maxRecentApps", "recentApps", "dockFolders"];
         for (var i = 0; i < keys.length; i++) {
             if (o[keys[i]] === undefined) continue;
             try { root[keys[i]] = o[keys[i]]; } catch (err) { }
         }
+        dockPosition = DockLogic.normalizePosition(dockPosition);
+        dockFolders = DockLogic.normalizeFolders(dockFolders, Quickshell.env("HOME") || "");
     }
 
     FileView {
@@ -646,6 +764,15 @@ Scope {
             return;
         }
         if (item.special === "apps") { if (bar) bar.spotOpen("apps"); return; }
+        if (item.special === "folder" && item.folderPath) {
+            if (forceNew) {
+                Quickshell.execDetached(["xdg-open", item.folderPath]);
+            } else {
+                openFolderStack({ path: item.folderPath, name: item.name, view: item.folderView || "fan" },
+                                item._screenName || "", item._ax || 0, item._ay || 0);
+            }
+            return;
+        }
         if (item.special === "trash") {
             // the file manager first (Dolphin understands trash:/ natively); xdg-open only as the last resort
             Quickshell.execDetached(["sh", "-c",
@@ -750,6 +877,18 @@ Scope {
             m.push({ kind: "item", label: I18n.tr("Settings\u2026"), run: function() { root.openPrefs(); } });
             return m;
         }
+        if (item.special === "folder" && item.folderPath) {
+            var fp = item.folderPath, fv = item.folderView || "fan";
+            m.push({ kind: "item", label: (fv === "fan" ? "\u2713  " : "") + I18n.tr("View as Fan"), run: function () { setDockFolderView(fp, "fan"); } });
+            m.push({ kind: "item", label: (fv === "grid" ? "\u2713  " : "") + I18n.tr("View as Grid"), run: function () { setDockFolderView(fp, "grid"); } });
+            m.push({ kind: "item", label: (fv === "list" ? "\u2713  " : "") + I18n.tr("View as List"), run: function () { setDockFolderView(fp, "list"); } });
+            m.push({ kind: "sep" });
+            m.push({ kind: "item", label: I18n.tr("Open in Files"), run: function () { Quickshell.execDetached(["xdg-open", fp]); } });
+            m.push({ kind: "item", label: I18n.tr("Remove from Dock"), run: function () { removeDockFolder(fp); } });
+            m.push({ kind: "sep" });
+            m.push({ kind: "item", label: I18n.tr("Settings\u2026"), run: function() { root.openPrefs("dock"); } });
+            return m;
+        }
         if (item.special === "trash") {
             m.push({ kind: "item", label: I18n.tr("Open"), run: function () { activate(item, false); } });
             m.push({ kind: "item", label: I18n.tr("Empty Trash"), confirm: true, disabled: !trashFull, run: function () { root.emptyTrash(); } });
@@ -776,6 +915,10 @@ Scope {
         if (item.entry) {
             m.push({ kind: "item", label: item.pinned ? I18n.tr("Remove from Dock") : I18n.tr("Keep in Dock"),
                      run: function () { togglePin(item); } });
+            if (item.recent) {
+                m.push({ kind: "item", label: I18n.tr("Remove from Recent"),
+                         run: function () { removeRecentApp(item.key); } });
+            }
             m.push({ kind: "item", label: wins.length > 0 ? I18n.tr("New Window") : I18n.tr("Open"),
                      run: function () { activate(item, true); } });
         }
@@ -842,6 +985,32 @@ Scope {
                         entry: e2, running: true, pinned: false });
         }
 
+        // Track recently closed unpinned apps for the Recent Apps Dock section
+        var closedKeys = [];
+        for (var pk in prevRunningKeys) {
+            if (!running[pk] && !seen[pk] && !isShellApp(pk)) closedKeys.push(pk);
+        }
+        prevRunningKeys = running;
+        if (closedKeys.length > 0 || (recentApps && recentApps.length > 0)) {
+            var nextRecent = DockLogic.updateRecentApps(recentApps, closedKeys, seen, running, maxRecentApps);
+            if (JSON.stringify(nextRecent) !== JSON.stringify(recentApps)) recentApps = nextRecent;
+        }
+        if (showRecentApps && recentApps && recentApps.length > 0) {
+            var recItems = [];
+            for (var ri = 0; ri < recentApps.length; ri++) {
+                var rk = recentApps[ri];
+                if (seen[rk] || running[rk]) continue;
+                var re = lookup(rk);
+                if (!re) continue;
+                recItems.push({ kind: "app", key: rk, appId: re.id, name: re.name, icon: re.icon,
+                                entry: re, running: false, pinned: false, recent: true });
+            }
+            if (recItems.length > 0) {
+                if (list.length > 0) list.push({ kind: "sep", key: "sep:recent" });
+                for (var rj = 0; rj < recItems.length; rj++) list.push(recItems[rj]);
+            }
+        }
+
         // window previews: one cell per open window, in their own section next to the Trash
         var winItems = [], liveWins = [];
         if (showThumbs) {
@@ -865,11 +1034,18 @@ Scope {
         for (var wi = 0; wi < winIdList.length; wi++) if (liveWins.indexOf(winIdList[wi].tl) >= 0) keep.push(winIdList[wi]);
         winIdList = keep;
 
-        // [apps…] | [windows…] | Apps (Spotlight's application list) | Trash
+        // [apps…] | [recent…] | [windows…] | Apps | [folders…] | Trash
         list.push({ kind: "sep", key: "sep:win" });
         for (var wj = 0; wj < winItems.length; wj++) list.push(winItems[wj]);
         if (winItems.length > 0) list.push({ kind: "sep", key: "sep:trash" });
         if (!appsPlaced) list.push(appsItem);
+        var fList = DockLogic.normalizeFolders(dockFolders, Quickshell.env("HOME") || "");
+        for (var fi = 0; fi < fList.length; fi++) {
+            var ff = fList[fi];
+            list.push({ kind: "app", key: "folder:" + ff.path, name: ff.name, icon: "folder",
+                        entry: null, running: false, pinned: true, special: "folder",
+                        folderPath: ff.path, folderView: ff.view });
+        }
         if (showTrash) {
             list.push({ kind: "app", key: "__trash", name: "Trash", icon: "user-trash",
                         entry: null, running: false, pinned: true, special: "trash" });
@@ -1144,8 +1320,14 @@ Scope {
             screen: modelData
             visible: root.monitor === "" || modelData.name === root.monitor
 
-            anchors { left: true; right: true; bottom: true }
-            implicitHeight: root.windowHeight
+            anchors {
+                left: root.dockPosition === "bottom" || root.dockPosition === "left"
+                right: root.dockPosition === "bottom" || root.dockPosition === "right"
+                top: root.isVertical
+                bottom: true
+            }
+            implicitWidth: root.isVertical ? root.windowHeight : modelData.width
+            implicitHeight: root.isVertical ? modelData.height : root.windowHeight
             color: "transparent"
 
             exclusionMode: ExclusionMode.Normal
@@ -1274,16 +1456,35 @@ Scope {
 
                 // Is the screen point (sx, sy) over this Dock's Trash cell? (the Dock's surface only covers the bottom of the screen,
                 // so the point is turned into this surface's own coordinates first)
+                property string dropAppKey: ""
+                function screenToUi(sx, sy) {
+                    var lx = root.dockPosition === "right" ? (sx - (win.modelData.width - win.width)) : sx;
+                    var ly = root.isVertical ? sy : (sy - (win.modelData.height - win.height));
+                    return Qt.point(lx, ly);
+                }
                 function trashHit(sx, sy) {
                     if (!root.showTrash || tucked) return false;
-                    var ly = sy - (win.modelData.height - win.height);
+                    var pt = screenToUi(sx, sy);
                     for (var i = 0; i < rep.count; i++) {
                         var c = rep.itemAt(i);
                         if (!c || !c.modelData || c.modelData.special !== "trash") continue;
                         var p = c.mapToItem(ui, 0, 0), pad = 18;
-                        return sx >= p.x - pad && sx <= p.x + c.width + pad && ly >= p.y - 44 && ly <= p.y + c.height + pad;
+                        return pt.x >= p.x - pad && pt.x <= p.x + c.width + pad && pt.y >= p.y - 44 && pt.y <= p.y + c.height + pad;
                     }
                     return false;
+                }
+                function appDropHit(sx, sy) {
+                    if (tucked) return "";
+                    var pt = screenToUi(sx, sy);
+                    for (var i = 0; i < rep.count; i++) {
+                        var c = rep.itemAt(i);
+                        if (!c || c.isSep || !c.modelData) continue;
+                        if (c.modelData.special === "trash" || c.modelData.special === "apps" || c.modelData.kind === "win") continue;
+                        var p = c.mapToItem(ui, 0, 0), pad = 10;
+                        if (pt.x >= p.x - pad && pt.x <= p.x + c.width + pad && pt.y >= p.y - pad && pt.y <= p.y + c.height + pad)
+                            return String(c.modelData.key || "");
+                    }
+                    return "";
                 }
                 property int trashKick: 0
                 property int trashEmptyKick: 0
@@ -1352,12 +1553,15 @@ Scope {
                 // pointer x, followed EXACTLY (no animation). This used to ease over 55 ms, restarted on every pointer event: moving
                 // the mouse quickly left the magnification a few frames behind the pointer, worse with many icons
                 property real mx: 0
-                // raw pointer x as the events arrive; ui.mx (which every cell's scale is bound to) takes it once per FRAME. A 1000 Hz mouse
-                // used to re-evaluate every cell's bindings + the Row layout hundreds of times a second, more with more pinned apps.
                 property real rawMx: 0
+                property real my: 0
+                property real rawMy: 0
                 FrameAnimation {
                     running: hh.hovered && !ui.dragging
-                    onTriggered: if (ui.mx !== ui.rawMx && (!ui.menuOpen || hh.point.position.y > ui.activeTop)) ui.mx = ui.rawMx
+                    onTriggered: {
+                        if (ui.mx !== ui.rawMx && (!ui.menuOpen || hh.point.position.y > ui.activeTop)) ui.mx = ui.rawMx;
+                        if (ui.my !== ui.rawMy) ui.my = ui.rawMy;
+                    }
                 }
                 property bool revealed: false
                 property var menuItem: null
@@ -1623,11 +1827,16 @@ Scope {
                     onFinished: { ui.tearItem = null; ui.tearAddr = ""; }
                 }
 
-                readonly property bool tucked: wantsHide && !revealed && !menuOpen && !dragging && !tearing
+                readonly property bool stackOpen: root.stackFolder !== null && (root.stackScreen === "" || root.stackScreen === win.modelData.name)
+                readonly property bool tucked: wantsHide && !revealed && !menuOpen && !stackOpen && !dragging && !tearing
                 readonly property real refLeft: (width - root.totalW0) / 2
+                readonly property real refTop: (height - root.totalW0) / 2
                 readonly property real activeTop: height - root.margin - root.bgHeight
                                                   - root.iconSize * (root.effMag - 1) - 12
-                readonly property bool active: dragging || (hh.hovered && !tucked && (hh.point.position.y > activeTop || (menuOpen && hh.point.position.y > menu.y)))
+                readonly property bool active: dragging || (hh.hovered && !tucked && (root.isVertical
+                                                  ? (root.dockPosition === "left" ? hh.point.position.x < root.margin + root.bgHeight + root.iconSize * (root.effMag - 1) + 16
+                                                                                  : hh.point.position.x > width - (root.margin + root.bgHeight + root.iconSize * (root.effMag - 1) + 16))
+                                                  : (hh.point.position.y > activeTop || (menuOpen && hh.point.position.y > menu.y))))
                 property real strength: active ? 1 : 0
                 Behavior on strength { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
@@ -1636,7 +1845,8 @@ Scope {
                     onPointChanged: {
                         if (!hovered || ui.dragging) return;
                         ui.rawMx = point.position.x;
-                        if (ui.strength < 0.02) ui.mx = ui.rawMx;     // coming in from outside: start under the pointer
+                        ui.rawMy = point.position.y;
+                        if (ui.strength < 0.02) { ui.mx = ui.rawMx; ui.my = ui.rawMy; }     // coming in from outside: start under the pointer
                     }
                     onHoveredChanged: {
                         if (hovered) { hideTimer.stop(); ui.revealed = true; }
@@ -1655,8 +1865,8 @@ Scope {
                     // The backdrop is rendered once into the wrapper over an opaque base, so the glass always gets alpha 1.
                     sourceComponent: Item {
                         id: flatRoot
-                        x: 0
-                        y: -(win.modelData.height - ui.height)
+                        x: root.dockPosition === "right" ? -(win.modelData.width - ui.width) : 0
+                        y: root.isVertical ? 0 : -(win.modelData.height - ui.height)
                         width: win.modelData.width
                         height: win.modelData.height
                         Rectangle { x: -160; y: -160; width: parent.width + 320; height: parent.height + 320; color: "#000000" }
@@ -1870,22 +2080,36 @@ Scope {
 
                 Item {
                     id: maskItem
-                    // The input region only changes in 64 px steps while the Dock breathes under magnification (it used to follow dock.width
-                    // exactly: a new Wayland input region every frame of every pointer move). Always a superset of the Dock.
                     readonly property real maskW: hh.hovered ? Math.min(ui.width, Math.ceil((dock.width + 8) / 64) * 64) : dock.width
-                    x: ui.menuOpen ? 0 : (ui.width - maskW) / 2
-                    width: ui.menuOpen ? ui.width : maskW
-                    y: ui.menuOpen ? 0 : (ui.tucked ? ui.height - 3 : (hh.hovered ? ui.activeTop : dock.y))
-                    height: ui.height - y
+                    readonly property real maskH: hh.hovered ? Math.min(ui.height, Math.ceil((dock.height + 8) / 64) * 64) : dock.height
+                    x: (ui.menuOpen || ui.stackOpen) ? 0
+                       : (root.dockPosition === "left" ? 0
+                       : (root.dockPosition === "right" ? (ui.tucked ? ui.width - 3 : Math.max(0, dock.x - (hh.hovered ? root.iconSize * (root.effMag - 1) + 16 : 0)))
+                       : (ui.width - maskW) / 2))
+                    width: (ui.menuOpen || ui.stackOpen) ? ui.width
+                           : (root.dockPosition === "left" ? (ui.tucked ? 3 : Math.min(ui.width, dock.x + dock.width + (hh.hovered ? root.iconSize * (root.effMag - 1) + 16 : 0)))
+                           : (root.dockPosition === "right" ? ui.width - x : maskW))
+                    y: (ui.menuOpen || ui.stackOpen) ? 0
+                       : (root.isVertical ? (ui.height - maskH) / 2
+                       : (ui.tucked ? ui.height - 3 : (hh.hovered ? ui.activeTop : dock.y)))
+                    height: (ui.menuOpen || ui.stackOpen) ? ui.height
+                            : (root.isVertical ? maskH : ui.height - y)
                 }
 
                 Item {
                     id: dock
-                    width: row.width + root.hPad * 2
-                    height: root.bgHeight
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    y: ui.height - root.margin - height + (ui.tucked ? height + root.margin + 6 : 0)
-                    Behavior on y { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                    width: root.isVertical ? root.bgHeight : (row.width + root.hPad * 2)
+                    height: root.isVertical ? (row.height + root.hPad * 2) : root.bgHeight
+                    x: root.dockPosition === "left"
+                       ? (root.margin - (ui.tucked ? width + root.margin + 6 : 0))
+                       : (root.dockPosition === "right"
+                          ? (ui.width - root.margin - width + (ui.tucked ? width + root.margin + 6 : 0))
+                          : (ui.width - width) / 2)
+                    y: root.isVertical
+                       ? (ui.height - height) / 2
+                       : (ui.height - root.margin - height + (ui.tucked ? height + root.margin + 6 : 0))
+                    Behavior on x { enabled: root.isVertical; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                    Behavior on y { enabled: !root.isVertical; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
                     // ── Apple Liquid Glass: real-time refraction of the backdrop (see liquidglass.frag) ──
                     Loader {
@@ -2113,13 +2337,18 @@ Scope {
                         }
                     }
 
-                    Row {
+                    Grid {
                         id: row
+                        columns: root.isVertical ? 1 : 999
                         spacing: root.spacing
-                        height: root.iconSize
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.bottom: parent.bottom
-                        anchors.bottomMargin: root.bottomPad
+                        anchors.horizontalCenter: root.isVertical ? undefined : parent.horizontalCenter
+                        anchors.bottom: root.isVertical ? undefined : parent.bottom
+                        anchors.bottomMargin: root.isVertical ? 0 : root.bottomPad
+                        anchors.verticalCenter: root.isVertical ? parent.verticalCenter : undefined
+                        anchors.left: root.dockPosition === "left" ? parent.left : undefined
+                        anchors.leftMargin: root.dockPosition === "left" ? root.bottomPad : 0
+                        anchors.right: root.dockPosition === "right" ? parent.right : undefined
+                        anchors.rightMargin: root.dockPosition === "right" ? root.bottomPad : 0
 
                         Repeater {
                             id: rep
@@ -2175,19 +2404,21 @@ Scope {
                                                            + (isSep ? root.sepWidth : root.iconSize) / 2
                                 readonly property real s: {
                                     if (isSep) return 1;
-                                    var dist = Math.abs(ui.mx - ui.refLeft - cell.c0);
+                                    var dist = root.isVertical
+                                        ? Math.abs(ui.my - ui.refTop - cell.c0)
+                                        : Math.abs(ui.mx - ui.refLeft - cell.c0);
                                     var R = root.magRadius;
                                     var f = dist < R ? 0.5 * (1 + Math.cos(Math.PI * dist / R)) : 0;
                                     return 1 + (root.effMag - 1) * f * ui.strength;
                                 }
 
-                                width: isSep ? root.sepWidth * appear : root.iconSize * s * appear
-                                height: root.iconSize
+                                width: root.isVertical ? root.iconSize : (isSep ? root.sepWidth * appear : root.iconSize * s * appear)
+                                height: root.isVertical ? (isSep ? root.sepWidth * appear : root.iconSize * s * appear) : root.iconSize
 
                                 Rectangle {
                                     visible: cell.isSep
-                                    width: 1
-                                    height: root.iconSize * 0.85
+                                    width: root.isVertical ? root.iconSize * 0.85 : 1
+                                    height: root.isVertical ? 1 : root.iconSize * 0.85
                                     anchors.centerIn: parent
                                     color: root.dockDark ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(0, 0, 0, 0.22)
                                 }
@@ -2198,8 +2429,10 @@ Scope {
                                     property real lift: 0
                                     // Empty Trash shake: rotation (deg), pivot at the icon's bottom
                                     property real wob: 0
-                                    // lifted while an icon from the desktop is held over the Trash (drop it to throw it away)
-                                    property real armLift: (ui.trashArmed && cell.modelData.special === "trash") ? root.iconSize * 0.22 : 0
+                                    // lifted while an icon from the desktop is held over Trash or over this app icon
+                                    property real armLift: ((ui.trashArmed && cell.modelData.special === "trash")
+                                                            || (ui.dropAppKey !== "" && ui.dropAppKey === cell.modelData.key)
+                                                            || cellDrop.containsDrag) ? root.iconSize * 0.22 : 0
                                     Behavior on armLift { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                     // icon art drawn at ~99%: the dock and the cells keep their size. Whole pixels only: at rest this was
                                     // 51.48 px wide and centred on a fractional x, so the GPU re-sampled the icon texture (blurry) until the
@@ -2538,6 +2771,53 @@ Scope {
                                     }
                                 }
 
+                                // ── red macOS notification badge counter ──
+                                readonly property int badgeCount: root.showBadges
+                                    ? DockLogic.badgeCountFor(cell.modelData, root.bar ? root.bar.notifAppCounts : null, root.badgeOverrides)
+                                    : 0
+                                Rectangle {
+                                    id: badgePill
+                                    visible: cell.badgeCount > 0 && !cell.isSep
+                                    z: 6
+                                    height: Math.max(16, Math.round(img.width * 0.34))
+                                    width: Math.max(height, badgeTxt.implicitWidth + 9)
+                                    radius: height / 2
+                                    x: img.x + img.width - width * 0.72
+                                    y: img.y - height * 0.18
+                                    color: "#FF3B30"
+                                    border.width: 1
+                                    border.color: Qt.rgba(1, 1, 1, 0.35)
+                                    Text {
+                                        id: badgeTxt
+                                        anchors.centerIn: parent
+                                        text: DockLogic.formatBadgeText(cell.badgeCount)
+                                        color: "#FFFFFF"
+                                        font.family: root.fontForWeight(Font.Bold, root.fontFamily)
+                                        font.pixelSize: Math.max(9, Math.round(badgePill.height * 0.62))
+                                        font.weight: Font.Bold
+                                    }
+                                }
+
+                                // External drag & drop from file managers onto any Dock app / folder / Trash
+                                DropArea {
+                                    id: cellDrop
+                                    anchors.fill: img
+                                    enabled: !cell.isSep && cell.modelData.kind !== "win" && cell.modelData.special !== "apps"
+                                    onDropped: drop => {
+                                        if (!drop.hasUrls || drop.urls.length === 0) return;
+                                        var paths = [];
+                                        for (var ui2 = 0; ui2 < drop.urls.length; ui2++) paths.push(String(drop.urls[ui2]));
+                                        if (cell.modelData.special === "trash") {
+                                            if (root.hub && root.hub.desktop && root.hub.desktop.trashMany) {
+                                                root.hub.desktop.trashMany(paths.map(function (u) { return u.indexOf("file://") === 0 ? decodeURIComponent(u.substring(7)) : u; }));
+                                            }
+                                        } else {
+                                            root.dropFilesOnApp(cell.modelData.key, paths);
+                                        }
+                                        drop.accept();
+                                    }
+                                }
+
                                 MouseArea {
                                     id: ma
                                     visible: !cell.isSep
@@ -2592,7 +2872,13 @@ Scope {
                                                    && root.windowsFor(cell.modelData.key).length > 0 && root.hub && root.hub.mc) {
                                             root.hub.mc.openExpose(cell.modelData.appId || cell.modelData.key, win.modelData.name);
                                         } else {
-                                            root.activate(cell.modelData, mouse.button === Qt.MiddleButton);
+                                            if (cell.modelData.special === "folder") {
+                                                var fp = cell.mapToItem(ui, cell.width / 2, 0);
+                                                var copy = Object.assign({}, cell.modelData, { _screenName: win.modelData.name, _ax: fp.x, _ay: fp.y });
+                                                root.activate(copy, mouse.button === Qt.MiddleButton);
+                                            } else {
+                                                root.activate(cell.modelData, mouse.button === Qt.MiddleButton);
+                                            }
                                         }
                                     }
                                 }
@@ -2604,10 +2890,223 @@ Scope {
                 MouseArea {
                     anchors.fill: parent
                     z: 50
-                    visible: ui.menuOpen
-                    enabled: ui.menuOpen
+                    visible: ui.menuOpen || ui.stackOpen
+                    enabled: ui.menuOpen || ui.stackOpen
                     acceptedButtons: Qt.AllButtons
-                    onPressed: ui.menuItem = null
+                    onPressed: { ui.menuItem = null; root.closeFolderStack(); }
+                }
+
+                // ── Dock Folder Stack Popover (Fan / Grid / List) ──
+                Loader {
+                    id: stackPopLoader
+                    z: 58
+                    active: ui.stackOpen
+                    sourceComponent: Item {
+                        id: stackPop
+                        readonly property var folder: root.stackFolder
+                        readonly property string viewMode: folder ? (folder.view || "fan") : "fan"
+                        readonly property bool isFan: viewMode === "fan"
+                        readonly property bool isGrid: viewMode === "grid"
+                        width: isFan ? 300 : (isGrid ? 356 : 272)
+                        height: isFan ? Math.min(440, Math.max(120, Math.min(8, root.stackItems.length) * 56 + 62))
+                                      : (isGrid ? Math.min(360, stackGridCol.implicitHeight + 24)
+                                                : Math.min(340, stackListCol.implicitHeight + 24))
+                        x: root.dockPosition === "left"
+                           ? (dock.x + dock.width + 12)
+                           : (root.dockPosition === "right"
+                              ? Math.max(8, dock.x - width - 12)
+                              : Math.max(8, Math.min(ui.width - width - 8, root.stackAnchorX - width / 2)))
+                        y: root.isVertical
+                           ? Math.max(12, Math.min(ui.height - height - 12, root.stackAnchorY - height / 2))
+                           : Math.max(8, dock.y - height - 12)
+
+                        // Fan view: curved macOS arc of up to 8 files
+                        Item {
+                            visible: stackPop.isFan
+                            anchors.fill: parent
+                            Repeater {
+                                model: stackPop.isFan ? root.stackItems.slice(0, 8) : []
+                                delegate: Item {
+                                    id: fanItem
+                                    required property var modelData
+                                    required property int index
+                                    readonly property var tf: DockLogic.fanItemTransform(index, Math.min(8, root.stackItems.length))
+                                    width: stackPop.width - 12
+                                    height: 46
+                                    x: stackPop.width - 60 + tf.offsetX - (width - 54)
+                                    y: stackPop.height + tf.offsetY
+                                    rotation: tf.rotation
+                                    transformOrigin: Item.Right
+
+                                    Rectangle {
+                                        anchors.right: fanIconBox.left; anchors.rightMargin: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24; radius: 12
+                                        width: Math.min(200, fanLbl.implicitWidth + 18)
+                                        color: fanMa.containsMouse ? root.accent : Qt.rgba(0.10, 0.10, 0.12, 0.84)
+                                        border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.18)
+                                        Text {
+                                            id: fanLbl
+                                            anchors.centerIn: parent
+                                            width: Math.min(implicitWidth, parent.width - 14)
+                                            elide: Text.ElideRight
+                                            text: fanItem.modelData.name
+                                            color: "#FFFFFF"
+                                            font.family: root.fontForWeight(Font.Medium, root.fontFamily)
+                                            font.pixelSize: 12
+                                        }
+                                    }
+                                    Rectangle {
+                                        id: fanIconBox
+                                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                        width: 44; height: 44; radius: 10
+                                        color: root.darkMode ? Qt.rgba(0.18, 0.18, 0.22, 0.94) : Qt.rgba(0.96, 0.96, 0.98, 0.96)
+                                        border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.22)
+                                        Image {
+                                            anchors.centerIn: parent; width: 32; height: 32
+                                            source: fanItem.modelData.isImage ? ("file://" + encodeURI(fanItem.modelData.path))
+                                                    : root.iconSrc(fanItem.modelData.isDir ? "folder" : "text-x-generic")
+                                            sourceSize: Qt.size(64, 64); fillMode: Image.PreserveAspectFit; asynchronous: true; smooth: true
+                                        }
+                                    }
+                                    MouseArea {
+                                        id: fanMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            Quickshell.execDetached(["xdg-open", fanItem.modelData.path]);
+                                            root.closeFolderStack();
+                                        }
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                anchors.right: parent.right; anchors.rightMargin: 12
+                                anchors.top: parent.top; anchors.topMargin: 4
+                                height: 24; radius: 12; width: fanOpenTxt.implicitWidth + 18
+                                color: fanOpenMa.containsMouse ? root.accent : Qt.rgba(0.10, 0.10, 0.12, 0.84)
+                                border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.2)
+                                Text {
+                                    id: fanOpenTxt; anchors.centerIn: parent
+                                    text: (stackPop.folder ? stackPop.folder.name : "") + " \u2197"
+                                    color: "#FFFFFF"; font.family: root.fontForWeight(Font.DemiBold, root.fontFamily); font.pixelSize: 11.5
+                                }
+                                MouseArea {
+                                    id: fanOpenMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: { if (stackPop.folder) Quickshell.execDetached(["xdg-open", stackPop.folder.path]); root.closeFolderStack(); }
+                                }
+                            }
+                        }
+
+                        // Grid & List views inside Liquid Glass container
+                        Rectangle {
+                            visible: !stackPop.isFan
+                            anchors.fill: parent; radius: 18
+                            color: root.darkMode ? Qt.rgba(0.12, 0.12, 0.14, 0.92) : Qt.rgba(0.96, 0.96, 0.98, 0.94)
+                            border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.12)
+                            clip: true
+
+                            // Grid view
+                            Column {
+                                id: stackGridCol
+                                visible: stackPop.isGrid
+                                x: 12; y: 12; width: parent.width - 24; spacing: 8
+                                Row {
+                                    width: parent.width; spacing: 8
+                                    Text {
+                                        text: stackPop.folder ? stackPop.folder.name : ""
+                                        color: root.darkMode ? "#FFFFFF" : "#1D1D1F"
+                                        font.family: root.fontForWeight(Font.DemiBold, root.fontFamily); font.pixelSize: 13; font.weight: Font.DemiBold
+                                    }
+                                    Item { width: 1; height: 1 }
+                                    Text {
+                                        text: I18n.tr("Open in Files \u2197")
+                                        color: root.accent; font.family: root.fontForWeight(Font.Medium, root.fontFamily); font.pixelSize: 11.5
+                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (stackPop.folder) Quickshell.execDetached(["xdg-open", stackPop.folder.path]); root.closeFolderStack(); } }
+                                    }
+                                }
+                                Flickable {
+                                    width: parent.width; height: Math.min(280, sgGrid.implicitHeight)
+                                    contentHeight: sgGrid.implicitHeight; clip: true
+                                    Grid {
+                                        id: sgGrid; columns: 4; spacing: 8; width: parent.width
+                                        Repeater {
+                                            model: stackPop.isGrid ? root.stackItems.slice(0, 24) : []
+                                            delegate: Rectangle {
+                                                id: sgCell; required property var modelData
+                                                width: Math.floor((sgGrid.width - 24) / 4); height: 76; radius: 10
+                                                color: sgMa.containsMouse ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.25) : "transparent"
+                                                Image {
+                                                    anchors.horizontalCenter: parent.horizontalCenter; y: 8; width: 38; height: 38
+                                                    source: sgCell.modelData.isImage ? ("file://" + encodeURI(sgCell.modelData.path))
+                                                            : root.iconSrc(sgCell.modelData.isDir ? "folder" : "text-x-generic")
+                                                    sourceSize: Qt.size(76, 76); fillMode: Image.PreserveAspectFit; asynchronous: true; smooth: true
+                                                }
+                                                Text {
+                                                    x: 4; y: 50; width: parent.width - 8; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
+                                                    text: sgCell.modelData.name
+                                                    color: root.darkMode ? "#FFFFFF" : "#1D1D1F"
+                                                    font.family: root.fontForWeight(Font.Normal, root.fontFamily); font.pixelSize: 10.5
+                                                }
+                                                MouseArea {
+                                                    id: sgMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                    onClicked: { Quickshell.execDetached(["xdg-open", sgCell.modelData.path]); root.closeFolderStack(); }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // List view
+                            Column {
+                                id: stackListCol
+                                visible: !stackPop.isFan && !stackPop.isGrid
+                                x: 10; y: 10; width: parent.width - 20; spacing: 4
+                                Row {
+                                    width: parent.width; spacing: 8
+                                    Text {
+                                        text: stackPop.folder ? stackPop.folder.name : ""
+                                        color: root.darkMode ? "#FFFFFF" : "#1D1D1F"
+                                        font.family: root.fontForWeight(Font.DemiBold, root.fontFamily); font.pixelSize: 13; font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        text: I18n.tr("Open \u2197")
+                                        color: root.accent; font.family: root.fontForWeight(Font.Medium, root.fontFamily); font.pixelSize: 11.5
+                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (stackPop.folder) Quickshell.execDetached(["xdg-open", stackPop.folder.path]); root.closeFolderStack(); } }
+                                    }
+                                }
+                                Flickable {
+                                    width: parent.width; height: Math.min(280, slCol.implicitHeight)
+                                    contentHeight: slCol.implicitHeight; clip: true
+                                    Column {
+                                        id: slCol; width: parent.width; spacing: 2
+                                        Repeater {
+                                            model: (!stackPop.isFan && !stackPop.isGrid) ? root.stackItems : []
+                                            delegate: Rectangle {
+                                                id: slRow; required property var modelData
+                                                width: slCol.width; height: 28; radius: 7
+                                                color: slMa.containsMouse ? root.accent : "transparent"
+                                                Image {
+                                                    x: 8; anchors.verticalCenter: parent.verticalCenter; width: 16; height: 16
+                                                    source: root.iconSrc(slRow.modelData.isDir ? "folder" : "text-x-generic")
+                                                    sourceSize: Qt.size(32, 32); fillMode: Image.PreserveAspectFit
+                                                }
+                                                Text {
+                                                    x: 30; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 38; elide: Text.ElideRight
+                                                    text: slRow.modelData.name
+                                                    color: slMa.containsMouse ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F")
+                                                    font.family: root.fontForWeight(Font.Normal, root.fontFamily); font.pixelSize: 12
+                                                }
+                                                MouseArea {
+                                                    id: slMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                    onClicked: { Quickshell.execDetached(["xdg-open", slRow.modelData.path]); root.closeFolderStack(); }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // ── right-click menu ──
@@ -2625,7 +3124,7 @@ Scope {
                     Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
                     backdrop: glassBackdrop.item
-                    live: root.liquidActive && glassBackdrop.item !== null
+                    live: menu.visible && root.liquidActive && glassBackdrop.item !== null
                     frozen: ui.menuOpen      // the menu's glass stops updating while it is open
                     dark: root.darkMode
                     k: root.labelK

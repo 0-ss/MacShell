@@ -715,4 +715,13 @@ ShellRoot {
         }
         function resetOrder(): void { macBar.barRightOrder = []; }
     }
+    // qs -c MacShell ipc call dock position <bottom|left|right> | badge <app> <count> | addFolder <path>
+    IpcHandler {
+        target: "dock"
+        function position(pos: string): void {
+            if (["bottom", "left", "right"].indexOf(pos) >= 0) macDock.dockPosition = pos;
+        }
+        function badge(app: string, count: int): void { macDock.setBadgeOverride(app, count); }
+        function addFolder(path: string): void { macDock.addDockFolder(path, "fan"); }
+    }
 }

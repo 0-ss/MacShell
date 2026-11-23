@@ -2447,7 +2447,7 @@ Scope {
     // Hyprland's view of the focused window (floating / fullscreen / pinned / pid ...), refreshed when a menu opens
     property var activeWin: null
     function refreshActive() { if (!awProc.running) awProc.running = true; }
-    onActiveTlChanged: { refreshActive(); swTrack(); }      // swTrack = window-switcher recent-app order
+    onActiveTlChanged: { refreshActive(); swTrack(); if (activeAppId) clearNotifAppBadge(activeAppId); }      // swTrack = window-switcher recent-app order
     Process {
         id: awProc
         command: ["hyprctl", "-j", "activewindow"]
@@ -5404,6 +5404,26 @@ Scope {
     property bool notifDnd: false            // Do Not Disturb: still stored in the centre, but no popups
     property real notifBlur: 14              // blur of the notification glass (smooth two-pass Gaussian, same method as the Blur slider)
     property int notifUnread: 0
+    property var notifAppCounts: ({})
+    function recomputeNotifAppCounts() {
+        var counts = {};
+        for (var i = 0; i < notifHist.count; i++) {
+            var r = notifHist.get(i);
+            var app = String(r.app || "").trim().toLowerCase();
+            if (app) counts[app] = (counts[app] || 0) + 1;
+        }
+        notifAppCounts = counts;
+    }
+    function clearNotifAppBadge(appName) {
+        var key = String(appName || "").trim().toLowerCase();
+        if (!key || !notifAppCounts) return;
+        var next = {}, changed = false;
+        for (var k in notifAppCounts) {
+            if (k === key || k.indexOf(key) >= 0 || key.indexOf(k) >= 0) changed = true;
+            else next[k] = notifAppCounts[k];
+        }
+        if (changed) notifAppCounts = next;
+    }
     property int notifSeq: 0
     property int notifReplyNid: -1
     property string notifReplyScreen: ""
@@ -5507,7 +5527,16 @@ Scope {
                 root.notifClearReply(oldT);
             }
         }
-        if (!root.notifOpen) root.notifUnread++;
+        if (!root.notifOpen) {
+            root.notifUnread++;
+            var appK = String(rec.app || "").trim().toLowerCase();
+            if (appK) {
+                var nc = {};
+                for (var ak in root.notifAppCounts) nc[ak] = root.notifAppCounts[ak];
+                nc[appK] = (nc[appK] || 0) + 1;
+                root.notifAppCounts = nc;
+            }
+        }
         try { n.closed.connect(function () { root.notifHandleClosed(id); }); } catch (e) {}
         // apps that update a notification in place (progress, now playing…): push the new text into the popup and
         // the history, the popup then blur-morphs to it
@@ -5568,7 +5597,7 @@ Scope {
     property bool notifFlying: false          // cards are flying from the popups into the panel
     onNotifMergeFromChanged: { if (Object.keys(notifMergeFrom).length > 0) { notifFlying = true; flyEnd.restart(); } }
     Timer { id: flyEnd; interval: 900; onTriggered: root.notifFlying = false }
-    onNotifOpenChanged: { root.notifClearReply(); if (!notifOpen) notifMergeFrom = ({}); }
+    onNotifOpenChanged: { root.notifClearReply(); if (notifOpen) notifAppCounts = ({}); if (!notifOpen) notifMergeFrom = ({}); }
     function notifClearAnimated() {
         if (notifHist.count === 0) return;
         notifClearing = true;
@@ -5587,6 +5616,7 @@ Scope {
         root.notifClearReply();
         root.notifRefs = ({});
         root.notifUnread = 0;
+        root.notifAppCounts = ({});
     }
     function notifActivate(id) {
         var n = root.notifRefs[id];

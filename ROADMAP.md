@@ -39,11 +39,11 @@ Items are grouped by area. Each item includes a brief note on the current state 
 
 ## 3. Dock
 
-- [ ] **Dock Folders / Stacks** — Pin folders (e.g. Downloads, Documents) next to Trash with macOS-style Fan, Grid, and List popovers.
-- [ ] **Left & Right Dock Positioning** — Support vertical Dock orientation on the left or right screen edge, including magnification and glass layout.
-- [ ] **Notification Badges** — Show red unread badge counters on Dock app icons (e.g. via Unity/LauncherEntry D-Bus or unread notification counts).
-- [ ] **Recent Apps Section** — Optional section between pinned apps and Trash showing the last N recently closed applications.
-- [ ] **Drag & Drop Files onto Dock App Icons** — Allow dropping files from the desktop (or file managers) onto any Dock app icon to open them with that app (currently only Trash accepts desktop drops).
+- [x] **Dock Folders / Stacks** — Pin folders (e.g. Downloads, Documents, Pictures) next to Trash in `MacShell/MacDock.qml` (`MacShell/DockLogic.js`) with switchable Fan, Grid, and List popovers, right-click view switching, and Settings controls.
+- [x] **Left & Right Dock Positioning** — `dockPosition` (`bottom` | `left` | `right`) in `MacShell/MacDock.qml`, `MacShell/Desktop.qml`, *Settings → Dock*, and `dock position` IPC adapts PanelWindow anchors, vertical Grid layout, Y-axis magnification, glass backdrop offsets, and popovers.
+- [x] **Notification Badges** — Red macOS unread counters on Dock app icons fed by `MacBar.qml`'s per-app unread notification map (`notifAppCounts`, auto-cleared on app focus or Notification Center open) plus `dock badge` IPC overrides.
+- [x] **Recent Apps Section** — Persisted `recentApps` section between pinned/running apps and Trash showing the last N recently closed unpinned apps, with *Keep in Dock* and *Remove from Recent* context actions and a Settings toggle.
+- [x] **Drag & Drop Files onto Dock App Icons** — Dragging Desktop icons (via `Desktop.qml` `appDropHit`/`dropFilesOnApp`) or external file-manager URLs (via Qt `DropArea`) onto any Dock app icon opens them with that app (and onto Dock folders moves them in).
 
 ---
 

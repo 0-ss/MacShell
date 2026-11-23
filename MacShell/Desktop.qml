@@ -106,8 +106,17 @@ Scope {
     function dockRect(screenName, screenW, screenH) {
         var d = dock;
         if (!d || !d.dockEnabled || (d.monitor && d.monitor !== "" && d.monitor !== screenName)) return null;
-        var dw = Math.min(screenW, Math.max(440, d.bgWidth || 540));
+        var pos = d.dockPosition || "bottom";
         var dh = Math.max(76, d.bgHeight || 88);
+        if (pos === "left") {
+            var vhL = Math.min(screenH, Math.max(360, d.totalW0 ? d.totalW0 + 48 : 520));
+            return { x: 0, y: (screenH - vhL) / 2, width: dh + 10, height: vhL };
+        }
+        if (pos === "right") {
+            var vhR = Math.min(screenH, Math.max(360, d.totalW0 ? d.totalW0 + 48 : 520));
+            return { x: screenW - dh - 10, y: (screenH - vhR) / 2, width: dh + 10, height: vhR };
+        }
+        var dw = Math.min(screenW, Math.max(440, d.bgWidth || 540));
         return { x: (screenW - dw) / 2, y: screenH - dh - 10, width: dw, height: dh + 10 };
     }
     function barBottom() { return (bar && bar.barEnabled) ? bar.barH : 0; }
@@ -149,12 +158,9 @@ Scope {
         return { x: bx, y: by, score: best };
     }
     function collidesWithDock(x, y, screenName, screenW, screenH) {
-        var d = dock;
-        if (!d || !d.dockEnabled || (d.monitor && d.monitor !== "" && d.monitor !== screenName)) return false;
-        var dw = Math.min(screenW, Math.max(440, d.bgWidth || 540));
-        var dh = Math.max(76, d.bgHeight || 88);
-        return rectanglesOverlap(x, y, cellW, cellH,
-            { x: (screenW - dw) / 2, y: screenH - dh - 10, width: dw, height: dh + 10 }, 4);
+        var r = dockRect(screenName, screenW, screenH);
+        if (!r) return false;
+        return rectanglesOverlap(x, y, cellW, cellH, r, 4);
     }
     function gridCells(screenW, screenH) {
         var cols = Math.max(0, Math.floor((screenW - 2 * gridSide) / cellW));
@@ -647,7 +653,8 @@ Scope {
             // The icons thrown into the Trash shrink, turn a little and fly into the Trash icon one after the other, then the Trash hops.
             // the Trash icon lifts while a dragged icon is held over it
             property bool trashArmed: false
-            property bool dockRevealed: false     // an auto-hidden Dock was brought up because an icon is held at the bottom edge
+            property bool dockRevealed: false     // an auto-hidden Dock was brought up because an icon is held at the Dock edge
+            property string dockAppArmedKey: ""
             function setDockReveal(on) {
                 if (dockRevealed === on) return;
                 dockRevealed = on;
@@ -656,15 +663,23 @@ Scope {
             function updateTrashArmOff() {
                 setDockReveal(false);
                 if (trashArmed) { trashArmed = false; if (root.dock && root.dock.trashArm) root.dock.trashArm(modelData.name, false); }
+                if (dockAppArmedKey !== "") { dockAppArmedKey = ""; if (root.dock && root.dock.appDropArm) root.dock.appDropArm(modelData.name, ""); }
             }
             function updateTrashArm(x, y) {
-                // nothing is thrown here: the Trash only lifts while the icon is held over it. The throw happens in finishDrag, on release.
-                if (y >= height - 28) setDockReveal(true);
-                else if (!trashArmed) setDockReveal(false);
+                var pos = (root.dock && root.dock.dockPosition) ? root.dock.dockPosition : "bottom";
+                var nearEdge = (pos === "left" && x <= 28) || (pos === "right" && x >= width - 28) || (pos === "bottom" && y >= height - 28);
+                if (nearEdge) setDockReveal(true);
+                else if (!trashArmed && dockAppArmedKey === "") setDockReveal(false);
                 var on = !!(root.dock && root.dock.trashHit && root.dock.trashHit(modelData.name, x, y));
-                if (on === trashArmed) return;
-                trashArmed = on;
-                if (root.dock && root.dock.trashArm) root.dock.trashArm(modelData.name, on);
+                if (on !== trashArmed) {
+                    trashArmed = on;
+                    if (root.dock && root.dock.trashArm) root.dock.trashArm(modelData.name, on);
+                }
+                var appKey = (!on && root.dock && root.dock.appDropHit) ? root.dock.appDropHit(modelData.name, x, y) : "";
+                if (appKey !== dockAppArmedKey) {
+                    dockAppArmedKey = appKey;
+                    if (root.dock && root.dock.appDropArm) root.dock.appDropArm(modelData.name, appKey);
+                }
             }
             function flyToTrash(list, dx, dy, px, py) {
                 if (root.dock && root.dock.trashExpect) root.dock.trashExpect();     // this one already animates: the Dock must not hop a second time
@@ -687,6 +702,7 @@ Scope {
                 var dx = dragDX, dy = dragDY;
                 // decided at the moment of release, before the Dock is allowed to slide away again
                 var overTrash = !!(root.dock && root.dock.trashHit && root.dock.trashHit(modelData.name, px, py));
+                var overAppKey = (!overTrash && root.dock && root.dock.appDropHit) ? root.dock.appDropHit(modelData.name, px, py) : "";
                 updateTrashArmOff();
                 dragActive = false; dragDX = 0; dragDY = 0; dropPath = "";
                 if (moved.length === 0) return;
@@ -694,6 +710,11 @@ Scope {
                 if (overTrash) {
                     flyToTrash(moved, dx, dy, px, py);
                     root.trashMany(moved.map(function (it) { return it.path; }));
+                    return;
+                }
+                // let go over any Dock app icon: open the dragged files with that application
+                if (overAppKey !== "" && root.dock && root.dock.dropFilesOnApp) {
+                    root.dock.dropFilesOnApp(overAppKey, moved.map(function (it) { return it.path; }));
                     return;
                 }
                 var target = iconAt(px, py);
