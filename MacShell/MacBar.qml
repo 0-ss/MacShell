@@ -6434,6 +6434,22 @@ Scope {
                 color: !barBgWin.fillOn ? "transparent" : Qt.rgba(0.10, 0.10, 0.11, root.barBgOpacity)
             }
         }
+        // Dedicated top exclusive-zone strut so the visual Menu Bar (`win`) can use ExclusionMode.Ignore
+        // and ALWAYS span 100% of the monitor width even when a vertical Left/Right Dock reserves an edge.
+        PanelWindow {
+            id: barStrut
+            screen: perScreen.modelData
+            visible: root.barEnabled && !win.barAutoHidden
+            anchors { left: true; right: true; top: true }
+            implicitHeight: 1
+            color: "transparent"
+            exclusionMode: ExclusionMode.Normal
+            exclusiveZone: (root.barEnabled && !win.barAutoHidden) ? root.barH : 0
+            mask: Region { }
+            WlrLayershell.namespace: "macbarstrut"
+            WlrLayershell.layer: WlrLayer.Top
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        }
 
         PanelWindow {
             id: win
@@ -6453,8 +6469,7 @@ Scope {
             implicitHeight: root.barH + root.popRoom
             color: "transparent"
 
-            exclusionMode: ExclusionMode.Normal
-            exclusiveZone: (root.barEnabled && !barAutoHidden) ? root.barH : 0
+            exclusionMode: ExclusionMode.Ignore
 
             WlrLayershell.namespace: "macbar"
             WlrLayershell.layer: WlrLayer.Top

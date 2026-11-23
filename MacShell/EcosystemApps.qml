@@ -469,10 +469,11 @@ Scope {
 
                 Rectangle {
                     anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -24
                     width: Math.min(parent.width - 60, 960)
-                    height: Math.min(parent.height - 80, 600)
+                    height: Math.min(parent.height - 150, 560)
                     radius: 18
-                    color: root.darkMode ? Qt.rgba(0.11, 0.11, 0.13, 0.96) : Qt.rgba(0.97, 0.97, 0.98, 0.98)
+                    color: root.darkMode ? Qt.rgba(0.11, 0.11, 0.13, 0.98) : Qt.rgba(0.97, 0.97, 0.98, 0.98)
                     border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.12)
                     MouseArea { anchors.fill: parent }
 
@@ -518,11 +519,12 @@ Scope {
                                 width: fnMillerRow.sideW; height: parent.height; radius: 12; clip: true
                                 color: root.darkMode ? Qt.rgba(1, 1, 1, 0.05) : Qt.rgba(0, 0, 0, 0.04)
                                 Flickable {
+                                    id: fnSideFlick
                                     anchors.fill: parent; anchors.margins: 8
                                     contentHeight: fnSideCol.implicitHeight; clip: true
                                     Column {
                                         id: fnSideCol
-                                        width: parent.width; spacing: 2
+                                        width: parent.width; spacing: 1
                                     Text { text: I18n.tr("Favorites"); color: "#8E8E93"; font.pixelSize: 10; font.weight: Font.DemiBold }
                                     Repeater {
                                         model: [
@@ -534,29 +536,37 @@ Scope {
                                         ]
                                         delegate: Rectangle {
                                             id: favR; required property var modelData
-                                            width: parent.width; height: 26; radius: 6
+                                            width: parent.width; height: 22; radius: 6
                                             color: root.finderDir === modelData.path && root.finderTagFilter === "" ? root.accent : "transparent"
                                             Text { x: 8; anchors.verticalCenter: parent.verticalCenter; text: favR.modelData.label; color: root.finderDir === favR.modelData.path && root.finderTagFilter === "" ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12 }
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.finderNavigate(favR.modelData.path) }
                                         }
                                     }
-                                    Item { width: 1; height: 6 }
+                                    Item { width: 1; height: 4 }
                                     Text { text: I18n.tr("Tags"); color: "#8E8E93"; font.pixelSize: 10; font.weight: Font.DemiBold }
                                     Repeater {
                                         model: Eco.FINDER_TAGS
                                         delegate: Rectangle {
                                             id: tagF; required property var modelData
-                                            width: parent.width; height: 24; radius: 6
+                                            width: parent.width; height: 20; radius: 6
                                             color: root.finderTagFilter === modelData.id ? root.accent : "transparent"
                                             Row {
                                                 x: 8; anchors.verticalCenter: parent.verticalCenter; spacing: 7
-                                                Rectangle { width: 9; height: 9; radius: 4.5; anchors.verticalCenter: parent.verticalCenter; color: tagF.modelData.color }
-                                                Text { text: tagF.modelData.name; color: root.finderTagFilter === tagF.modelData.id ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12 }
+                                                Rectangle { width: 8; height: 8; radius: 4; anchors.verticalCenter: parent.verticalCenter; color: tagF.modelData.color }
+                                                Text { text: tagF.modelData.name; color: root.finderTagFilter === tagF.modelData.id ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 11 }
                                             }
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.finderTagFilter = root.finderTagFilter === tagF.modelData.id ? "" : tagF.modelData.id; root.finderSelected = null; } }
                                         }
                                     }
                                 }
+                                }
+                                Rectangle {
+                                    visible: fnSideFlick.contentHeight > fnSideFlick.height + 1
+                                    anchors.right: parent.right; anchors.rightMargin: 2
+                                    y: 8 + fnSideFlick.visibleArea.yPosition * (fnSideFlick.height)
+                                    width: 3; radius: 1.5
+                                    height: Math.max(18, fnSideFlick.visibleArea.heightRatio * fnSideFlick.height)
+                                    color: root.darkMode ? Qt.rgba(1, 1, 1, 0.25) : Qt.rgba(0, 0, 0, 0.22)
                                 }
                             }
 
