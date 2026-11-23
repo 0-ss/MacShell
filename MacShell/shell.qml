@@ -741,12 +741,14 @@ ShellRoot {
         function toggle(path: string): void { quickLookObj.togglePath(path); }
         function close(): void { quickLookObj.close(); }
     }
-    // qs -c MacShell ipc call capture toolbar | markup <path> | thumb <path>
+    // qs -c MacShell ipc call capture toolbar | markup <path> | closeMarkup | thumb <path> | dismissThumb
     IpcHandler {
         target: "capture"
         function toolbar(): void { captureSuiteObj.toggleToolbar(); }
         function markup(path: string): void { captureSuiteObj.openMarkup(path); }
+        function closeMarkup(): void { captureSuiteObj.closeMarkup(); }
         function thumb(path: string): void { captureSuiteObj.showThumbnail(path); }
+        function dismissThumb(): void { captureSuiteObj.dismissThumbnail(); }
     }
     // qs -c MacShell ipc call forcequit toggle | open | close
     IpcHandler {

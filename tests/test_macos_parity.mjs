@@ -56,6 +56,17 @@ const lock = read("MacLock/LockScreen.qml");
 assert.ok(eco.includes("AirDrop & Continuity") && eco.includes("Time Machine") && eco.includes("Finder"), "Ecosystem apps missing");
 assert.ok(lock.includes("aerialFreezeT") && !lock.includes("MacShell/"), "MacLock Aerial screensaver parity or isolation broken");
 
+// Zero literal float font.pixelSize assignments (Qt6 QML fails at runtime with "int expected")
+import { readdirSync } from "node:fs";
+for (const dir of ["MacShell", "MacLock"]) {
+    for (const f of readdirSync(new URL(`../${dir}`, import.meta.url))) {
+        if (!f.endsWith(".qml")) continue;
+        const src = read(`${dir}/${f}`);
+        const bad = src.match(/font\.pixelSize:\s*\d+\.\d+(?!\s*\*)/);
+        assert.equal(bad, null, `${dir}/${f} has non-integer literal ${bad && bad[0]}`);
+    }
+}
+
 // Zero open items left on Roadmap
 const roadmap = read("ROADMAP.md");
 assert.ok(!roadmap.includes("- [ ]"), "ROADMAP.md still has unchecked items");

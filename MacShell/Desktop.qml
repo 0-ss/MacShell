@@ -906,7 +906,7 @@ Scope {
                                 anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                                 text: root.activeStack ? (root.activeStack.stackName + " (" + root.activeStack.stackCount + ")") : ""
                                 color: root.darkMode ? "#FFFFFF" : "#1D1D1F"
-                                font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 13.5; font.weight: Font.DemiBold
+                                font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 14; font.weight: Font.DemiBold
                             }
                             Text {
                                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
@@ -929,7 +929,7 @@ Scope {
                                             x: 10; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 78; elide: Text.ElideRight
                                             text: dscRow.modelData.name
                                             color: dscRowMa.containsMouse ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F")
-                                            font.family: Fonts.forWeight(Font.Normal, root.fam); font.pixelSize: 12.5
+                                            font.family: Fonts.forWeight(Font.Normal, root.fam); font.pixelSize: 12
                                         }
                                         Text {
                                             anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter

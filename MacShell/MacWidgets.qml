@@ -860,7 +860,7 @@ Scope {
                             Text {
                                 id: monMoveTxt; anchors.centerIn: parent
                                 text: "\u21c4 " + win.modelData.name
-                                color: "#FFFFFF"; font.pixelSize: 10.5
+                                color: "#FFFFFF"; font.pixelSize: 10
                             }
                             MouseArea {
                                 anchors.fill: parent; cursorShape: Qt.PointingHandCursor

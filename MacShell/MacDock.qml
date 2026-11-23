@@ -2106,8 +2106,8 @@ Scope {
 
                 Item {
                     id: dock
-                    width: root.isVertical ? root.bgHeight : (row.width + root.hPad * 2)
-                    height: root.isVertical ? (row.height + root.hPad * 2) : root.bgHeight
+                    width: root.isVertical ? root.bgHeight : (row.implicitWidth + root.hPad * 2)
+                    height: root.isVertical ? (row.implicitHeight + root.hPad * 2) : root.bgHeight
                     x: root.dockPosition === "left"
                        ? (root.margin - (ui.tucked ? width + root.margin + 6 : 0))
                        : (root.dockPosition === "right"
@@ -2355,14 +2355,14 @@ Scope {
                         id: row
                         columns: root.isVertical ? 1 : 999
                         spacing: root.spacing
-                        anchors.horizontalCenter: root.isVertical ? undefined : parent.horizontalCenter
-                        anchors.bottom: root.isVertical ? undefined : parent.bottom
-                        anchors.bottomMargin: root.isVertical ? 0 : root.bottomPad
-                        anchors.verticalCenter: root.isVertical ? parent.verticalCenter : undefined
-                        anchors.left: root.dockPosition === "left" ? parent.left : undefined
-                        anchors.leftMargin: root.dockPosition === "left" ? root.bottomPad : 0
-                        anchors.right: root.dockPosition === "right" ? parent.right : undefined
-                        anchors.rightMargin: root.dockPosition === "right" ? root.bottomPad : 0
+                        x: root.dockPosition === "left"
+                           ? root.bottomPad
+                           : (root.dockPosition === "right"
+                              ? (dock.width - implicitWidth - root.bottomPad)
+                              : (dock.width - implicitWidth) / 2)
+                        y: root.isVertical
+                           ? (dock.height - implicitHeight) / 2
+                           : (dock.height - implicitHeight - root.bottomPad)
 
                         Repeater {
                             id: rep
@@ -2522,6 +2522,7 @@ Scope {
                                 }
                                 MultiEffect {
                                     id: fillFx
+                                    visible: false
                                     source: tileFill
                                     width: tileFill.width
                                     height: width
@@ -3010,7 +3011,7 @@ Scope {
                                 Text {
                                     id: fanOpenTxt; anchors.centerIn: parent
                                     text: (stackPop.folder ? stackPop.folder.name : "") + " \u2197"
-                                    color: "#FFFFFF"; font.family: root.fontForWeight(Font.DemiBold, root.fontFamily); font.pixelSize: 11.5
+                                    color: "#FFFFFF"; font.family: root.fontForWeight(Font.DemiBold, root.fontFamily); font.pixelSize: 12
                                 }
                                 MouseArea {
                                     id: fanOpenMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
@@ -3042,7 +3043,7 @@ Scope {
                                     Item { width: 1; height: 1 }
                                     Text {
                                         text: I18n.tr("Open in Files \u2197")
-                                        color: root.accent; font.family: root.fontForWeight(Font.Medium, root.fontFamily); font.pixelSize: 11.5
+                                        color: root.accent; font.family: root.fontForWeight(Font.Medium, root.fontFamily); font.pixelSize: 12
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (stackPop.folder) Quickshell.execDetached(["xdg-open", stackPop.folder.path]); root.closeFolderStack(); } }
                                     }
                                 }
@@ -3067,7 +3068,7 @@ Scope {
                                                     x: 4; y: 50; width: parent.width - 8; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
                                                     text: sgCell.modelData.name
                                                     color: root.darkMode ? "#FFFFFF" : "#1D1D1F"
-                                                    font.family: root.fontForWeight(Font.Normal, root.fontFamily); font.pixelSize: 10.5
+                                                    font.family: root.fontForWeight(Font.Normal, root.fontFamily); font.pixelSize: 10
                                                 }
                                                 MouseArea {
                                                     id: sgMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
@@ -3093,7 +3094,7 @@ Scope {
                                     }
                                     Text {
                                         text: I18n.tr("Open \u2197")
-                                        color: root.accent; font.family: root.fontForWeight(Font.Medium, root.fontFamily); font.pixelSize: 11.5
+                                        color: root.accent; font.family: root.fontForWeight(Font.Medium, root.fontFamily); font.pixelSize: 12
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (stackPop.folder) Quickshell.execDetached(["xdg-open", stackPop.folder.path]); root.closeFolderStack(); } }
                                     }
                                 }

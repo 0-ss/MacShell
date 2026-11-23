@@ -59,7 +59,7 @@ Scope {
             if (code === 0) {
                 var c = root.pendingCommand;
                 root.close();
-                if (c !== "") Quickshell.execDetached(["sh", "-c", c]);
+                if (c !== "") Quickshell.execDetached(["sudo", "-n", "sh", "-c", c]);
             } else {
                 root.errorText = I18n.tr("Incorrect password. Please try again.");
             }
@@ -154,7 +154,7 @@ Scope {
                     Text {
                         visible: root.errorText !== ""
                         width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
-                        text: root.errorText; color: "#FF453A"; font.pixelSize: 11.5
+                        text: root.errorText; color: "#FF453A"; font.pixelSize: 12
                     }
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -162,13 +162,13 @@ Scope {
                         Rectangle {
                             width: 120; height: 30; radius: 8
                             color: root.darkMode ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
-                            Text { anchors.centerIn: parent; text: I18n.tr("Cancel"); color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 12.5 }
+                            Text { anchors.centerIn: parent; text: I18n.tr("Cancel"); color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 12 }
                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.close() }
                         }
                         Rectangle {
                             width: 120; height: 30; radius: 8; color: root.accent
                             opacity: root.busy ? 0.55 : 1
-                            Text { anchors.centerIn: parent; text: root.busy ? I18n.tr("Checking\u2026") : I18n.tr("Unlock"); color: "#FFFFFF"; font.pixelSize: 12.5; font.weight: Font.DemiBold }
+                            Text { anchors.centerIn: parent; text: root.busy ? I18n.tr("Checking\u2026") : I18n.tr("Unlock"); color: "#FFFFFF"; font.pixelSize: 12; font.weight: Font.DemiBold }
                             MouseArea {
                                 anchors.fill: parent; enabled: !root.busy; cursorShape: Qt.PointingHandCursor
                                 onClicked: { var p = pkPw.text; pkPw.text = ""; root.submitPassword(p); }

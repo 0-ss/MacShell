@@ -47,6 +47,21 @@ Scope {
             "notify-send 'AirDrop / Continuity' 'Install LocalSend or pair a device in KDE Connect'", "sh", p]);
     }
     Process {
+        id: kdeClipProc
+        property string devName: ""
+        onExited: (code, status) => {
+            root.continuityNotice = code === 0
+                ? (I18n.tr("Clipboard sent to ") + devName)
+                : (I18n.tr("Failed to send clipboard to ") + devName);
+        }
+    }
+    function sendClipboardToDevice(devId, devName) {
+        if (!devId || kdeClipProc.running) return;
+        kdeClipProc.devName = devName || devId;
+        kdeClipProc.command = ["kdeconnect-cli", "-d", devId, "--send-clipboard"];
+        kdeClipProc.running = true;
+    }
+    Process {
         id: kdeProc
         command: ["sh", "-c", "command -v kdeconnect-cli >/dev/null 2>&1 && kdeconnect-cli -l 2>/dev/null || true"]
         stdout: StdioCollector { onStreamFinished: root.kdeDevices = Eco.parseKdeConnectDevices(text) }
@@ -139,25 +154,26 @@ Scope {
                                 Row {
                                     anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter; spacing: 6
                                     Rectangle {
-                                        height: 24; radius: 6; width: cbTxt.implicitWidth + 12; color: root.accent
+                                        height: 24; radius: 6; width: cbTxt.implicitWidth + 12
+                                        color: devRow.modelData.reachable ? root.accent : Qt.rgba(1, 1, 1, 0.10)
+                                        opacity: devRow.modelData.reachable ? 1 : 0.45
                                         Text { id: cbTxt; anchors.centerIn: parent; text: I18n.tr("Send Clipboard"); color: "#FFFFFF"; font.pixelSize: 11 }
                                         MouseArea {
-                                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                Quickshell.execDetached(["kdeconnect-cli", "-d", devRow.modelData.id, "--send-clipboard"]);
-                                                root.continuityNotice = I18n.tr("Clipboard sent to ") + devRow.modelData.name;
-                                            }
+                                            anchors.fill: parent; enabled: devRow.modelData.reachable; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                            onClicked: root.sendClipboardToDevice(devRow.modelData.id, devRow.modelData.name)
                                         }
                                     }
                                     Rectangle {
-                                        height: 24; radius: 6; width: rgTxt.implicitWidth + 12; color: root.darkMode ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.08)
+                                        height: 24; radius: 6; width: rgTxt.implicitWidth + 12
+                                        color: root.darkMode ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.08)
+                                        opacity: devRow.modelData.reachable ? 1 : 0.45
                                         Text { id: rgTxt; anchors.centerIn: parent; text: I18n.tr("Ring"); color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 11 }
-                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Quickshell.execDetached(["kdeconnect-cli", "-d", devRow.modelData.id, "--ring"]) }
+                                        MouseArea { anchors.fill: parent; enabled: devRow.modelData.reachable; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: Quickshell.execDetached(["kdeconnect-cli", "-d", devRow.modelData.id, "--ring"]) }
                                     }
                                 }
                             }
                         }
-                        Text { visible: root.continuityNotice !== ""; text: root.continuityNotice; color: "#30D158"; font.pixelSize: 11.5 }
+                        Text { visible: root.continuityNotice !== ""; text: root.continuityNotice; color: "#30D158"; font.pixelSize: 12 }
                     }
                 }
             }
@@ -188,10 +204,24 @@ Scope {
         tmDirProc.targetPath = full;
         tmDirProc.running = true;
     }
+    Process {
+        id: tmRestoreProc
+        property string destPath: ""
+        onExited: (code, status) => {
+            if (code === 0) {
+                root.tmStatus = I18n.tr("Restored copy to ") + destPath;
+                Quickshell.execDetached(["notify-send", "-a", "macbar", "Time Machine", "Restored to " + destPath]);
+            } else {
+                root.tmStatus = I18n.tr("Restore failed for ") + destPath;
+            }
+        }
+    }
     function tmRestoreFile(snapFilePath, fileName) {
+        if (tmRestoreProc.running) return;
         var dest = root.home + "/Desktop/" + fileName + ".restored";
-        Quickshell.execDetached(["sh", "-c", "cp -a -- \"$1\" \"$2\" && notify-send -a macbar 'Time Machine' \"Restored to $2\"", "sh", snapFilePath, dest]);
-        tmStatus = I18n.tr("Restored copy to ") + dest;
+        tmRestoreProc.destPath = dest;
+        tmRestoreProc.command = ["sh", "-c", "mkdir -p \"$(dirname \"$2\")\" && cp -a -- \"$1\" \"$2\"", "sh", snapFilePath, dest];
+        tmRestoreProc.running = true;
     }
     Process {
         id: tmListProc
@@ -252,7 +282,7 @@ Scope {
                             }
                             Text {
                                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                                text: I18n.tr("Close"); color: root.accent; font.pixelSize: 12.5
+                                text: I18n.tr("Close"); color: root.accent; font.pixelSize: 12
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.closeTimeMachine() }
                             }
                         }
@@ -273,7 +303,7 @@ Scope {
                                         Column {
                                             x: 8; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 16
                                             Text { width: parent.width; elide: Text.ElideRight; text: "#" + tmRow.modelData.id + " · " + tmRow.modelData.desc; color: root.tmSelected === tmRow.index ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12; font.weight: Font.DemiBold }
-                                            Text { width: parent.width; elide: Text.ElideRight; text: tmRow.modelData.date; color: root.tmSelected === tmRow.index ? Qt.rgba(1, 1, 1, 0.85) : "#8E8E93"; font.pixelSize: 10.5 }
+                                            Text { width: parent.width; elide: Text.ElideRight; text: tmRow.modelData.date; color: root.tmSelected === tmRow.index ? Qt.rgba(1, 1, 1, 0.85) : "#8E8E93"; font.pixelSize: 10 }
                                         }
                                         MouseArea { anchors.fill: parent; onClicked: { root.tmSelected = tmRow.index; root.tmBrowseCurrent(); } }
                                     }
@@ -296,10 +326,11 @@ Scope {
                                         width: parent.width; spacing: 8
                                         Rectangle {
                                             height: 24; radius: 6; width: tmUp.implicitWidth + 14
+                                            opacity: root.tmSnapshots.length > 0 ? 1 : 0.4
                                             color: root.darkMode ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
                                             Text { id: tmUp; anchors.centerIn: parent; text: "\u2190 Up"; color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 11 }
                                             MouseArea {
-                                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                anchors.fill: parent; enabled: root.tmSnapshots.length > 0; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                 onClicked: {
                                                     var p = root.tmSubPath;
                                                     var ix = p.lastIndexOf("/");
@@ -308,7 +339,7 @@ Scope {
                                                 }
                                             }
                                         }
-                                        Text { anchors.verticalCenter: parent.verticalCenter; text: "/" + root.tmSubPath; color: "#8E8E93"; font.pixelSize: 11.5; elide: Text.ElideMiddle; width: parent.width - 70 }
+                                        Text { anchors.verticalCenter: parent.verticalCenter; text: "/" + root.tmSubPath; color: "#8E8E93"; font.pixelSize: 12; elide: Text.ElideMiddle; width: parent.width - 70 }
                                     }
                                     ListView {
                                         width: parent.width; height: parent.height - 32; clip: true
@@ -327,12 +358,12 @@ Scope {
                                                 Rectangle {
                                                     visible: !tmf.modelData.isDir
                                                     height: 22; radius: 5; width: tmPv.implicitWidth + 10; color: root.darkMode ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
-                                                    Text { id: tmPv; anchors.centerIn: parent; text: I18n.tr("Preview"); color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 10.5 }
+                                                    Text { id: tmPv; anchors.centerIn: parent; text: I18n.tr("Preview"); color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 10 }
                                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (root.hub && root.hub.quickLook) root.hub.quickLook.openPath(tmf.modelData.path); } }
                                                 }
                                                 Rectangle {
                                                     height: 22; radius: 5; width: tmRs.implicitWidth + 12; color: root.accent
-                                                    Text { id: tmRs; anchors.centerIn: parent; text: I18n.tr("Restore"); color: "#FFFFFF"; font.pixelSize: 10.5 }
+                                                    Text { id: tmRs; anchors.centerIn: parent; text: I18n.tr("Restore"); color: "#FFFFFF"; font.pixelSize: 10 }
                                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.tmRestoreFile(tmf.modelData.path, tmf.modelData.name) }
                                                 }
                                             }
@@ -350,7 +381,7 @@ Scope {
                                 }
                             }
                         }
-                        Text { visible: root.tmStatus !== ""; text: root.tmStatus; color: "#30D158"; font.pixelSize: 11.5 }
+                        Text { visible: root.tmStatus !== ""; text: root.tmStatus; color: "#30D158"; font.pixelSize: 12 }
                     }
                 }
             }
@@ -459,7 +490,7 @@ Scope {
                                 x: 24; anchors.verticalCenter: parent.verticalCenter
                                 text: I18n.tr("Finder") + " \u2014 " + (root.finderTagFilter ? ("Tag: " + root.finderTagFilter) : root.finderDir)
                                 color: root.darkMode ? "#FFFFFF" : "#1D1D1F"
-                                font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 13.5; font.weight: Font.DemiBold
+                                font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 14; font.weight: Font.DemiBold
                             }
                             Rectangle {
                                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
@@ -470,17 +501,29 @@ Scope {
                             }
                         }
 
-                        // Sidebar + 3-column Miller View
+                        // Sidebar + 3-column Miller View (responsive proportional widths)
                         Row {
+                            id: fnMillerRow
                             width: parent.width; height: parent.height - 38; spacing: 8
+                            readonly property bool showParentCol: width >= 540
+                            readonly property int sideW: Math.min(156, Math.max(115, Math.floor(width * 0.22)))
+                            readonly property int gaps: showParentCol ? 24 : 16
+                            readonly property int remW: Math.max(180, width - sideW - gaps)
+                            readonly property int col1W: showParentCol ? Math.floor(remW * 0.24) : 0
+                            readonly property int col2W: showParentCol ? Math.floor(remW * 0.42) : Math.floor(remW * 0.56)
+                            readonly property int col3W: Math.max(100, remW - col1W - col2W)
 
-                            // Sidebar: Favorites + Finder Color Tags
+                            // Sidebar: Favorites + Finder Color Tags (scrollable & clipped)
                             Rectangle {
-                                width: 158; height: parent.height; radius: 12
+                                width: fnMillerRow.sideW; height: parent.height; radius: 12; clip: true
                                 color: root.darkMode ? Qt.rgba(1, 1, 1, 0.05) : Qt.rgba(0, 0, 0, 0.04)
-                                Column {
-                                    anchors.fill: parent; anchors.margins: 8; spacing: 3
-                                    Text { text: I18n.tr("Favorites"); color: "#8E8E93"; font.pixelSize: 10.5; font.weight: Font.DemiBold }
+                                Flickable {
+                                    anchors.fill: parent; anchors.margins: 8
+                                    contentHeight: fnSideCol.implicitHeight; clip: true
+                                    Column {
+                                        id: fnSideCol
+                                        width: parent.width; spacing: 2
+                                    Text { text: I18n.tr("Favorites"); color: "#8E8E93"; font.pixelSize: 10; font.weight: Font.DemiBold }
                                     Repeater {
                                         model: [
                                             { label: "Home", path: root.home },
@@ -498,7 +541,7 @@ Scope {
                                         }
                                     }
                                     Item { width: 1; height: 6 }
-                                    Text { text: I18n.tr("Tags"); color: "#8E8E93"; font.pixelSize: 10.5; font.weight: Font.DemiBold }
+                                    Text { text: I18n.tr("Tags"); color: "#8E8E93"; font.pixelSize: 10; font.weight: Font.DemiBold }
                                     Repeater {
                                         model: Eco.FINDER_TAGS
                                         delegate: Rectangle {
@@ -508,17 +551,19 @@ Scope {
                                             Row {
                                                 x: 8; anchors.verticalCenter: parent.verticalCenter; spacing: 7
                                                 Rectangle { width: 9; height: 9; radius: 4.5; anchors.verticalCenter: parent.verticalCenter; color: tagF.modelData.color }
-                                                Text { text: tagF.modelData.name; color: root.finderTagFilter === tagF.modelData.id ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 11.5 }
+                                                Text { text: tagF.modelData.name; color: root.finderTagFilter === tagF.modelData.id ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12 }
                                             }
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.finderTagFilter = root.finderTagFilter === tagF.modelData.id ? "" : tagF.modelData.id; root.finderSelected = null; } }
                                         }
                                     }
                                 }
+                                }
                             }
 
                             // Column 1: Parent directory
                             Rectangle {
-                                width: 170; height: parent.height; radius: 12
+                                visible: fnMillerRow.showParentCol
+                                width: fnMillerRow.col1W; height: parent.height; radius: 12
                                 color: root.darkMode ? Qt.rgba(0, 0, 0, 0.22) : Qt.rgba(0, 0, 0, 0.04)
                                 clip: true
                                 ListView {
@@ -536,7 +581,7 @@ Scope {
 
                             // Column 2: Current directory
                             Rectangle {
-                                width: 290; height: parent.height; radius: 12
+                                width: fnMillerRow.col2W; height: parent.height; radius: 12
                                 color: root.darkMode ? Qt.rgba(0, 0, 0, 0.22) : Qt.rgba(0, 0, 0, 0.04)
                                 clip: true
                                 ListView {
@@ -584,7 +629,7 @@ Scope {
 
                             // Column 3: Inspector & Quick Actions
                             Rectangle {
-                                width: parent.width - 158 - 170 - 290 - 24; height: parent.height; radius: 12
+                                width: fnMillerRow.col3W; height: parent.height; radius: 12; clip: true
                                 color: root.darkMode ? Qt.rgba(0, 0, 0, 0.22) : Qt.rgba(0, 0, 0, 0.04)
                                 Column {
                                     visible: root.finderSelected !== null
@@ -598,12 +643,12 @@ Scope {
                                     Text {
                                         width: parent.width; wrapMode: Text.WordWrap
                                         text: root.finderSelected ? root.finderSelected.name : ""
-                                        color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 13.5; font.weight: Font.DemiBold
+                                        color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 14; font.weight: Font.DemiBold
                                     }
                                     Text {
                                         width: parent.width; elide: Text.ElideMiddle
                                         text: root.finderSelected ? root.finderSelected.path : ""
-                                        color: "#8E8E93"; font.pixelSize: 10.5
+                                        color: "#8E8E93"; font.pixelSize: 10
                                     }
                                     // Tag picker
                                     Row {
@@ -655,6 +700,9 @@ Scope {
                                 Text {
                                     visible: root.finderSelected === null
                                     anchors.centerIn: parent
+                                    width: parent.width - 16
+                                    horizontalAlignment: Text.AlignHCenter
+                                    wrapMode: Text.WordWrap
                                     text: I18n.tr("Select a file to inspect")
                                     color: "#8E8E93"; font.pixelSize: 12
                                 }

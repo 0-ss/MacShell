@@ -361,6 +361,7 @@ Item {
                 x: 78 * ls.u; y: 14 * ls.u
                 width: parent.width - x - 16 * ls.u
                 Text {
+                    width: parent.width; elide: Text.ElideRight
                     text: ls.liveKind === "timer" && liveCard.tm ? (liveCard.tm.label || I18n.tr("Timer")) + (liveCard.tm.state === "paused" ? I18n.tr(" · Paused") : "")
                         : (ls.liveKind === "sw" ? "Stopwatch" : (ls.liveKind === "ring" && ls.clockSt.ringing ? (ls.clockSt.ringing.kind === "timer" ? "Timer" : "Alarm") : ""))
                     color: "#FF9F0A"; font.family: ls.fam; font.pixelSize: 13 * ls.u; font.weight: Font.DemiBold

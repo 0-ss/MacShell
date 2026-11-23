@@ -177,7 +177,7 @@ Scope {
                                     id: tbLbl; anchors.centerIn: parent
                                     text: tbBtn.modelData.label
                                     color: tbMa.containsMouse ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F")
-                                    font.family: Fonts.forWeight(Font.Medium, root.fam); font.pixelSize: 12.5
+                                    font.family: Fonts.forWeight(Font.Medium, root.fam); font.pixelSize: 12
                                 }
                                 MouseArea {
                                     id: tbMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
@@ -270,19 +270,19 @@ Scope {
                     Rectangle {
                         height: 24; radius: 7; width: thEd.implicitWidth + 14
                         color: thEdMa.containsMouse ? root.accent : (root.darkMode ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.08))
-                        Text { id: thEd; anchors.centerIn: parent; text: I18n.tr("Markup"); color: "#FFFFFF"; font.pixelSize: 11.5 }
+                        Text { id: thEd; anchors.centerIn: parent; text: I18n.tr("Markup"); color: "#FFFFFF"; font.pixelSize: 12 }
                         MouseArea { id: thEdMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openMarkup(root.thumbPath) }
                     }
                     Rectangle {
                         height: 24; radius: 7; width: thCp.implicitWidth + 14
                         color: thCpMa.containsMouse ? root.accent : (root.darkMode ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.08))
-                        Text { id: thCp; anchors.centerIn: parent; text: I18n.tr("Copy"); color: "#FFFFFF"; font.pixelSize: 11.5 }
+                        Text { id: thCp; anchors.centerIn: parent; text: I18n.tr("Copy"); color: "#FFFFFF"; font.pixelSize: 12 }
                         MouseArea { id: thCpMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { Quickshell.execDetached(["sh", "-c", "wl-copy < \"$1\"", "sh", root.thumbPath]); root.dismissThumbnail(); } }
                     }
                     Rectangle {
                         height: 24; radius: 7; width: thCl.implicitWidth + 14
                         color: thClMa.containsMouse ? "#FF453A" : (root.darkMode ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.08))
-                        Text { id: thCl; anchors.centerIn: parent; text: I18n.tr("Done"); color: "#FFFFFF"; font.pixelSize: 11.5 }
+                        Text { id: thCl; anchors.centerIn: parent; text: I18n.tr("Done"); color: "#FFFFFF"; font.pixelSize: 12 }
                         MouseArea { id: thClMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.dismissThumbnail() }
                     }
                 }

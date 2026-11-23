@@ -143,7 +143,7 @@ Scope {
                             horizontalAlignment: Text.AlignHCenter; elide: Text.ElideMiddle
                             text: root.fileName
                             color: root.darkMode ? "#FFFFFF" : "#1D1D1F"
-                            font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 13.5; font.weight: Font.DemiBold
+                            font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 14; font.weight: Font.DemiBold
                         }
                         Rectangle {
                             anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
@@ -192,7 +192,7 @@ Scope {
                                 text: (root.previewData && root.previewData.text) ? root.previewData.text : ""
                                 color: root.darkMode ? "#EAECEF" : "#1D1D1F"
                                 font.family: root.fileKind === "text" ? "monospace" : root.fam
-                                font.pixelSize: 12.5
+                                font.pixelSize: 12
                                 background: Rectangle { color: "transparent" }
                             }
                         }
@@ -215,7 +215,7 @@ Scope {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 text: root.filePath
                                 color: root.darkMode ? Qt.rgba(1, 1, 1, 0.45) : Qt.rgba(0, 0, 0, 0.45)
-                                font.pixelSize: 11.5
+                                font.pixelSize: 12
                             }
                         }
                     }

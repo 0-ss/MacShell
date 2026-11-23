@@ -502,8 +502,18 @@ Window {
     // so no windowrule is needed in the Hyprland config. The dispatches below are only the fallback / re-apply.
     onVisibleChanged: if (visible) { root.registerSettingsRule(false); if (root.bar) { root.bar.updateDialogOpen = root.bar.updateState === "available"; root.bar.checkForUpdates(true); } showNormal(); applyScaledSize(); floatTries = 0; floatTimer.restart(); if (root.glassState === "idle") root.startGlass(); }
     property int floatTries: 0
-    readonly property int preferredWidth: Math.round(800 * root.uiS)
-    readonly property int preferredHeight: Math.round(880 * root.uiS)
+    readonly property int maxScreenW: {
+        var fm = Hyprland.focusedMonitor;
+        if (fm && fm.width > 0) return Math.round(fm.width / (fm.scale || 1));
+        return Quickshell.screens.length > 0 ? Quickshell.screens[0].width : 1920;
+    }
+    readonly property int maxScreenH: {
+        var fm = Hyprland.focusedMonitor;
+        if (fm && fm.height > 0) return Math.round(fm.height / (fm.scale || 1));
+        return Quickshell.screens.length > 0 ? Quickshell.screens[0].height : 1080;
+    }
+    readonly property int preferredWidth: Math.min(Math.round(800 * root.uiS), Math.max(560, maxScreenW - 48))
+    readonly property int preferredHeight: Math.min(Math.round(880 * root.uiS), Math.max(380, maxScreenH - 130))
     // the UI scale changed while the window is open: Hyprland keeps the old floating size (and its blur / shadow region), so
     // tell it the new size again
     // ── resize that only applies when you let go ──

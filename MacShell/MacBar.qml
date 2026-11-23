@@ -7516,7 +7516,7 @@ Scope {
                             Text {
                                 id: hideBadgeT; anchors.centerIn: parent
                                 text: "\u00d7 " + I18n.tr("Hide")
-                                color: "#FFFFFF"; font.pixelSize: 10.5; font.weight: Font.DemiBold
+                                color: "#FFFFFF"; font.pixelSize: 10; font.weight: Font.DemiBold
                             }
                         }
 
@@ -10687,7 +10687,7 @@ Scope {
                                     anchors.fill: parent; anchors.margins: 10; spacing: 2
                                     Text {
                                         text: Qt.formatDate(clock.date, "dddd").toUpperCase()
-                                        color: "#FF453A"; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 10.5; font.weight: Font.DemiBold
+                                        color: "#FF453A"; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 10; font.weight: Font.DemiBold
                                     }
                                     Text {
                                         text: Qt.formatDate(clock.date, "d")
@@ -10695,7 +10695,7 @@ Scope {
                                     }
                                     Text {
                                         text: Qt.formatDate(clock.date, "MMMM yyyy")
-                                        color: pal.fg2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 10.5
+                                        color: pal.fg2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 10
                                     }
                                 }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: ui.openPop("cal", 0) }
@@ -10719,7 +10719,7 @@ Scope {
                                     Text {
                                         width: parent.width; elide: Text.ElideRight
                                         text: (parent.parent.wgt && parent.parent.wgt.wxReady && parent.parent.wgt.wxInfo) ? parent.parent.wgt.wxInfo.t : I18n.tr("Edit Widgets\u2026")
-                                        color: pal.fg2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 10.5
+                                        color: pal.fg2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 10
                                     }
                                 }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { ui.pop = ""; root.openSettings("widgets"); } }
@@ -10864,14 +10864,14 @@ Scope {
                                         text: hHit.modelData.label
                                         color: hHit.hot ? "white" : panelPal.fg
                                         font.family: Fonts.forWeight(Font.DemiBold, "Open Runde")
-                                        font.pixelSize: 12.5; font.weight: Font.DemiBold
+                                        font.pixelSize: 12; font.weight: Font.DemiBold
                                     }
                                     Text {
                                         width: parent.width; elide: Text.ElideRight
                                         text: hHit.modelData.path
                                         color: hHit.hot ? Qt.rgba(1, 1, 1, 0.8) : panelPal.fg2
                                         font.family: Fonts.forWeight(Font.Normal, "Open Runde")
-                                        font.pixelSize: 10.5
+                                        font.pixelSize: 10
                                     }
                                 }
                                 Text {
@@ -10919,7 +10919,7 @@ Scope {
                                 text: ui.menuSubStack.length > 0 ? ui.menuSubStack[ui.menuSubStack.length - 1].title : ""
                                 color: subBackMa.containsMouse ? "white" : panelPal.fg
                                 font.family: Fonts.forWeight(Font.DemiBold, "Open Runde")
-                                font.pixelSize: 12.5; font.weight: Font.DemiBold
+                                font.pixelSize: 12; font.weight: Font.DemiBold
                             }
                             MouseArea {
                                 id: subBackMa
@@ -13012,7 +13012,7 @@ Scope {
                                         Text {
                                             width: parent.width; elide: Text.ElideRight
                                             text: I18n.tr(fRow.modelData.name)
-                                            color: ccPal.fg; font.family: Fonts.forWeight(Font.DemiBold, root.boldFontFamily); font.pixelSize: 12.5; font.weight: Font.DemiBold
+                                            color: ccPal.fg; font.family: Fonts.forWeight(Font.DemiBold, root.boldFontFamily); font.pixelSize: 12; font.weight: Font.DemiBold
                                         }
                                         Text {
                                             width: parent.width; elide: Text.ElideRight
@@ -13021,7 +13021,7 @@ Scope {
                                                   : (fRow.modelData.allowApps && fRow.modelData.allowApps.length > 0
                                                      ? (fRow.modelData.allowApps.length + " " + I18n.tr("allowed apps"))
                                                      : I18n.tr("Silences notifications"))
-                                            color: ccPal.fg2; font.family: Fonts.forWeight(Font.Normal, ccPal.fam); font.pixelSize: 10.5
+                                            color: ccPal.fg2; font.family: Fonts.forWeight(Font.Normal, ccPal.fam); font.pixelSize: 10
                                         }
                                     }
                                     Text {
@@ -13029,7 +13029,7 @@ Scope {
                                         anchors.right: parent.right; anchors.rightMargin: 12
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: I18n.tr("On")
-                                        color: fRow.modelData.color; font.family: Fonts.forWeight(Font.DemiBold, root.boldFontFamily); font.pixelSize: 11.5; font.weight: Font.DemiBold
+                                        color: fRow.modelData.color; font.family: Fonts.forWeight(Font.DemiBold, root.boldFontFamily); font.pixelSize: 12; font.weight: Font.DemiBold
                                     }
                                     MouseArea {
                                         id: fRowMa
@@ -14390,7 +14390,7 @@ Scope {
                                 anchors.fill: parent; anchors.margins: 8
                                 text: (root.spPreviewData && root.spPreviewData.text) ? root.spPreviewData.text : ""
                                 color: panelPal.fg
-                                font.family: "monospace"; font.pixelSize: 10.5
+                                font.family: "monospace"; font.pixelSize: 10
                                 wrapMode: Text.WrapAnywhere; elide: Text.ElideRight
                             }
                         }
@@ -14398,7 +14398,7 @@ Scope {
                             width: parent.width; elide: Text.ElideMiddle
                             text: spPreviewPane.item ? String(spPreviewPane.item.title || "") : ""
                             color: panelPal.fg
-                            font.family: Fonts.forWeight(Font.DemiBold, root.boldFontFamily); font.pixelSize: 12.5; font.weight: Font.DemiBold
+                            font.family: Fonts.forWeight(Font.DemiBold, root.boldFontFamily); font.pixelSize: 12; font.weight: Font.DemiBold
                         }
                         Text {
                             width: parent.width; elide: Text.ElideMiddle
@@ -14408,7 +14408,7 @@ Scope {
                                 return (sz ? sz + " \u00b7 " : "") + (spPreviewPane.item.filePath || "");
                             }
                             color: panelPal.fg2
-                            font.family: Fonts.forWeight(Font.Normal, panelPal.fam); font.pixelSize: 10.5
+                            font.family: Fonts.forWeight(Font.Normal, panelPal.fam); font.pixelSize: 10
                         }
                         Row {
                             spacing: 6

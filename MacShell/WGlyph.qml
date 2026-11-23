@@ -236,6 +236,20 @@ Canvas {
             ctx.lineTo(4.4, 15.2);
             ctx.arcTo(2.2, 15.2, 2.2, 13, 2.2);
             ctx.closePath(); ctx.stroke();
+        } else if (k === "disk") {
+            rrect(2.4, 3.8, 13.2, 10.4, 2.2); ctx.stroke();
+            line(2.4, 10.6, 15.6, 10.6);
+            circ(12.6, 12.4, 0.9); ctx.fill();
+        } else if (k === "refresh") {
+            ctx.beginPath(); ctx.arc(9, 9, 5.6, -0.7, PI * 1.45, false); ctx.stroke();
+            poly([13.2, 3.4, 14.5, 6.8, 11.0, 6.2], true);
+        } else if (k === "clock") {
+            circ(9, 9, 6.2); ctx.stroke();
+            line(9, 5.2, 9, 9); line(9, 9, 12.2, 10.6);
+        } else if (k === "print") {
+            rrect(4.6, 2.4, 8.8, 4.2, 1); ctx.stroke();
+            rrect(2.2, 6.6, 13.6, 6.2, 1.6); ctx.stroke();
+            rrect(4.8, 10.6, 8.4, 5.0, 1); ctx.stroke();
         } else if (k === "layers") {
             ctx.beginPath(); ctx.moveTo(9, 2.4); ctx.lineTo(15.6, 5.8); ctx.lineTo(9, 9.2); ctx.lineTo(2.4, 5.8); ctx.closePath(); ctx.stroke();
             poly([2.4, 9.2, 9, 12.6, 15.6, 9.2], false);

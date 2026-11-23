@@ -20,8 +20,9 @@ Scope {
     // ── Force Quit dialog state ──
     property bool forceQuitOpen: false
     property int fqSelected: 0
-    function openForceQuit() { forceQuitOpen = true; fqSelected = 0; }
-    function closeForceQuit() { forceQuitOpen = false; }
+    property bool fqConfirmArmed: false
+    function openForceQuit() { forceQuitOpen = true; fqSelected = 0; fqConfirmArmed = false; }
+    function closeForceQuit() { forceQuitOpen = false; fqConfirmArmed = false; }
     function toggleForceQuit() { if (forceQuitOpen) closeForceQuit(); else openForceQuit(); }
 
     // ── Native Activity Monitor state ──
@@ -30,10 +31,33 @@ Scope {
     property string actFilter: ""
     property var procList: []           // [{ pid, name, cpu, mem, rssMb }]
     property int actSelectedPid: -1
-    function openActivity() { activityOpen = true; refreshProcs(); }
+    property int liveCpuPct: 0
+    property int liveRamPct: 0
+    property int liveDiskPct: 0
+    property string liveNetSpeed: "\u2014"
+    readonly property string sysmonScript: decodeURIComponent(String(Qt.resolvedUrl("sysmon_reader.py")).replace(/^file:\/\//, ""))
+    function openActivity() { activityOpen = true; refreshProcs(); refreshSummary(); }
     function closeActivity() { activityOpen = false; }
     function toggleActivity() { if (activityOpen) closeActivity(); else openActivity(); }
 
+    function refreshSummary() { if (!sumPoll.running) sumPoll.running = true; }
+    Process {
+        id: sumPoll
+        command: ["python3", "-B", root.sysmonScript]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var o = JSON.parse(text.trim());
+                    if (o.cpu !== undefined) root.liveCpuPct = Math.round(o.cpu);
+                    if (o.ram !== undefined) root.liveRamPct = Math.round(o.ram);
+                    else if (o.ram_pct !== undefined) root.liveRamPct = Math.round(o.ram_pct);
+                    if (o.disk !== undefined) root.liveDiskPct = Math.round(o.disk);
+                    else if (o.disk_pct !== undefined) root.liveDiskPct = Math.round(o.disk_pct);
+                    if (o.net || o.net_speed) root.liveNetSpeed = String(o.net || o.net_speed);
+                } catch (e) {}
+            }
+        }
+    }
     function refreshProcs() {
         if (!procPoll.running) procPoll.running = true;
     }
@@ -42,7 +66,9 @@ Scope {
         command: ["sh", "-c",
             root.actTab === "memory"
             ? "ps -eo pid=,comm=,pcpu=,pmem=,rss= --sort=-rss | head -n 45"
-            : "ps -eo pid=,comm=,pcpu=,pmem=,rss= --sort=-pcpu | head -n 45"]
+            : (root.actTab === "disk"
+               ? "ps -eo pid=,comm=,pcpu=,pmem=,rss= --sort=-rss | head -n 45"
+               : "ps -eo pid=,comm=,pcpu=,pmem=,rss= --sort=-pcpu | head -n 45")]
         stdout: StdioCollector {
             onStreamFinished: {
                 var out = [], lines = text.trim().split("\n");
@@ -64,7 +90,7 @@ Scope {
     Timer {
         interval: 2000; repeat: true
         running: root.activityOpen
-        onTriggered: root.refreshProcs()
+        onTriggered: { root.refreshProcs(); root.refreshSummary(); }
     }
     onActTabChanged: if (activityOpen) refreshProcs()
 
@@ -156,8 +182,14 @@ Scope {
                                         color: root.fqSelected === fqRow.index ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F")
                                         font.family: Fonts.forWeight(Font.Medium, root.fam); font.pixelSize: 13
                                     }
-                                    MouseArea { anchors.fill: parent; onClicked: root.fqSelected = fqRow.index }
+                                    MouseArea { anchors.fill: parent; onClicked: { root.fqSelected = fqRow.index; root.fqConfirmArmed = false; } }
                                 }
+                            }
+                            Text {
+                                visible: runningApps.length === 0
+                                anchors.centerIn: parent
+                                text: I18n.tr("No open applications")
+                                color: "#8E8E93"; font.pixelSize: 12
                             }
                         }
                         Item {
@@ -165,16 +197,17 @@ Scope {
                             Rectangle {
                                 anchors.left: parent.left; height: 30; radius: 8; width: fqCan.implicitWidth + 20
                                 color: root.darkMode ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
-                                Text { id: fqCan; anchors.centerIn: parent; text: I18n.tr("Close"); color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 12.5 }
+                                Text { id: fqCan; anchors.centerIn: parent; text: I18n.tr("Close"); color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 12 }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.closeForceQuit() }
                             }
                             Rectangle {
                                 anchors.right: parent.right; height: 30; radius: 8; width: fqKill.implicitWidth + 24
-                                color: runningApps.length > 0 ? "#FF453A" : Qt.rgba(1, 1, 1, 0.15)
-                                Text { id: fqKill; anchors.centerIn: parent; text: I18n.tr("Force Quit"); color: "#FFFFFF"; font.pixelSize: 12.5; font.weight: Font.DemiBold }
+                                color: runningApps.length > 0 ? (root.fqConfirmArmed ? "#D70015" : "#FF453A") : Qt.rgba(1, 1, 1, 0.15)
+                                Text { id: fqKill; anchors.centerIn: parent; text: root.fqConfirmArmed ? I18n.tr("Confirm Force Quit") : I18n.tr("Force Quit"); color: "#FFFFFF"; font.pixelSize: 12; font.weight: Font.DemiBold }
                                 MouseArea {
                                     anchors.fill: parent; enabled: runningApps.length > 0; cursorShape: Qt.PointingHandCursor
                                     onClicked: {
+                                        if (!root.fqConfirmArmed) { root.fqConfirmArmed = true; return; }
                                         var idx = Math.max(0, Math.min(root.fqSelected, runningApps.length - 1));
                                         var target = runningApps[idx];
                                         if (target && target.pid > 0) Quickshell.execDetached(["kill", "-9", String(target.pid)]);
@@ -232,9 +265,9 @@ Scope {
 
                     Column {
                         anchors.fill: parent; anchors.margins: 16; spacing: 10
-                        // Header row: close, title, tabs, search
+                        // Header row 1: close, title, search filter (never overlaps tabs on narrow screens)
                         Item {
-                            width: parent.width; height: 32
+                            width: parent.width; height: 28
                             Rectangle {
                                 x: 0; anchors.verticalCenter: parent.verticalCenter
                                 width: 13; height: 13; radius: 6.5; color: "#FF5F57"
@@ -242,27 +275,10 @@ Scope {
                             }
                             Text {
                                 x: 24; anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 190; elide: Text.ElideRight
                                 text: I18n.tr("Activity Monitor")
                                 color: root.darkMode ? "#FFFFFF" : "#1D1D1F"
                                 font.family: Fonts.forWeight(Font.DemiBold, root.fam); font.pixelSize: 14; font.weight: Font.DemiBold
-                            }
-                            Row {
-                                anchors.centerIn: parent; spacing: 4
-                                Repeater {
-                                    model: [
-                                        { id: "cpu", label: "CPU" },
-                                        { id: "memory", label: I18n.tr("Memory") },
-                                        { id: "disk", label: I18n.tr("Disk") },
-                                        { id: "network", label: I18n.tr("Network") }
-                                    ]
-                                    delegate: Rectangle {
-                                        id: aTab; required property var modelData
-                                        height: 26; radius: 8; width: aTabTxt.implicitWidth + 18
-                                        color: root.actTab === aTab.modelData.id ? root.accent : (root.darkMode ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06))
-                                        Text { id: aTabTxt; anchors.centerIn: parent; text: aTab.modelData.label; color: root.actTab === aTab.modelData.id ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12 }
-                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.actTab = aTab.modelData.id }
-                                    }
-                                }
                             }
                             Rectangle {
                                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
@@ -282,16 +298,35 @@ Scope {
                                 }
                             }
                         }
+                        // Header row 2: segmented tabs
+                        Row {
+                            anchors.horizontalCenter: parent.horizontalCenter; spacing: 6
+                            Repeater {
+                                model: [
+                                    { id: "cpu", label: "CPU" },
+                                    { id: "memory", label: I18n.tr("Memory") },
+                                    { id: "disk", label: I18n.tr("Disk") },
+                                    { id: "network", label: I18n.tr("Network") }
+                                ]
+                                delegate: Rectangle {
+                                    id: aTab; required property var modelData
+                                    height: 26; radius: 8; width: aTabTxt.implicitWidth + 18
+                                    color: root.actTab === aTab.modelData.id ? root.accent : (root.darkMode ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06))
+                                    Text { id: aTabTxt; anchors.centerIn: parent; text: aTab.modelData.label; color: root.actTab === aTab.modelData.id ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12 }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.actTab = aTab.modelData.id }
+                                }
+                            }
+                        }
 
                         // Summary stats bar
                         Row {
                             width: parent.width; spacing: 10
                             Repeater {
                                 model: [
-                                    { label: "CPU", val: (root.bar ? root.bar.cpuUsage : 0) + "%" },
-                                    { label: "RAM", val: (root.bar ? root.bar.ramUsage : 0) + "%" },
-                                    { label: "Disk", val: (root.bar ? root.bar.diskUsage : 0) + "%" },
-                                    { label: "Net", val: (root.bar ? root.bar.netSpeed : "\u2014") }
+                                    { label: "CPU", val: root.liveCpuPct + "%" },
+                                    { label: "RAM", val: root.liveRamPct + "%" },
+                                    { label: "Disk", val: root.liveDiskPct + "%" },
+                                    { label: "Net", val: root.liveNetSpeed }
                                 ]
                                 delegate: Rectangle {
                                     required property var modelData
@@ -299,7 +334,7 @@ Scope {
                                     color: root.darkMode ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.04)
                                     Column {
                                         anchors.centerIn: parent; spacing: 1
-                                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.label; color: root.darkMode ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.55); font.pixelSize: 10.5 }
+                                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.label; color: root.darkMode ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.55); font.pixelSize: 10 }
                                         Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.val; color: root.darkMode ? "#FFFFFF" : "#1D1D1F"; font.pixelSize: 14; font.weight: Font.DemiBold }
                                     }
                                 }
@@ -317,7 +352,7 @@ Scope {
 
                         // Process list
                         Rectangle {
-                            width: parent.width; height: parent.height - 178; radius: 10
+                            width: parent.width; height: Math.max(120, parent.height - 210); radius: 10
                             color: root.darkMode ? Qt.rgba(0, 0, 0, 0.24) : Qt.rgba(0, 0, 0, 0.04)
                             clip: true
                             ListView {
@@ -331,9 +366,9 @@ Scope {
                                     Row {
                                         anchors.fill: parent; anchors.leftMargin: 6
                                         Text { width: parent.width - 240; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; text: prRow.modelData.name; color: prRow.sel ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12 }
-                                        Text { width: 70; anchors.verticalCenter: parent.verticalCenter; text: String(prRow.modelData.pid); color: prRow.sel ? "#FFFFFF" : (root.darkMode ? Qt.rgba(1, 1, 1, 0.65) : Qt.rgba(0, 0, 0, 0.65)); font.pixelSize: 11.5 }
-                                        Text { width: 75; anchors.verticalCenter: parent.verticalCenter; text: prRow.modelData.cpu.toFixed(1) + "%"; color: prRow.sel ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 11.5 }
-                                        Text { width: 95; anchors.verticalCenter: parent.verticalCenter; text: prRow.modelData.rssMb + " MB"; color: prRow.sel ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 11.5 }
+                                        Text { width: 70; anchors.verticalCenter: parent.verticalCenter; text: String(prRow.modelData.pid); color: prRow.sel ? "#FFFFFF" : (root.darkMode ? Qt.rgba(1, 1, 1, 0.65) : Qt.rgba(0, 0, 0, 0.65)); font.pixelSize: 12 }
+                                        Text { width: 75; anchors.verticalCenter: parent.verticalCenter; text: prRow.modelData.cpu.toFixed(1) + "%"; color: prRow.sel ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12 }
+                                        Text { width: 95; anchors.verticalCenter: parent.verticalCenter; text: prRow.modelData.rssMb + " MB"; color: prRow.sel ? "#FFFFFF" : (root.darkMode ? "#FFFFFF" : "#1D1D1F"); font.pixelSize: 12 }
                                     }
                                     MouseArea { anchors.fill: parent; onClicked: root.actSelectedPid = prRow.modelData.pid }
                                 }
@@ -346,7 +381,7 @@ Scope {
                             Text {
                                 anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                                 text: filteredProcs.length + " " + I18n.tr("processes shown")
-                                color: root.darkMode ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.55); font.pixelSize: 11.5
+                                color: root.darkMode ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.55); font.pixelSize: 12
                             }
                             Row {
                                 anchors.right: parent.right; spacing: 8
