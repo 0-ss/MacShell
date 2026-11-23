@@ -476,19 +476,15 @@ updating and it stays.
 
 ## Known issues
 
-**Shell crash with `wl_display#1: error 0: invalid object NNN`** when many windows open/close quickly (a game launching,
-spamming terminals) while live window capture runs. A window closes while a capture frame for it is still pending; Hyprland
-does not answer that frame, the shell then destroys it, and the compositor drops the Wayland connection. Mitigations:
+No open shell-side known issues at the moment. The previously documented **`wl_display#1: error 0: invalid object NNN`**
+crash during rapid window open/close bursts and **wrong/stale window capture frames** in Dock previews and Liquid Glass
+have been fixed (all captures now go through `SafeCapture`, overlay backdrops only capture overlapping windows while
+visible, backdrop teardown drains in-flight frames before unloading, `leaveMs` outlives Dock thumbnail `graceMs`,
+churn/storm pauses apply consistently, and `GlassCapture` resets cached frames on source changes).
 
-- Settings → Menu Bar → turn **Real-time glass** off (far fewer captures; the biggest win).
-- Settings → Dock Behavior → turn **Live window capture** off.
-- The shell already pauses glass captures while windows open/close.
-- Auto-restart: the autostart the installer adds (`macshell-start`) already restarts the shell after a crash.
-
-**Glitchy window capture** (previews or glass showing a wrong or stale frame): turn off Settings → Dock Behavior →
-**Live window capture**.
-
-Reproduced on Hyprland 0.56.2 / Quickshell 0.3.2.
+If you ever hit an upstream Hyprland / Quickshell screencopy quirk on a newer compositor release, you can still toggle
+Settings → Menu Bar → **Real-time glass** or Settings → Dock Behavior → **Live window capture** off, and `macshell-start`
+automatically restarts the shell after any unexpected exit.
 
 ## Credits
 

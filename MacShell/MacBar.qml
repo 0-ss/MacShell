@@ -4840,6 +4840,13 @@ Scope {
     // ═════════════ LIQUID GLASS BACKEND (same pipeline as macdock) ═════════════
     property string glassState: "idle"       // idle → building → ready | failed
     readonly property bool liquidActive: barStyle === "liquid" && glassState === "ready" && !gaming
+    property bool backdropLoaded: liquidActive
+    property bool backdropDraining: false
+    onLiquidActiveChanged: {
+        if (liquidActive) { backdropUnloadT.stop(); backdropDraining = false; backdropLoaded = true; }
+        else if (backdropLoaded) { backdropDraining = true; backdropUnloadT.restart(); }
+    }
+    Timer { id: backdropUnloadT; interval: 450; onTriggered: if (!root.liquidActive) { root.backdropLoaded = false; root.backdropDraining = false; } }
     readonly property string glassShaderSrc: decodeURIComponent(Qt.resolvedUrl("liquidglass.frag").toString().replace("file://", ""))
     readonly property string glassShaderOut: configDir + "/liquidglass.frag.qsb"
     readonly property url glassShaderUrl: "file://" + glassShaderOut
@@ -6012,27 +6019,30 @@ Scope {
                 // ready-made, current window pixels.
                 Loader {
                     id: glassBackdrop
-                    active: root.liquidActive
+                    active: root.backdropLoaded
                     sourceComponent: backdropComp
                     onLoaded: {
                         item.region = Qt.binding(function () { return ui.glassRect; });
-                        item.needed = Qt.binding(function () { return ui.anyVisible || root.barGlass || levelOsd.visible || ui.pop !== ""; });
+                        item.needed = Qt.binding(function () { return ui.anyVisible || root.barGlass || ui.pop !== ""; });
                     }
                 }
                 // ── Layered glass, cheaply: one snapshot of the WHOLE screen (wallpaper, widgets, every window and layer) ──
                 // taken while the pointer is on the bar (before a menu opens, so the menu isn't in it). Menus and popovers
                 // refract that real picture of what's behind them. Falls back to the live backdrop when there's no fresh one
                 // (e.g. a popover opened from the keyboard).
-                ScreencopyView {
+                SafeCapture {
                     id: screenSnap
                     x: 0; y: 0
                     width: win.modelData.width; height: win.modelData.height
                     opacity: 0                      // only ever captured by the glass, never drawn itself
-                    captureSource: root.liquidActive && !root.captureQuiet && !glassBackdrop.item ? win.modelData : null     // fallback only
-                    live: false
+                    want: root.liquidActive && !root.backdropDraining && !root.captureQuiet && !root.captureHeld && !glassBackdrop.item ? win.modelData : null     // fallback only
+                    wantLive: false
+                    hold: root.captureHeld || root.captureQuiet || root.backdropDraining
+                    healOnResize: false
+                    graceMs: 250
                     paintCursor: false
                     property real takenAt: 0
-                    function grab() { if (captureSource && typeof captureFrame === "function") { captureFrame(); takenAt = Date.now(); } }
+                    function grab() { if (armed) { snap(); takenAt = Date.now(); } }
                 }
                 property bool snapFresh: false
                 // a moment after a popover starts opening (its rect is known), measure what's behind it
@@ -6054,10 +6064,12 @@ Scope {
                         if (ui.pop !== "" && ui.pop !== "spot") toneT.restart();
                         else if (barHover.hovered && ui.pop === "") screenSnap.grab();
                     }
+                    function onGlassClientsChanged() { screenSnap.takenAt = 0; ui.snapFresh = false; }
+                    function onMonDataChanged() { screenSnap.takenAt = 0; ui.snapFresh = false; }
                 }
                 // The live backdrop (wallpaper + desktop widgets + live window captures) is always the source, so a window dragged
                 // under an open menu keeps moving. The one-shot screen snapshot is only a fallback while the backdrop is not up.
-                readonly property Item glassSrc: glassBackdrop.item ? glassBackdrop.item : ((snapFresh && screenSnap.hasContent) ? screenSnap : null)
+                readonly property Item glassSrc: glassBackdrop.item ? glassBackdrop.item : ((snapFresh && screenSnap.hasContent === true && screenSnap.held === screenSnap.want) ? screenSnap : null)
                 HoverHandler {
                     id: barHover
                     onHoveredChanged: if (hovered && ui.pop === "") screenSnap.grab()
@@ -6087,6 +6099,8 @@ Scope {
                         opacity: 0
                         property alias hostShown: bd.hostShown
                         property alias region: bd.region
+                        property alias regionOnly: bd.regionOnly
+                        property bool streamOk: true
                         // false = nothing is drawing the glass right now (no menu open, no glass bar, no volume popup): the flattened copy below then
                         // stops re-rendering the whole screen every frame (with real-time glass every window streams, so it used to do that all day)
                         property bool needed: true
@@ -6114,6 +6128,7 @@ Scope {
                         opacity: 0
                         property bool hostShown: true      // false while the window hosting this backdrop is hidden (set by its Loader)
                         property rect region: Qt.rect(0, 0, 0, 0)      // the glass that is on screen right now (set by its Loader); windows behind it stay live while recording
+                        property bool regionOnly: false    // overlay backdrops (Spotlight, switcher, OSD, wallpaper picker) only capture windows overlapping `region` while visible
                         x: 0; y: 0
                         width: win.modelData.width
                         height: win.modelData.height
@@ -6221,25 +6236,27 @@ Scope {
                                 x: wx; y: wy; width: ww; height: wh; z: wz
                                 // a window that left (closed, other workspace) leaves the backdrop at once (its kept frame must not linger)
                                 visible: !gone
+                                onGoneChanged: if (!gone && !sv.wantLive && sv.armed) sv.snap()
                                 // staggered start: when many windows appear in the same instant (a workspace switch, a batch of apps) their captures
                                 // begin 25 ms apart instead of all together (a burst of first-frame requests is what the compositor chokes on)
                                 property bool startOk: false
                                 Timer { id: startT; interval: Math.min(200, 25 * gw.index); onTriggered: gw.startOk = true }
                                 Component.onCompleted: { if (gw.index <= 0) startOk = true; else startT.start(); }
                                 // Hyprland announced this window's close: its capture stops requesting frames at once (the source is kept a moment, see SafeCapture)
-                                readonly property bool closing: !!root.hub && root.hub.closingWins[String(addr).replace(/^0x/, "")] === true
-                                readonly property var tl: { if (!root.hub || gone || closing || !startOk) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
+                                readonly property bool closing: !!root.hub && root.hub.closingWins[String(addr || "").replace(/^0x/i, "").trim().toLowerCase()] === true
                                 // behind the glass that is on screen right now (popover / panel + refraction margin)?
                                 readonly property bool onGlass: bd.region.width > 0 && x < bd.region.x + bd.region.width && x + width > bd.region.x
                                                                 && y < bd.region.y + bd.region.height && y + height > bd.region.y
+                                readonly property bool captureActive: bd.hostShown && !root.backdropDraining && (!bd.regionOnly || onGlass)
+                                readonly property var tl: { if (!root.hub || gone || closing || !startOk || !captureActive) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
                                 // SafeCapture: the source outlives `want` by a moment, so a capture is never destroyed with a frame in flight
                                 // (that was the "closed a window right after opening it -> the shell dies" crash)
                                 GlassCapture {
                                     id: sv
                                     anchors.fill: parent
                                     placeholder: root.darkMode ? "#1e1e20" : "#f2f2f7"
-                                    glassOn: ui.anyVisible || root.barGlass || levelOsd.visible || spotWin.openish || swWin.visible || wpWin.visible
-                                    want: gw.tl
+                                    glassOn: bd.hostShown && flatRoot.needed
+                                    want: gw.captureActive ? gw.tl : null
                                     // While a screen recording / screen share runs the window captures sit out (root.captureQuiet). `hush` follows it
                                     // with a random 0.6 s spread, so dozens of captures never start or stop in the same instant (that burst, with a
                                     // recorder pulling frames at the same time, is what the compositor choked on).
@@ -6249,19 +6266,20 @@ Scope {
                                         function onCaptureQuietChanged() { hushT.interval = 20 + Math.random() * 600; hushT.restart(); }
                                     }
                                     Timer { id: hushT; onTriggered: sv.hush = root.captureQuiet }
+                                    hold: root.captureHeld || root.backdropDraining || sv.hush || gw.gone || gw.closing
                                     // REAL-TIME: with glassRealtime every capture stays live all the time, so a popover opens on
                                     // frames that are already current and nothing is torn down / restarted when it opens (the restart
                                     // is what used to show the bare wallpaper first). Backdrops that live in a window which is
-                                    // hidden right now (Spotlight, switcher, ...) are only kept warm with slow single captures.
+                                    // hidden right now (Spotlight, switcher, ...) stay detached until their overlay is actually shown.
                                     // While recording only the windows behind visible glass stay live (so the glass is real-time exactly where you see it,
                                     // e.g. a video behind the Control Center), every other window sits out.
-                                    wantLive: !gw.gone && !root.captureHeld && bd.hostShown && (!sv.hush || gw.onGlass) && (root.glassRealtime || ui.anyVisible || levelOsd.visible || spotWin.glassGo || swWin.visible || wpWin.visible)
+                                    wantLive: gw.captureActive && !gw.gone && !root.captureHeld && !root.backdropDraining && flatRoot.streamOk && (!sv.hush || gw.onGlass) && (root.glassRealtime || flatRoot.needed)
                                     // a panel / menu just opened: every stream behind it starts afresh (a stream that died while the windows were
                                     // re-tiled would otherwise leave the wallpaper behind the glass), and while it stays open the windows behind it
                                     // are re-armed now and then, so the glass keeps following them (opening an app next to them, a resize, ...)
                                     Connections {
                                         target: ui
-                                        function onAnyVisibleChanged() { if (ui.anyVisible) sv.heal(); }
+                                        function onAnyVisibleChanged() { if (ui.anyVisible && bd.hostShown && !root.captureHeld) sv.heal(); }
                                     }
                                     Timer {
                                         interval: 1500; repeat: true
@@ -6271,23 +6289,20 @@ Scope {
                                     onHeldChanged: {
                                         // a brand-new capture grabs its first frame immediately instead of waiting for the timer
                                         // (a short delay: asking before the capture context exists only logged "no recording context is ready")
-                                        if (held !== null && !wantLive && !sv.hush && !root.captureHeld) firstShot.restart();
+                                        if (held !== null && !wantLive && !sv.hush && !root.captureHeld && !root.backdropDraining) firstShot.restart();
                                     }
                                     Timer {
                                         id: firstShot
                                         interval: 90
                                         onTriggered: { if (!sv.wantLive) sv.snap(); }
                                     }
-                                    // single captures: hidden backdrops stay warm once a second (their window goes live the moment it opens);
-                                    // while recording only a backdrop that is actually on screen refreshes, slowly
-                                    // Where glass is on screen (a popover, the OSD, Spotlight, the liquid bar strip) the picture refreshes at 4 Hz as
-                                    // before; windows that no glass is looking at stay warm at 0.7 Hz (their stream starts the moment glass opens).
-                                    readonly property bool busy: ui.anyVisible || levelOsd.visible || spotWin.openish || swWin.visible || wpWin.visible
-                                                                 || (root.barGlass && gw.y < root.barH + 40)
+                                    // single captures: hidden backdrops stay detached; visible bar backdrop refreshes at 4 Hz behind active glass
+                                    // or 0.7 Hz while idle so menus open on warm frames.
+                                    readonly property bool busy: bd.hostShown && (flatRoot.needed || (root.barGlass && gw.y < root.barH + 40))
                                     Timer {
-                                        interval: sv.hush ? 1500 : (bd.hostShown ? (sv.busy ? 250 : 1500) : 1000); repeat: true
-                                        running: !root.captureHeld && !sv.wantLive && sv.armed
-                                                 && (!sv.hush || (bd.hostShown && (ui.anyVisible || levelOsd.visible || spotWin.openish || swWin.visible || wpWin.visible)))
+                                        interval: sv.hush ? 1500 : (sv.busy ? 250 : 1500); repeat: true
+                                        running: gw.captureActive && !root.captureHeld && !root.backdropDraining && !sv.wantLive && sv.armed
+                                                 && (!sv.hush || (bd.hostShown && flatRoot.needed))
                                         onTriggered: sv.snap()
                                     }
                                 }
@@ -6299,11 +6314,12 @@ Scope {
                         // every other one takes a fresh frame, so the glass follows the windows while they slide into place.
                         property int settleN: 0
                         // off unless MACSHELL_BURST=1 is set in the environment: the extra rebuilds / frames right after a layout change are experimental
-                        function burst() { if (Quickshell.env("MACSHELL_BURST") === "0" || !ui.anyVisible) return; settleN = 0; glassSettle.restart(); }
+                        function burst() { if (Quickshell.env("MACSHELL_BURST") !== "1" || !bd.hostShown || !flatRoot.needed || root.captureHeld) return; settleN = 0; glassSettle.restart(); }
                         function rearm() {
+                            if (root.captureHeld || root.backdropDraining) return;
                             for (var q = 0; q < wrep.count; q++) {
                                 var it = wrep.itemAt(q);
-                                if (it && it.cap && !it.gone) { it.cap.kick(); it.cap.snap(); }
+                                if (it && it.cap && !it.gone && it.captureActive) { it.cap.kick(); it.cap.snap(); }
                             }
                         }
                         Timer {
@@ -6367,8 +6383,17 @@ Scope {
                         // a closed window first lets go of its capture (gone → captureSource null), the item itself is removed a moment later
                         Timer {
                             id: sweep
-                            interval: 600
-                            onTriggered: { for (var q = wm.count - 1; q >= 0; q--) if (wm.get(q).gone) wm.remove(q); }
+                            interval: 700
+                            onTriggered: {
+                                var retry = false;
+                                for (var q = wm.count - 1; q >= 0; q--) {
+                                    if (!wm.get(q).gone) continue;
+                                    var it = wrep.itemAt(q);
+                                    if (it && it.cap && it.cap.held !== null) { retry = true; continue; }
+                                    wm.remove(q);
+                                }
+                                if (retry) restart();
+                            }
                         }
                         Connections {
                             target: root
@@ -11961,9 +11986,11 @@ Scope {
 
                 Loader {
                     id: swBackdrop
-                    active: root.liquidActive          // stays loaded (warm) so the window opens on ready-made frames
+                    active: root.backdropLoaded
                     sourceComponent: backdropComp
                     onLoaded: { item.hostShown = Qt.binding(function () { return swWin.visible; });
+                                item.needed = Qt.binding(function () { return swWin.visible; });
+                                item.regionOnly = true;
                                 item.region = Qt.binding(function () { return Qt.rect(swPanel.x - 96, swPanel.y - 96, swPanel.width + 192, swPanel.height + 192); }); }
                 }
                 MouseArea { anchors.fill: parent; onPressed: root.swCommit() }      // a click anywhere switches to the selected app
@@ -12137,9 +12164,11 @@ Scope {
 
                 Loader {
                     id: wpBackdrop
-                    active: root.liquidActive          // stays loaded (warm) so the window opens on ready-made frames
+                    active: root.backdropLoaded
                     sourceComponent: backdropComp
                     onLoaded: { item.hostShown = Qt.binding(function () { return wpWin.visible; });
+                                item.needed = Qt.binding(function () { return wpWin.visible; });
+                                item.regionOnly = true;
                                 item.region = Qt.binding(function () { return Qt.rect(wpPanel.x - 96, wpPanel.y - 96, wpPanel.width + 192, wpPanel.height + 192); }); }
                 }
                 MouseArea { anchors.fill: parent; onPressed: root.wpOpen = false }      // click outside closes
@@ -12520,9 +12549,11 @@ Scope {
 
                 Loader {
                     id: osdBackdrop
-                    active: root.liquidActive
+                    active: root.backdropLoaded
                     sourceComponent: backdropComp
                     onLoaded: { item.hostShown = Qt.binding(function () { return osdWin.visible; });
+                                item.needed = Qt.binding(function () { return osdWin.visible; });
+                                item.regionOnly = true;
                                 item.region = Qt.binding(function () { return Qt.rect(levelOsd.x - 96, levelOsd.y - 96, levelOsd.width + 192, levelOsd.height + 192); }); }
                 }
 
@@ -12648,9 +12679,12 @@ Scope {
 
                 Loader {
                     id: spotBackdrop
-                    active: root.liquidActive          // stays loaded (warm) so the window opens on ready-made frames
+                    active: root.backdropLoaded
                     sourceComponent: backdropComp
-                    onLoaded: { item.hostShown = Qt.binding(function () { return !root.gaming; });
+                    onLoaded: { item.hostShown = Qt.binding(function () { return spotWin.openish && !root.gaming; });
+                                item.needed = Qt.binding(function () { return spotWin.openish; });
+                                item.streamOk = Qt.binding(function () { return spotWin.glassGo; });
+                                item.regionOnly = true;
                                 item.region = Qt.binding(function () { return Qt.rect(spot.x - 128, spot.y - 128, spot.width + 256, spot.height + 256); }); }
                 }
 

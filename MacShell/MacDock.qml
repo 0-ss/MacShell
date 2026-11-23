@@ -848,7 +848,7 @@ Scope {
                 var e3 = lookup(appOf(tl));
                 var wid = winIdFor(tl);
                 liveWins.push(tl);
-                if (winAge(tl) < 200) { if (!youngWin.running) youngWin.start(); continue; }     // no preview (= no capture) for brand-new windows
+                if (winAge(tl) < 250) { if (!youngWin.running) youngWin.start(); continue; }     // no preview (= no capture) for brand-new windows
                 var own3 = isShellApp(tl.appId);
                 winItems.push({ kind: "win", key: "win:" + wid, tl: tl,
                                 name: own3 ? (tl.title || "MacShell") : (e3 ? e3.name : tl.appId),
@@ -932,6 +932,13 @@ Scope {
     // glassState: "idle" → "building" (qsb running) → "ready" | "failed". "failed" falls back to Normal Blur.
     property string glassState: "idle"
     readonly property bool liquidActive: dockStyle === "liquid" && glassState === "ready" && !(bar && bar.gaming)
+    property bool backdropLoaded: liquidActive
+    property bool backdropDraining: false
+    onLiquidActiveChanged: {
+        if (liquidActive) { backdropUnloadT.stop(); backdropDraining = false; backdropLoaded = true; }
+        else if (backdropLoaded) { backdropDraining = true; backdropUnloadT.restart(); }
+    }
+    Timer { id: backdropUnloadT; interval: 450; onTriggered: if (!root.liquidActive) { root.backdropLoaded = false; root.backdropDraining = false; } }
     // Settings' own glass (back / forward pill, knobs of switches and sliders): available whenever the shader is built,
     // whatever the Dock style is
     readonly property bool settingsGlass: glassState === "ready" && !(bar && bar.gaming)
@@ -1162,15 +1169,20 @@ Scope {
                 Item {
                     id: oldSnap
                     property bool shown: false
+                    property var oldTl: null
                     visible: shown && opacity > 0.01
                     opacity: 0
                     transformOrigin: Item.Center
                     RectangularShadow { anchors.fill: parent; radius: 10; blur: 30; offset.y: 8; color: Qt.rgba(0, 0, 0, 0.30) }
                     Rectangle { anchors.fill: parent; radius: 10; color: Qt.rgba(0.09, 0.08, 0.09, 0.88) }
-                    ScreencopyView {
+                    SafeCapture {
                         id: oldSv
                         anchors.fill: parent
-                        live: false
+                        want: oldSnap.oldTl
+                        wantLive: false
+                        hold: true
+                        healOnResize: false
+                        graceMs: 250
                         layer.enabled: true
                         layer.effect: MultiEffect { maskEnabled: true; maskSource: oldMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
                     }
@@ -1179,7 +1191,7 @@ Scope {
                         id: oldOut
                         NumberAnimation { target: oldSnap; property: "opacity"; from: 1; to: 0; duration: 340; easing.type: Easing.OutCubic }
                         NumberAnimation { target: oldSnap; property: "scale"; from: 1; to: 0.94; duration: 420; easing.type: Easing.OutQuint }
-                        onFinished: { oldSnap.shown = false; oldSv.captureSource = null; }
+                        onFinished: { oldSnap.shown = false; oldSnap.oldTl = null; }
                     }
                 }
                 Item {
@@ -1225,10 +1237,12 @@ Scope {
                     }
                     SafeCapture {
                         id: gsv
-                        visible: tearGhost.isWin
+                        visible: tearGhost.isWin && gsv.hasContent === true && gsv.held === gsv.want
                         anchors.fill: parent
                         want: (tearGhost.isWin && tearWin.visible && ui.tearItem && ui.tearItem.tl) ? ui.tearItem.tl : null
-                        wantLive: tearGhost.isWin && tearWin.visible && tearGhost.visible
+                        wantLive: tearGhost.isWin && tearWin.visible && tearGhost.visible && !root.previewHold
+                        hold: root.previewHold
+                        healOnResize: false
                         layer.enabled: true
                         layer.effect: MultiEffect { maskEnabled: true; maskSource: gsvMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
                     }
@@ -1430,7 +1444,11 @@ Scope {
                 // fades away where it used to be
                 property bool following: false
                 property bool oldVisible: false
-                NumberAnimation { id: ghostFade; target: tearGhost; property: "opacity"; to: 0; duration: 180; easing.type: Easing.OutCubic }
+                NumberAnimation {
+                    id: ghostFade
+                    target: tearGhost; property: "opacity"; to: 0; duration: 180; easing.type: Easing.OutCubic
+                    onFinished: if (!ui.tearing) ui.tearItem = null
+                }
                 onTearXChanged: if (following) Qt.callLater(moveReal)
                 onTearYChanged: {
                     if (following) Qt.callLater(moveReal);
@@ -1469,7 +1487,6 @@ Scope {
                     if (tearAddr) Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "no_anim", value = "0", ' + wsel() + ' })');
                     tearAddr = "";
                     if (!ghostFade.running) tearItem = null;
-                    else ghostFade.finished.connect(function () { if (!ui.tearing) ui.tearItem = null; });
                 }
                 function hyprOf(tl) {
                     var v = Hyprland.toplevels.values;
@@ -1494,13 +1511,15 @@ Scope {
                         tearW = Math.round(w * k); tearH = Math.round(hh * k);
                         // where it is now: if that's on screen here, a still copy will stand in for it at the hand-off
                         var mon0 = Hyprland.monitorFor(win.modelData);
-                        oldSnap.shown = false; oldOut.stop();
+                        oldSnap.shown = false; oldOut.stop(); oldSnap.oldTl = null;
                         oldVisible = !!(o && o.at && o.workspace && mon0 && mon0.activeWorkspace && o.workspace.id === mon0.activeWorkspace.id);
                         if (oldVisible) {
                             oldSnap.x = o.at[0] - win.modelData.x; oldSnap.y = o.at[1] - win.modelData.y;
                             oldSnap.width = o.size[0]; oldSnap.height = o.size[1];
-                            oldSv.captureSource = item.tl;          // one still frame (live: false)
+                            oldSnap.oldTl = item.tl;          // one still frame (live: false)
                         }
+                    } else {
+                        oldSnap.shown = false; oldOut.stop(); oldSnap.oldTl = null;
                     }
                     tearing = true;
                 }
@@ -1515,6 +1534,7 @@ Scope {
                         return;
                     }
                     tearing = false;
+                    oldSnap.oldTl = null;
                     justDragged = true;
                     Qt.callLater(function () { ui.justDragged = false; });
                     if (tearY < activeTop - 30) {
@@ -1624,7 +1644,7 @@ Scope {
                 // Built from per-window captures (not a screen capture) so the Dock never ends up refracting itself.
                 Loader {
                     id: glassBackdrop
-                    active: root.liquidActive
+                    active: root.backdropLoaded
                     // opaque wrapper: translucent windows (btop in a transparent terminal, Settings...) leave alpha < 1 in the backdrop,
                     // which made the Dock's hover label / right-click menu see-through to the REAL screen (sharp, weakly blurred).
                     // The backdrop is rendered once into the wrapper over an opaque base, so the glass always gets alpha 1.
@@ -1712,14 +1732,10 @@ Scope {
                                 required property bool gone      // window closed / left this workspace: hidden at once, its capture is released shortly after
                                 x: wx; y: wy; width: ww; height: wh; z: wz
                                 visible: !gone                    // a window of the workspace we just left must not linger behind the Dock
-                                // the capture itself is kept 300 ms after the window is gone, so a frame that is in flight can finish
-                                // (destroying a capture mid-frame is what made the compositor drop the Wayland connection)
-                                property bool released: false
-                                onGoneChanged: { if (gone) relTimer.restart(); else { relTimer.stop(); released = false; } }
-                                Timer { id: relTimer; interval: 300; onTriggered: gw.released = true }
+                                onGoneChanged: if (!gone && !sc.wantLive && sc.armed) sc.snap()
                                 // the closing window's own capture stops the moment Hyprland announces the close
-                                readonly property bool closing: !!root.hub && root.hub.closingWins[String(addr).replace(/^0x/, "")] === true
-                                readonly property var tl: { if (!root.hub || released || closing) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
+                                readonly property bool closing: !!root.hub && root.hub.closingWins[String(addr || "").replace(/^0x/i, "").trim().toLowerCase()] === true
+                                readonly property var tl: { if (!root.hub || gone || closing || root.backdropDraining) return null; var t = root.hub.tlTick; return root.hub.tlFor(addr); }
                                 // does this window reach the glass (Dock + the backdrop margin the refraction / blur read from)?
                                 readonly property real dockTop: dock.y + bd.height - ui.height
                                 readonly property bool overlap: x < dock.x + dock.width + 100 && x + width > dock.x - 100
@@ -1745,14 +1761,15 @@ Scope {
                                     anchors.fill: parent
                                     placeholder: (root.bar ? root.bar.darkMode : true) ? "#1e1e20" : "#f2f2f7"
                                     glassOn: !ui.tucked
-                                    want: (gw.near && !gw.released) ? gw.tl : null
+                                    want: (gw.near && !gw.gone && !gw.closing && !root.backdropDraining) ? gw.tl : null
                                     // Real-time glass ON: a window that reaches the Dock STREAMS (live: every frame the compositor renders), windows
                                     // elsewhere refresh at 30 Hz-ish single shots (5 Hz when far away) so they are fresh the moment they slide under the Dock.
                                     // Real-time glass OFF: the old behaviour (15 fps polling, paused while windows open / close).
-                                    readonly property bool quiet: !!root.hub && root.hub.preClose          // a close was just requested / captures are failing in a burst: nothing in flight, please
-                                    readonly property bool canRun: !quiet && !ui.menuOpen && (root.glassRT
-                                        ? !(root.hub && root.hub.captureQuiet) && !(root.bar && root.bar.gaming) && !gw.gone && !gw.closing
-                                        : (!root.glassHold && !ui.tucked))
+                                    readonly property bool quiet: root.backdropDraining || root.glassHold || (!!root.hub && root.hub.captureQuiet)
+                                    readonly property bool canRun: !quiet && !ui.menuOpen && !gw.gone && !gw.closing && (root.glassRT
+                                        ? !(root.bar && root.bar.gaming)
+                                        : !ui.tucked)
+                                    hold: quiet || gw.gone || gw.closing
                                     wantLive: root.glassRT && canRun && gw.overlap && !ui.tucked
                                     Timer {
                                         interval: root.glassRT ? (gw.overlap ? 33 : 500) : 66
@@ -1817,8 +1834,18 @@ Scope {
                         }
                         Timer {
                             id: sweep
-                            interval: 600
-                            onTriggered: { for (var q = wm.count - 1; q >= 0; q--) if (wm.get(q).gone) wm.remove(q); bd.lastCount = wm.count; }
+                            interval: 700
+                            onTriggered: {
+                                var retry = false;
+                                for (var q = wm.count - 1; q >= 0; q--) {
+                                    if (!wm.get(q).gone) continue;
+                                    var it = wrep.itemAt(q);
+                                    if (it && it.cap && it.cap.held !== null) { retry = true; continue; }
+                                    wm.remove(q);
+                                }
+                                bd.lastCount = wm.count;
+                                if (retry) restart();
+                            }
                         }
                         property int lastCount: -1
                         Connections {
@@ -2106,11 +2133,11 @@ Scope {
                                 // the capture only restarts when the window itself changes — refreshed Dock data hands the cell
                                 // the same window again, and re-binding it used to blank the live preview for ~2 s
                                 property var heldTl: null
-                                readonly property string winAddr: { if (!thumbWin) return ""; var h = ui.hyprOf(thumbWin); return h ? String(h.address).replace(/^0x/, "") : ""; }
+                                readonly property string winAddr: { if (!thumbWin) return ""; var h = ui.hyprOf(thumbWin); return h ? String(h.address || "").replace(/^0x/i, "").trim().toLowerCase() : ""; }
                                 readonly property bool closingWin: winAddr !== "" && root.hub && root.hub.closingWins[winAddr] === true
                                 onThumbWinChanged: if (thumbWin !== heldTl) heldTl = thumbWin
                                 readonly property bool useThumb: thumbWin !== null
-                                readonly property bool thumbReady: useThumb && (sv.hasContent === undefined || sv.hasContent === true)
+                                readonly property bool thumbReady: useThumb && !leavingCell && !closingWin && sv.hasContent === true && sv.held !== null && sv.held === sv.want
 
                                 property real dx: {
                                     if (!ui.dragging) return 0;
@@ -2321,11 +2348,13 @@ Scope {
                                     SafeCapture {
                                         id: sv
                                         anchors.centerIn: parent
-                                        want: (root.hub && !root.hub.windowCapture) ? null : cell.heldTl
-                                        graceMs: 400        // longer than the cell's leave animation: the preview stays until the cell is gone, and nothing is in flight by then
+                                        want: ((root.hub && !root.hub.windowCapture) || cell.closingWin || cell.leavingCell) ? null : cell.heldTl
+                                        graceMs: 220        // strictly shorter than leaveMs + 30 (370 ms), so held is always null before cell is destroyed
+                                        hold: root.previewHold || cell.closingWin || cell.leavingCell || (!!root.hub && root.hub.churn)
+                                        healOnResize: false
                                         // live only while the pointer is on the Dock (where you look at them); otherwise one fresh
                                         // frame every 2 s — live previews of every window were ~8% CPU at idle
-                                        wantLive: !ui.tucked && !root.previewHold && !cell.closingWin && hh.hovered
+                                        wantLive: !ui.tucked && !root.previewHold && !cell.closingWin && !cell.leavingCell && hh.hovered
                                         Timer {
                                             interval: 2000; repeat: true; triggeredOnStart: true
                                             running: !sv.wantLive && !ui.tucked && !root.previewHold && !cell.closingWin && sv.armed

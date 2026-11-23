@@ -10,12 +10,18 @@
 
 var _fails = [];
 var _nextSlot = 0;
-var SLOT_MS = 35;
+var _stormUntil = 0;
+var SLOT_MS = 45;
+var STORM_WINDOW_MS = 2000;
+var STORM_FAILS = 4;
+var STORM_HOLD_MS = 1200;
 
 // a capture lost its picture / failed to get one
 function noteFail() {
-    _fails.push(Date.now());
+    var n = Date.now();
+    _fails.push(n);
     if (_fails.length > 64) _fails.shift();
+    if (recentFails(STORM_WINDOW_MS) >= STORM_FAILS) _stormUntil = Math.max(_stormUntil, n + STORM_HOLD_MS);
 }
 
 // how many captures failed in the last `ms`
@@ -25,6 +31,14 @@ function recentFails(ms) {
         if (n - _fails[i] <= ms) c++; else break;
     }
     return c;
+}
+
+// true immediately once failures spike (without waiting for a polling timer)
+function isStorm() {
+    var n = Date.now();
+    if (n < _stormUntil) return true;
+    if (recentFails(STORM_WINDOW_MS) >= STORM_FAILS) { _stormUntil = n + STORM_HOLD_MS; return true; }
+    return false;
 }
 
 // how long a capture that wants a context NOW has to wait so that contexts are created at least SLOT_MS apart

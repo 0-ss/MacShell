@@ -39,7 +39,7 @@ assert.match(minFxQml, /SafeCapture\s*\{/);
 assert.match(minFxQml, /onWantChanged:\s*Qt\.callLater\(checkReady\)/);
 assert.match(minFxQml, /onJobChanged\(\)\s*\{\s*Qt\.callLater\(cap\.checkReady\);/);
 assert.match(safeCapQml, /live:.*&& held === want/);
-assert.match(safeCapQml, /held !== null && held !== want && !hadContent && !ended/);
+assert.match(safeCapQml, /held !== null && held !== want && !ended/);
 assert.match(dockQml, /!restoreNativeTracked\(item\.tl\) && !genieDock/);
 assert.match(dockQml, /!restoreNativeTracked\(chosen\) && !genieDock/);
 assert.match(dockQml, /property string minimizeEffect:\s*"genie"/);

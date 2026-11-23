@@ -24,25 +24,26 @@ Item {
 
     property alias want: cap.want
     property bool wantLive: false
+    property bool hold: false
     property alias graceMs: cap.graceMs
     // `settling`: the window's SIZE is changing right now (a tiled window being re-laid out, a resize). Hyprland fails the capture frame that
     // is in flight when the size changes, and Quickshell then destroys the whole capture; the glass lost the window until it was rebuilt.
     // So while the size is moving no new frame is requested (the last good frame stays on screen, see `keep`), and the moment it has been
     // still for settleMs the stream simply carries on from a capture that is still alive. Position-only changes (dragging) never pause.
-    property int settleMs: 45
+    property int settleMs: 120
     readonly property bool settling: settleT.running
-    readonly property bool armed: cap.armed && !settling
-    readonly property bool hasContent: cap.hasContent === true
+    readonly property bool armed: cap.armed && !settling && !hold
+    readonly property bool hasContent: cap.hasContent === true && cap.held !== null && cap.held === cap.want
     readonly property var held: cap.held
     readonly property bool dead: cap.dead
     readonly property int tries: cap.tries
     readonly property bool reviving: cap.reviving
-    readonly property bool keeping: keep.on && !(cap.hasContent === true && !fading)     // the kept frame is what is on screen
+    readonly property bool keeping: keep.on && keepValid && !(hasContent && !fading)     // the kept frame is what is on screen
 
-    function snap() { if (!settling) cap.snap(); }
-    function heal() { cap.heal(); }
-    function nudge() { if (!settling) cap.nudge(); }
-    function kick() { if (!settling) cap.kick(); }
+    function snap() { if (!settling && !hold) cap.snap(); }
+    function heal() { if (!hold) cap.heal(); }
+    function nudge() { if (!settling && !hold) cap.nudge(); }
+    function kick() { if (!settling && !hold) cap.kick(); }
 
     property real lastW: 0
     property real lastH: 0
@@ -51,17 +52,23 @@ Item {
         var changed = Math.abs(width - lastW) >= 1 || Math.abs(height - lastH) >= 1;
         if (width > 0 && height > 0) { lastW = width; lastH = height; }
         if (fx && !first && changed && cap.want !== null) {
-            if (!settleT.running && keep.on && cap.hasContent === true && !fading) keep.scheduleUpdate();     // the last good frame, before it is stretched
+            if (!settleT.running && keep.on && glassCap.hasContent && !fading) keep.scheduleUpdate();     // the last good frame, before it is stretched
             settleT.restart();
         }
     }
     onWidthChanged: sizeMoved()
     onHeightChanged: sizeMoved()
+    onGlassOnChanged: if (glassOn) updKeep()
     Timer {
         id: settleT
         interval: glassCap.settleMs
         // still again: whatever went wrong while it moved gets a fresh start (a capture that did die is rebuilt now, not on the watchdog)
-        onTriggered: { cap.heal(); if (cap.hasContent !== true) cap.kick(); else glassCap.beginFade(); }
+        onTriggered: {
+            if (glassCap.hold) return;
+            cap.heal();
+            if (cap.hasContent !== true) cap.kick();
+            else if (!cap.wantLive && cap.armed) cap.snap();
+        }
     }
 
     // ── smoothness: crossfade instead of a hard swap ──
@@ -73,13 +80,19 @@ Item {
     // last frame (`keep`) covers every gap, so the placeholder never shows again for that window.
     property color placeholder: "#1e1e20"
     property bool keepValid: false
-    function updKeep() { if (cap.hasContent === true && !fading) { keepValid = true; if (keep.on) keep.scheduleUpdate(); } }
+    property var lastWant: null
+    function updKeep() {
+        if (glassCap.hasContent && !fading && !settling) {
+            keepValid = true;
+            if (keep.on) keep.scheduleUpdate();
+        }
+    }
     onFadingChanged: updKeep()
     Rectangle {
         anchors.fill: parent
         z: -2
         color: glassCap.placeholder
-        visible: glassCap.fx && !glassCap.keepValid && !(cap.hasContent === true && !glassCap.fading)
+        visible: glassCap.fx && !glassCap.keepValid && !(glassCap.hasContent && !glassCap.fading)
     }
     property int fadeMs: 100
     property real fadeIn: 1
@@ -90,28 +103,47 @@ Item {
     Timer { id: lostT; interval: 50; onTriggered: { fadeAnim.stop(); glassCap.fadeIn = 0.02; } }
     Connections {
         target: cap
+        function onWantChanged() {
+            if (cap.want === null) {
+                glassCap.keepValid = false;
+                lostT.stop();
+            } else if (cap.want !== glassCap.lastWant) {
+                glassCap.lastWant = cap.want;
+                glassCap.keepValid = false;
+                glassCap.lastW = 0;
+                glassCap.lastH = 0;
+                lostT.stop();
+                if (glassCap.fx) { fadeAnim.stop(); glassCap.fadeIn = 0.02; }
+            }
+        }
         function onHasContentChanged() {
             if (!glassCap.fx) return;
-            glassCap.updKeep();
-            if (cap.hasContent === true) { lostT.stop(); if (glassCap.fadeIn < 0.999 && !fadeAnim.running) fadeAnim.start(); }
-            else lostT.restart();
+            if (glassCap.hasContent) {
+                glassCap.updKeep();
+                lostT.stop();
+                if (glassCap.fadeIn < 0.999 && !fadeAnim.running) fadeAnim.start();
+            } else {
+                lostT.restart();
+            }
         }
+        function onImplicitWidthChanged() { if (glassCap.hasContent) glassCap.updKeep(); }
+        function onImplicitHeightChanged() { if (glassCap.hasContent) glassCap.updKeep(); }
     }
     Component.onCompleted: if (fx) fadeIn = 0.02
 
     Timer {
         id: keepT
-        interval: 1000; repeat: true; triggeredOnStart: true
-        running: keep.on && glassCap.glassOn && cap.hasContent === true && !glassCap.fading && cap.want !== null && glassCap.visible
+        interval: 500; repeat: true; triggeredOnStart: true
+        running: keep.on && glassCap.glassOn && glassCap.hasContent && !glassCap.fading && !glassCap.settling && cap.want !== null && glassCap.visible
         onTriggered: keep.scheduleUpdate()
     }
 
     SafeCapture {
         id: cap
         anchors.fill: parent
-        wantLive: glassCap.wantLive && !glassCap.settling
-        hold: glassCap.settling
-        opacity: glassCap.fadeIn
+        wantLive: glassCap.wantLive && !glassCap.settling && !glassCap.hold
+        hold: glassCap.settling || glassCap.hold
+        opacity: (cap.held !== null && cap.held === cap.want) ? glassCap.fadeIn : 0.02
     }
 
     // The last good frame of the window, drawn UNDER the live capture. It refreshes only while the capture has a picture; when the picture
@@ -130,12 +162,12 @@ Item {
         z: -1
         sourceItem: on ? cap : null
         hideSource: false
-        visible: on
+        visible: on && glassCap.keepValid
         // NOT live: copying every window's capture into a second texture on every frame doubled the GPU work of the glass (the lag when a
         // menu / Control Center opens over several windows). The copy is refreshed twice a second, and right before the window is resized
         // or a fade ends (when it matters), so after a loss the kept frame is at most half a second old.
         live: false
-        opacity: (cap.hasContent === true && !glassCap.fading) ? 0.001 : 1
+        opacity: (glassCap.hasContent && !glassCap.fading) ? 0.001 : 1
         recursive: false
     }
 }

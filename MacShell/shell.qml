@@ -244,18 +244,18 @@ ShellRoot {
         // fail within two seconds (CaptureGate.js counts them) every stream and single shot sits out until it has been quiet for 1.2 s.
         property bool storm: false
         Timer {
-            interval: 250; repeat: true; running: true
+            interval: 200; repeat: true; running: true
             onTriggered: {
-                if (CaptureGate.recentFails(2000) >= 5) { stormEnd.restart(); if (!sharedHub.storm) sharedHub.storm = true; }
+                if (CaptureGate.isStorm()) { stormEnd.restart(); if (!sharedHub.storm) sharedHub.storm = true; }
             }
         }
         Timer { id: stormEnd; interval: 1200; onTriggered: sharedHub.storm = false }
         // Dock previews no longer pause as a whole while windows open / close (that froze every preview for ~1.5 s):
         // only the CLOSING window's own preview stops its live capture, the moment Hyprland announces the close
         // (before the toplevel is destroyed, so no frame is ever aborted in flight). Everything else keeps running.
-        // The menu bar's glass (Control Center, menus, popovers) is the part the person is LOOKING at while windows tile, so it only sits
-        // out for a close the shell itself sends and for gaming: no churn pause, no storm pause. Its streams exist only while a popover is open.
-        readonly property bool barHold: preClose || macBar.gaming || (churn && Quickshell.env("MACSHELL_CHURNPAUSE") === "1")
+        // The menu bar's glass (Control Center, menus, popovers) sits out during capture storms, window churn,
+        // intentional closes and gaming so rapid open/close bursts never abort in-flight frames.
+        readonly property bool barHold: preClose || macBar.gaming || storm || (churn && Quickshell.env("MACSHELL_CHURNPAUSE") !== "0")
         readonly property bool previewHold: !windowCapture || storm || preClose || macBar.gaming
         property var closingWins: ({})
         onCaptureHoldChanged: { if (captureHold) cutDelay.restart(); else { cutDelay.stop(); captureCut = false; } }
@@ -263,7 +263,7 @@ ShellRoot {
         Timer { id: closingForget; interval: 3000; onTriggered: sharedHub.closingWins = ({}) }
         // was 1.2 s: the glass froze for over a second after every window that opened or closed. Closing windows are now handled
         // where the crash really was (SafeCapture keeps a capture alive until its in-flight frame is done), so the pause can be short.
-        Timer { id: churnRelease; interval: 350; onTriggered: sharedHub.churn = false }
+        Timer { id: churnRelease; interval: 450; onTriggered: sharedHub.churn = false }
 
         // ── closing on purpose: go quiet first, then close ──
         // When the person clicks Close / Quit, every live capture stops for ~150 ms BEFORE the close request is sent, so no frame is
@@ -293,7 +293,7 @@ ShellRoot {
         // forget admission records of windows that no longer exist (the table grew by one entry per window ever opened)
         function tlPrune() {
             var ts = Hyprland.toplevels.values, live = {}, k;
-            for (var i = 0; i < ts.length; i++) live[ts[i].address] = true;
+            for (var i = 0; i < ts.length; i++) live[String(ts[i].address || "").replace(/^0x/i, "").trim().toLowerCase()] = true;
             for (k in tlState.ready) if (!live[k]) delete tlState.ready[k];
         }
 
@@ -327,7 +327,7 @@ ShellRoot {
             function onRawEvent(event) {
                 if (event.name === "openwindow" || event.name === "closewindow") { sharedHub.churn = true; churnRelease.restart(); }
                 if (event.name === "closewindow") {
-                    var cw = {}, a = String(event.data).replace(/^0x/, "");
+                    var cw = {}, a = String(event.data).replace(/^0x/i, "").trim().toLowerCase();
                     for (var k in sharedHub.closingWins) cw[k] = true;
                     cw[a] = true;
                     sharedHub.closingWins = cw;
@@ -400,18 +400,20 @@ ShellRoot {
         function tlSeed() {
             var ts = Hyprland.toplevels.values, st = tlState, now = Date.now();
             for (var i = 0; i < ts.length; i++) {
-                var a = ts[i].address;
-                if (st.ready[a] === undefined) { st.ready[a] = Math.max(now + 100, st.last + 70); st.last = st.ready[a]; }
+                var a = String(ts[i].address || "").replace(/^0x/i, "").trim().toLowerCase();
+                if (!a || closingWins[a] === true) continue;
+                if (st.ready[a] === undefined) { st.ready[a] = Math.max(now + 220, st.last + 90); st.last = st.ready[a]; }
             }
         }
         function tlFor(addr) {
-            var a = String(addr).replace(/^0x/, "");
+            var a = String(addr || "").replace(/^0x/i, "").trim().toLowerCase();
+            if (!a || closingWins[a] === true) return null;
             var ts = Hyprland.toplevels.values;
             for (var i = 0; i < ts.length; i++) {
-                if (ts[i].address !== a) continue;
+                if (String(ts[i].address || "").replace(/^0x/i, "").trim().toLowerCase() !== a) continue;
                 var st = tlState, now = Date.now();
                 if (st.ready[a] === undefined) {
-                    st.ready[a] = Math.max(now + 100, st.last + 70);
+                    st.ready[a] = Math.max(now + 220, st.last + 90);
                     st.last = st.ready[a];
                 }
                 if (st.ready[a] > now) {

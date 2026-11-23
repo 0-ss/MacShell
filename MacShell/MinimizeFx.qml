@@ -154,6 +154,7 @@ Scope {
                 want: ow.mine ? fx.job.tl : null
                 wantLive: false
                 hold: true
+                healOnResize: false
                 graceMs: 250
                 visible: false
                 function checkReady() {
