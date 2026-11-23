@@ -119,10 +119,11 @@ Scope {
                 Rectangle {
                     id: qlCard
                     anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -24
                     width: Math.min(parent.width - 80, root.fileKind === "image" ? 820 : 680)
-                    height: Math.min(parent.height - 100, root.fileKind === "image" ? 600 : 520)
+                    height: Math.min(parent.height - 160, root.fileKind === "image" ? 560 : 480)
                     radius: 18
-                    color: root.darkMode ? Qt.rgba(0.11, 0.11, 0.13, 0.94) : Qt.rgba(0.97, 0.97, 0.98, 0.96)
+                    color: root.darkMode ? Qt.rgba(0.11, 0.11, 0.13, 0.98) : Qt.rgba(0.97, 0.97, 0.98, 0.98)
                     border.width: 1
                     border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.14)
                     MouseArea { anchors.fill: parent }

@@ -1199,8 +1199,9 @@ Scope {
         return p;
     }
     function fileUrl(p) {
-        if (p === "") return "";
+        if (!p || typeof p !== "string") return "";
         if (p.indexOf("file://") === 0) return p;
+        if (p.indexOf("/") !== 0) return "";
         return "file://" + encodeURI(p).replace(/#/g, "%23").replace(/\?/g, "%3F");
     }
 
@@ -1334,8 +1335,9 @@ Scope {
                 top: root.isVertical
                 bottom: true
             }
+            margins.top: (root.isVertical && root.bar && root.bar.barEnabled) ? root.bar.barH : 0
             implicitWidth: root.isVertical ? root.windowHeight : modelData.width
-            implicitHeight: root.isVertical ? modelData.height : root.windowHeight
+            implicitHeight: root.isVertical ? Math.max(100, modelData.height - margins.top) : root.windowHeight
             color: "transparent"
 
             exclusionMode: ExclusionMode.Normal
@@ -2108,6 +2110,8 @@ Scope {
                     id: dock
                     width: root.isVertical ? root.bgHeight : (row.implicitWidth + root.hPad * 2)
                     height: root.isVertical ? (row.implicitHeight + root.hPad * 2) : root.bgHeight
+                    scale: root.isVertical && height > (ui.height - 24) ? Math.max(0.55, (ui.height - 24) / height) : 1.0
+                    transformOrigin: root.dockPosition === "left" ? Item.Left : (root.dockPosition === "right" ? Item.Right : Item.Center)
                     x: root.dockPosition === "left"
                        ? (root.margin - (ui.tucked ? width + root.margin + 6 : 0))
                        : (root.dockPosition === "right"

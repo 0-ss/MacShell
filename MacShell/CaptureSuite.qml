@@ -119,7 +119,7 @@ Scope {
         sourceComponent: PanelWindow {
             screen: root.focusedScreen()
             anchors { bottom: true; left: true; right: true }
-            implicitHeight: 140
+            implicitHeight: 190
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
             WlrLayershell.namespace: "maccapturebar"
@@ -146,14 +146,15 @@ Scope {
                     }
                 }
 
-                // Main toolbar pill
+                // Main toolbar pill (sits cleanly above the Dock like macOS Cmd+Shift+5)
                 Rectangle {
                     visible: root.toolbarOpen
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.bottom: parent.bottom; anchors.bottomMargin: 28
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: (root.dock && root.dock.dockEnabled && !root.dock.isVertical) ? (root.dock.bgHeight + 24) : 28
                     height: 58; radius: 20
                     width: tbRow.implicitWidth + 24
-                    color: root.darkMode ? Qt.rgba(0.12, 0.12, 0.14, 0.94) : Qt.rgba(0.96, 0.96, 0.98, 0.96)
+                    color: root.darkMode ? Qt.rgba(0.12, 0.12, 0.14, 0.98) : Qt.rgba(0.96, 0.96, 0.98, 0.98)
                     border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.12)
 
                     Row {
@@ -224,7 +225,7 @@ Scope {
         sourceComponent: PanelWindow {
             screen: root.focusedScreen()
             anchors { bottom: true; right: true }
-            implicitWidth: 260; implicitHeight: 190
+            implicitWidth: 220; implicitHeight: 230
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
             WlrLayershell.namespace: "macthumb"
@@ -234,19 +235,20 @@ Scope {
             Rectangle {
                 id: thumbCard
                 property real swipeX: 0
-                anchors.right: parent.right; anchors.rightMargin: 18 - swipeX
-                anchors.bottom: parent.bottom; anchors.bottomMargin: 18
-                width: 236; height: 162; radius: 16
-                opacity: Math.max(0.25, 1 - Math.max(0, swipeX) / 140)
+                anchors.right: parent.right; anchors.rightMargin: 16 - swipeX
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: (root.dock && root.dock.dockEnabled && !root.dock.isVertical) ? (root.dock.bgHeight + 18) : 18
+                width: 184; height: 124; radius: 14
+                opacity: Math.max(0.25, 1 - Math.max(0, swipeX) / 120)
                 Behavior on swipeX { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                color: root.darkMode ? Qt.rgba(0.11, 0.11, 0.13, 0.94) : Qt.rgba(0.97, 0.97, 0.98, 0.96)
-                border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.14)
+                color: root.darkMode ? Qt.rgba(0.11, 0.11, 0.13, 0.98) : Qt.rgba(0.97, 0.97, 0.98, 0.98)
+                border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.14)
                 HoverHandler { onHoveredChanged: { root.thumbHovered = hovered; if (!hovered) thumbAutoHide.restart(); } }
 
                 Image {
-                    x: 8; y: 8; width: parent.width - 16; height: 114
+                    anchors.fill: parent; anchors.margins: 6
                     source: "file://" + root.thumbPath.split("/").map(function (p) { return encodeURIComponent(p); }).join("/")
-                    sourceSize: Qt.size(480, 280)
+                    sourceSize: Qt.size(360, 240)
                     fillMode: Image.PreserveAspectCrop; clip: true; asynchronous: true; smooth: true
                     MouseArea {
                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor
@@ -257,32 +259,33 @@ Scope {
                             if (dx > 12) { swiped = true; thumbCard.swipeX = dx; }
                         }
                         onReleased: {
-                            if (thumbCard.swipeX > 72) root.dismissThumbnail();
+                            if (thumbCard.swipeX > 64) root.dismissThumbnail();
                             else if (!swiped) root.openMarkup(root.thumbPath);
                             thumbCard.swipeX = 0;
                         }
                     }
                 }
                 Row {
-                    anchors.bottom: parent.bottom; anchors.bottomMargin: 7
+                    visible: root.thumbHovered
+                    anchors.bottom: parent.bottom; anchors.bottomMargin: 8
                     anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 8
+                    spacing: 6
                     Rectangle {
-                        height: 24; radius: 7; width: thEd.implicitWidth + 14
-                        color: thEdMa.containsMouse ? root.accent : (root.darkMode ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.08))
-                        Text { id: thEd; anchors.centerIn: parent; text: I18n.tr("Markup"); color: "#FFFFFF"; font.pixelSize: 12 }
+                        height: 22; radius: 7; width: thEd.implicitWidth + 12
+                        color: thEdMa.containsMouse ? root.accent : Qt.rgba(0.08, 0.08, 0.10, 0.88)
+                        Text { id: thEd; anchors.centerIn: parent; text: I18n.tr("Markup"); color: "#FFFFFF"; font.pixelSize: 11 }
                         MouseArea { id: thEdMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openMarkup(root.thumbPath) }
                     }
                     Rectangle {
-                        height: 24; radius: 7; width: thCp.implicitWidth + 14
-                        color: thCpMa.containsMouse ? root.accent : (root.darkMode ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.08))
-                        Text { id: thCp; anchors.centerIn: parent; text: I18n.tr("Copy"); color: "#FFFFFF"; font.pixelSize: 12 }
+                        height: 22; radius: 7; width: thCp.implicitWidth + 12
+                        color: thCpMa.containsMouse ? root.accent : Qt.rgba(0.08, 0.08, 0.10, 0.88)
+                        Text { id: thCp; anchors.centerIn: parent; text: I18n.tr("Copy"); color: "#FFFFFF"; font.pixelSize: 11 }
                         MouseArea { id: thCpMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { Quickshell.execDetached(["sh", "-c", "wl-copy < \"$1\"", "sh", root.thumbPath]); root.dismissThumbnail(); } }
                     }
                     Rectangle {
-                        height: 24; radius: 7; width: thCl.implicitWidth + 14
-                        color: thClMa.containsMouse ? "#FF453A" : (root.darkMode ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.08))
-                        Text { id: thCl; anchors.centerIn: parent; text: I18n.tr("Done"); color: "#FFFFFF"; font.pixelSize: 12 }
+                        height: 22; radius: 7; width: thCl.implicitWidth + 10
+                        color: thClMa.containsMouse ? "#FF453A" : Qt.rgba(0.08, 0.08, 0.10, 0.88)
+                        Text { id: thCl; anchors.centerIn: parent; text: "\u00d7"; color: "#FFFFFF"; font.pixelSize: 12 }
                         MouseArea { id: thClMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.dismissThumbnail() }
                     }
                 }
@@ -313,10 +316,11 @@ Scope {
                 Rectangle {
                     id: mkCard
                     anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -20
                     width: Math.min(parent.width - 60, 960)
-                    height: Math.min(parent.height - 60, 680)
+                    height: Math.min(parent.height - 150, 640)
                     radius: 18
-                    color: root.darkMode ? Qt.rgba(0.11, 0.11, 0.13, 0.96) : Qt.rgba(0.97, 0.97, 0.98, 0.98)
+                    color: root.darkMode ? "#1A1A1E" : "#F5F5F7"
                     border.width: 1; border.color: root.darkMode ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.12)
 
                     // Top annotation toolbar

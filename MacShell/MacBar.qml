@@ -10426,6 +10426,12 @@ Scope {
 
                     // exactly the glass + border of the Wi-Fi / Bluetooth / audio popovers (same context, blur, rim, no drop shadow, no inner shading)
                     PopGlassCtx { id: notifPopGlass; pop: notifPop; frame: ui; source: ui.glassSrc; fullW: notifPop.fullW; fullH: notifPop.fullH }
+                    Rectangle {
+                        visible: !root.liquidActive
+                        anchors.fill: parent
+                        radius: Math.min(26, 8 + 18 * notifPop.t)
+                        color: root.effDark ? Qt.rgba(0.11, 0.11, 0.13, 0.94) : Qt.rgba(0.96, 0.96, 0.98, 0.96)
+                    }
                     GGlass {
                         anchors.fill: parent
                         opacity: notifPop.merging ? notifPop.chromeM : 1
@@ -10718,11 +10724,26 @@ Scope {
                                     }
                                     Text {
                                         width: parent.width; elide: Text.ElideRight
-                                        text: (parent.parent.wgt && parent.parent.wgt.wxReady && parent.parent.wgt.wxInfo) ? parent.parent.wgt.wxInfo.t : I18n.tr("Edit Widgets\u2026")
+                                        text: (parent.parent.wgt && parent.parent.wgt.wxReady && parent.parent.wgt.wxInfo) ? parent.parent.wgt.wxInfo.t : I18n.tr("No location data")
                                         color: pal.fg2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 10
                                     }
                                 }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { ui.pop = ""; root.openSettings("widgets"); } }
+                            }
+                        }
+                        // Dedicated macOS "Edit Widgets…" pill button below the widget cards
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            height: 26; radius: 13; width: editWgtTxt.implicitWidth + 24
+                            color: editWgtMa.containsMouse ? pal.btnHover : pal.btnOff
+                            Text {
+                                id: editWgtTxt; anchors.centerIn: parent
+                                text: I18n.tr("Edit Widgets\u2026")
+                                color: pal.fg; font.family: root.fontForWeight(Font.Medium, pal.fam); font.pixelSize: 11
+                            }
+                            MouseArea {
+                                id: editWgtMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: { ui.pop = ""; root.openSettings("widgets"); }
                             }
                         }
                     }
