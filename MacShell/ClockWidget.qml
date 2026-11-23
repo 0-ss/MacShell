@@ -19,6 +19,8 @@ Item {
     property bool preview: false
     property string previewTime: "9:41"
     property bool editing: false
+    property bool desktopCovered: false
+    readonly property bool occluded: (desktopCovered || wallPaused) && !editing
 
     // City label supplied by the widget host.
     // Riyadh = RIY, Dubai = DXB, London = LON, New York = NYC.
@@ -70,13 +72,15 @@ Item {
 
     property var now: new Date()
 
-    // Update often enough that the second ticks glide smoothly.
+    // Update often enough that the second ticks glide smoothly; pause while hidden behind windows or gaming.
     Timer {
         interval: 33
         repeat: true
-        running: !w.preview
+        running: !w.preview && w.visible && !w.occluded
         onTriggered: w.now = new Date()
     }
+    onOccludedChanged: if (!occluded && !preview) now = new Date()
+    onVisibleChanged: if (visible && !preview) now = new Date()
 
     readonly property string liveTime: {
         var hour = w.now.getHours() % 12

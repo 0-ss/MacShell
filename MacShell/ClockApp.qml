@@ -45,8 +45,13 @@ Scope {
     property bool loaded: false
 
     property real nowMs: Date.now()
+    readonly property bool winVisible: win.visible
     readonly property bool timerActive: timer.state !== "idle"
     readonly property bool swActive: sw.running || sw.acc > 0
+    readonly property bool hasEnabledAlarms: {
+        for (var i = 0; i < alarms.length; i++) if (alarms[i] && alarms[i].on) return true;
+        return false;
+    }
 
     function uid() { return Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36); }
     function pad(n) { return (n < 10 ? "0" : "") + n; }
@@ -211,10 +216,14 @@ Scope {
     function removeCity(i) { var c = cities.slice(); c.splice(i, 1); cities = c; save(); }
 
     // ═════════════ TICK + RINGING ═════════════
-    // 1 s normally; 30 fps only while the stopwatch is on screen and running
+    // 30 fps while stopwatch is on screen and running; 1 s while visible or timer/stopwatch/snooze active;
+    // 15 s when only background alarms are armed; stopped completely when idle and hidden.
+    readonly property bool needsFastClock: win.visible || timer.state === "running" || sw.running || snoozes.length > 0 || ringing !== null
     Timer {
-        interval: (win.visible && win.tab === 2 && root.sw.running) ? 33 : 1000
-        repeat: true; running: true
+        interval: (win.visible && win.tab === 2 && root.sw.running) ? 33 : (root.needsFastClock ? 1000 : 15000)
+        repeat: true
+        running: root.needsFastClock || root.hasEnabledAlarms
+        triggeredOnStart: true
         onTriggered: { root.nowMs = Date.now(); root.check(); }
     }
     property string lastMinute: ""

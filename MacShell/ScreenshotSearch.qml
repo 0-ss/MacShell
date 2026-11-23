@@ -6,6 +6,7 @@ Scope {
     id: root
 
     property bool enabled: false
+    property bool paused: false
     property string folder: ""
     property real renameSinceMs: 0
     property string request: ""
@@ -41,14 +42,14 @@ Scope {
 
     Timer {
         interval: 20000
-        running: root.enabled
+        running: root.enabled && !root.paused
         repeat: true
         triggeredOnStart: true
         onTriggered: if (!indexer.running) indexer.running = true
     }
     Process {
         id: indexer
-        command: ["python3", root.script, "index", "--folder=" + root.folder,
+        command: ["python3", "-B", root.script, "index", "--folder=" + root.folder,
                   "--rename-since-ms=" + root.renameSinceMs.toFixed(0)]
         onExited: (code, status) => {
             if (!root.enabled) return;
@@ -70,7 +71,7 @@ Scope {
     Process {
         id: lookup
         property string forRequest: ""
-        command: ["python3", root.script, "search", "--", forRequest.slice(4).trim()]
+        command: ["python3", "-B", root.script, "search", "--", forRequest.slice(4).trim()]
         stdout: StdioCollector { id: result }
         onExited: (code, status) => {
             if (!root.enabled) return;

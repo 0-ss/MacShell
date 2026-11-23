@@ -87,7 +87,7 @@ Scope {
                 hotCornerBR: root.hotCornerBR,
                 hotCornerDelay: root.hotCornerDelay
             }, null, 2);
-            Quickshell.execDetached(["sh", "-c", "mkdir -p \"$HOME/.config/macbar\" && printf '%s' \"$1\" > \"$HOME/.config/macbar/windowmgmt.json\"", "sh", payload]);
+            Quickshell.execDetached(["sh", "-c", "d=\"$HOME/.config/macbar\"; mkdir -p \"$d\" && t=$(mktemp \"$d/windowmgmt.json.XXXXXX\") && printf '%s' \"$1\" > \"$t\" && mv -f \"$t\" \"$d/windowmgmt.json\"", "sh", payload]);
         }
     }
     function scheduleSave() { if (ready) saveT.restart(); }

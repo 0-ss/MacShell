@@ -95,6 +95,7 @@ Item {
                 wallUrl: host.fileUrl(host.wallpaperFor(v.sname))
                 wallVideo: host.liveWallVideo
                 wallPaused: host.liveWallPaused
+                desktopCovered: host.hub && host.hub.bar ? host.hub.bar.screenCovered[v.sname] === true : false
                 screenW: v.sw
                 screenH: v.sh
                 glassOpacity: host.glassOpacity

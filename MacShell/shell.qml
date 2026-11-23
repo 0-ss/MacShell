@@ -699,4 +699,20 @@ ShellRoot {
         function open(): void { windowMgmt.openQuickNote(); }
         function close(): void { windowMgmt.closeQuickNote(); }
     }
+    // qs -c MacShell ipc call focus toggle | on | off | set <id>
+    IpcHandler {
+        target: "focus"
+        function toggle(): void { macBar.toggleDnd(); }
+        function on(): void { macBar.setFocusMode("dnd", false); }
+        function off(): void { macBar.setFocusMode("", false); }
+        function set(id: string): void { macBar.setFocusMode(id, false); }
+    }
+    // qs -c MacShell ipc call menubar autohide <never|fullscreen|always> | resetOrder
+    IpcHandler {
+        target: "menubar"
+        function autohide(mode: string): void {
+            if (["never", "fullscreen", "always"].indexOf(mode) >= 0) macBar.barAutoHide = mode;
+        }
+        function resetOrder(): void { macBar.barRightOrder = []; }
+    }
 }

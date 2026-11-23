@@ -32,7 +32,8 @@ class WriteCacheAtomicTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             target = os.path.join(d, "genius_x.json")
             genius.write_cache_atomic(target, {"plain": "ä", "lines": []})
-            self.assertEqual(json.load(open(target, encoding="utf-8")), {"plain": "ä", "lines": []})
+            with open(target, encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh), {"plain": "ä", "lines": []})
             self.assertEqual(os.listdir(d), ["genius_x.json"])
 
     def test_failure_removes_temp_file(self):

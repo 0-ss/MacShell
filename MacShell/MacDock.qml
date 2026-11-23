@@ -1830,9 +1830,14 @@ Scope {
                                 want[cl.address] = { addr: cl.address, wx: x, wy: y, ww: w, wh: h, wz: z, gone: false };
                             }
                             for (var j = wm.count - 1; j >= 0; j--) {
-                                var a = wm.get(j).addr;
-                                if (want[a] === undefined) { if (!wm.get(j).gone) { wm.setProperty(j, "gone", true); sweep.restart(); } }
-                                else { wm.set(j, want[a]); delete want[a]; }
+                                var cur = wm.get(j), a = cur.addr;
+                                if (want[a] === undefined) { if (!cur.gone) { wm.setProperty(j, "gone", true); sweep.restart(); } }
+                                else {
+                                    var nw = want[a];
+                                    if (cur.wx !== nw.wx || cur.wy !== nw.wy || cur.ww !== nw.ww || cur.wh !== nw.wh || cur.wz !== nw.wz || cur.gone !== nw.gone)
+                                        wm.set(j, nw);
+                                    delete want[a];
+                                }
                             }
                             for (var k in want) wm.append(want[k]);
                             bd.lastCount = wm.count;

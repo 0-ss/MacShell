@@ -9,6 +9,7 @@ import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
 import "I18n.js" as I18n
 import "Fonts.js" as Fonts
+import "FocusModes.js" as FocusModes
 
 Window {
     id: prefsWindow
@@ -774,7 +775,7 @@ Window {
                         id: sbPillSes
                         sourceItem: prefsBackdrop
                         hideSource: true
-                        live: true
+                        live: prefsWindow.visible && root.settingsGlass
                         mipmap: true
                         visible: false
                         textureSize: Qt.size(Math.round(prefsBackdrop.width / 2), Math.round(prefsBackdrop.height / 2))
@@ -1073,10 +1074,10 @@ Window {
                 width: Math.max(1, parent.width - x); height: Math.max(1, parent.height - y)
                 sourceItem: flick
                 sourceRect: Qt.rect(0, 0, width, height)
-                live: true
+                live: prefsWindow.visible && root.settingsGlass
             }
         }
-        ShaderEffectSource { id: pillSes; sourceItem: pillBack; hideSource: true; live: true; mipmap: true; visible: false }
+        ShaderEffectSource { id: pillSes; sourceItem: pillBack; hideSource: true; live: prefsWindow.visible && root.settingsGlass; mipmap: true; visible: false }
 
         // ───────── toolbar ─────────
         Item {
@@ -1537,6 +1538,54 @@ Window {
                         t: pal
                         checked: root.bar ? root.bar.liveWallGlass : false
                         onToggled: v => { if (root.bar) root.bar.liveWallGlass = v; }
+                    }
+                }
+            }
+
+            SLabel { t: pal; header: true; text: I18n.tr("Menu Bar Behavior") }
+            SCard {
+                t: pal
+                SRow {
+                    t: pal
+                    title: I18n.tr("Automatically hide and show the menu bar")
+                    subtitle: I18n.tr("Slide the menu bar out of view and reveal it when the pointer hits the top screen edge")
+                    SSegmented {
+                        t: pal
+                        model: [I18n.tr("Never"), I18n.tr("Full Screen"), I18n.tr("Always")]
+                        segWidth: 82
+                        current: !root.bar ? 0 : (root.bar.barAutoHide === "fullscreen" ? 1 : (root.bar.barAutoHide === "always" ? 2 : 0))
+                        onPicked: i => { if (root.bar) root.bar.barAutoHide = ["never", "fullscreen", "always"][i]; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Global application menus (DBusMenu)")
+                    subtitle: root.bar && root.bar.dbusMenuRegistrar
+                              ? I18n.tr("Active: reading real app menu trees via com.canonical.AppMenu.Registrar")
+                              : I18n.tr("Show real application menu trees when exported by the focused app, falling back to built-in menus")
+                    SSwitch {
+                        t: pal
+                        checked: root.bar ? root.bar.globalMenuEnabled : true
+                        onToggled: v => { if (root.bar) root.bar.globalMenuEnabled = v; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Live Activities")
+                    subtitle: I18n.tr("Show compact status pills in the menu bar for active timers, recordings, and voice calls")
+                    SSwitch {
+                        t: pal
+                        checked: root.bar ? root.bar.liveActivities : true
+                        onToggled: v => { if (root.bar) root.bar.liveActivities = v; }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Menu bar item order")
+                    subtitle: I18n.tr("Hold Alt and drag status icons on the bar to reorder them, or drag down off the bar to hide")
+                    SButton {
+                        t: pal; text: I18n.tr("Reset Order")
+                        onClicked: { if (root.bar) root.bar.barRightOrder = []; }
                     }
                 }
             }
@@ -3311,7 +3360,12 @@ Window {
     Component {
         id: paneFocus
         Column {
+            id: focusPaneCol
             spacing: 10
+            property string selectedId: (root.bar && root.bar.focusActiveId !== "") ? root.bar.focusActiveId : "dnd"
+            readonly property var profiles: root.bar ? root.bar.focusProfiles : FocusModes.defaultProfiles()
+            readonly property var curProf: FocusModes.findProfile(profiles, selectedId) || (profiles.length > 0 ? profiles[0] : null)
+
             SCard {
                 t: pal
                 SRow {
@@ -3323,6 +3377,217 @@ Window {
                     t: pal; title: I18n.tr("Keep Awake")
                     subtitle: I18n.tr("Stop the computer from going to sleep or locking")
                     SSwitch { t: pal; checked: root.bar ? root.bar.keepAwake : false; onToggled: v => { if (root.bar) root.bar.keepAwake = v; } }
+                }
+            }
+
+            SLabel { t: pal; header: true; text: I18n.tr("Focus Profiles") }
+            SCard {
+                t: pal
+                Repeater {
+                    model: focusPaneCol.profiles
+                    delegate: SRow {
+                        id: fpRow
+                        required property var modelData
+                        readonly property bool isSel: focusPaneCol.selectedId === modelData.id
+                        readonly property bool isOn: !!root.bar && root.bar.focusActiveId === modelData.id
+                        t: pal
+                        title: I18n.tr(modelData.name)
+                        subtitle: (modelData.schedule && modelData.schedule.enabled ? (modelData.schedule.start + " \u2013 " + modelData.schedule.end + " \u00b7 ") : "")
+                                  + (modelData.allowApps && modelData.allowApps.length > 0
+                                     ? (I18n.tr("Allows") + ": " + modelData.allowApps.join(", "))
+                                     : I18n.tr("Blocks all non-critical banners"))
+                        Row {
+                            spacing: 8
+                            SButton {
+                                t: pal
+                                text: fpRow.isSel ? I18n.tr("Editing") : I18n.tr("Configure")
+                                onClicked: focusPaneCol.selectedId = fpRow.modelData.id
+                            }
+                            SSwitch {
+                                t: pal
+                                checked: fpRow.isOn
+                                onToggled: v => { if (root.bar) root.bar.setFocusMode(v ? fpRow.modelData.id : "", false); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            SLabel {
+                t: pal; header: true
+                text: focusPaneCol.curProf ? (I18n.tr("Configure") + ": " + I18n.tr(focusPaneCol.curProf.name)) : ""
+                visible: focusPaneCol.curProf !== null
+            }
+            SCard {
+                t: pal
+                visible: focusPaneCol.curProf !== null
+                SRow {
+                    t: pal
+                    title: I18n.tr("Allowed apps")
+                    subtitle: I18n.tr("Comma-separated app names allowed to show notification banners during this Focus")
+                    Rectangle {
+                        width: 220; height: 26; radius: 6
+                        color: pal.ctrl; border.width: 1; border.color: pal.cardBorder
+                        TextInput {
+                            id: focusAllowInput
+                            anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8
+                            verticalAlignment: TextInput.AlignVCenter; clip: true; selectByMouse: true
+                            color: pal.text; selectionColor: pal.accent
+                            font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 12
+                            text: focusPaneCol.curProf ? FocusModes.formatAllowApps(focusPaneCol.curProf.allowApps) : ""
+                            onEditingFinished: {
+                                if (root.bar && focusPaneCol.curProf)
+                                    root.bar.updateFocusProfile(focusPaneCol.curProf.id, { allowApps: FocusModes.parseAllowAppsText(text) });
+                            }
+                        }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Allow critical notifications")
+                    subtitle: I18n.tr("Urgent system alerts still break through")
+                    SSwitch {
+                        t: pal
+                        checked: focusPaneCol.curProf ? focusPaneCol.curProf.allowCritical !== false : true
+                        onToggled: v => {
+                            if (root.bar && focusPaneCol.curProf)
+                                root.bar.updateFocusProfile(focusPaneCol.curProf.id, { allowCritical: v });
+                        }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Schedule")
+                    subtitle: I18n.tr("Automatically activate this Focus during the configured hours")
+                    SSwitch {
+                        t: pal
+                        checked: !!(focusPaneCol.curProf && focusPaneCol.curProf.schedule && focusPaneCol.curProf.schedule.enabled)
+                        onToggled: v => {
+                            if (root.bar && focusPaneCol.curProf)
+                                root.bar.updateFocusProfile(focusPaneCol.curProf.id, { schedule: { enabled: v } });
+                        }
+                    }
+                }
+                SRow {
+                    t: pal
+                    visible: !!(focusPaneCol.curProf && focusPaneCol.curProf.schedule && focusPaneCol.curProf.schedule.enabled)
+                    title: I18n.tr("Active hours")
+                    subtitle: I18n.tr("24-hour HH:MM (overnight ranges like 22:00 to 07:00 supported)")
+                    Row {
+                        spacing: 6
+                        Rectangle {
+                            width: 68; height: 26; radius: 6
+                            color: pal.ctrl; border.width: 1; border.color: pal.cardBorder
+                            TextInput {
+                                id: focusStartIn
+                                anchors.fill: parent; horizontalAlignment: TextInput.AlignHCenter; verticalAlignment: TextInput.AlignVCenter
+                                color: pal.text; selectionColor: pal.accent
+                                font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 12
+                                text: focusPaneCol.curProf && focusPaneCol.curProf.schedule ? focusPaneCol.curProf.schedule.start : "22:00"
+                                onEditingFinished: {
+                                    if (root.bar && focusPaneCol.curProf && FocusModes.parseHHMM(text) >= 0)
+                                        root.bar.updateFocusProfile(focusPaneCol.curProf.id, { schedule: { start: text.trim() } });
+                                }
+                            }
+                        }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: "\u2013"; color: pal.text2; font.pixelSize: 12 }
+                        Rectangle {
+                            width: 68; height: 26; radius: 6
+                            color: pal.ctrl; border.width: 1; border.color: pal.cardBorder
+                            TextInput {
+                                id: focusEndIn
+                                anchors.fill: parent; horizontalAlignment: TextInput.AlignHCenter; verticalAlignment: TextInput.AlignVCenter
+                                color: pal.text; selectionColor: pal.accent
+                                font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 12
+                                text: focusPaneCol.curProf && focusPaneCol.curProf.schedule ? focusPaneCol.curProf.schedule.end : "07:00"
+                                onEditingFinished: {
+                                    if (root.bar && focusPaneCol.curProf && FocusModes.parseHHMM(text) >= 0)
+                                        root.bar.updateFocusProfile(focusPaneCol.curProf.id, { schedule: { end: text.trim() } });
+                                }
+                            }
+                        }
+                    }
+                }
+                SRow {
+                    t: pal
+                    visible: !!(focusPaneCol.curProf && focusPaneCol.curProf.schedule && focusPaneCol.curProf.schedule.enabled)
+                    title: I18n.tr("Repeat days")
+                    Row {
+                        spacing: 4
+                        Repeater {
+                            model: ["S", "M", "T", "W", "T", "F", "S"]
+                            delegate: Rectangle {
+                                id: fDayBtn
+                                required property string modelData
+                                required property int index
+                                readonly property bool picked: !!(focusPaneCol.curProf && focusPaneCol.curProf.schedule && focusPaneCol.curProf.schedule.days.indexOf(index) >= 0)
+                                width: 24; height: 24; radius: 12
+                                color: picked ? pal.accent : pal.ctrl
+                                border.width: 1; border.color: picked ? pal.accent : pal.cardBorder
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: fDayBtn.modelData
+                                    color: fDayBtn.picked ? "white" : pal.text2
+                                    font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 11; font.weight: Font.DemiBold
+                                }
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if (!root.bar || !focusPaneCol.curProf) return;
+                                        var ds = (focusPaneCol.curProf.schedule.days || []).slice();
+                                        var ix = ds.indexOf(fDayBtn.index);
+                                        if (ix >= 0) ds.splice(ix, 1); else ds.push(fDayBtn.index);
+                                        ds.sort();
+                                        root.bar.updateFocusProfile(focusPaneCol.curProf.id, { schedule: { days: ds } });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Focus wallpaper")
+                    subtitle: I18n.tr("Optional image path applied while this Focus is active")
+                    Row {
+                        spacing: 6
+                        Rectangle {
+                            width: 190; height: 26; radius: 6
+                            color: pal.ctrl; border.width: 1; border.color: pal.cardBorder
+                            TextInput {
+                                id: focusWallIn
+                                anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8
+                                verticalAlignment: TextInput.AlignVCenter; clip: true; selectByMouse: true
+                                color: pal.text; selectionColor: pal.accent
+                                font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 12
+                                text: focusPaneCol.curProf ? (focusPaneCol.curProf.wallpaper || "") : ""
+                                onEditingFinished: {
+                                    if (root.bar && focusPaneCol.curProf)
+                                        root.bar.updateFocusProfile(focusPaneCol.curProf.id, { wallpaper: text.trim() });
+                                }
+                            }
+                        }
+                        SButton {
+                            t: pal; text: I18n.tr("Clear")
+                            onClicked: {
+                                if (root.bar && focusPaneCol.curProf)
+                                    root.bar.updateFocusProfile(focusPaneCol.curProf.id, { wallpaper: "" });
+                            }
+                        }
+                    }
+                }
+                SRow {
+                    t: pal
+                    title: I18n.tr("Link with Game Mode")
+                    subtitle: I18n.tr("Pause Liquid Glass effects and background polling while this Focus is active")
+                    SSwitch {
+                        t: pal
+                        checked: !!(focusPaneCol.curProf && focusPaneCol.curProf.autoGaming)
+                        onToggled: v => {
+                            if (root.bar && focusPaneCol.curProf)
+                                root.bar.updateFocusProfile(focusPaneCol.curProf.id, { autoGaming: v });
+                        }
+                    }
                 }
             }
         }

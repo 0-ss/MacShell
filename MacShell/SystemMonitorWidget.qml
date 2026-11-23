@@ -67,7 +67,7 @@ Item {
 
     Process {
         id: sysProc
-        command: ["python3", w.readerScript]
+        command: ["python3", "-B", w.readerScript]
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
@@ -100,7 +100,7 @@ Item {
         }
     }
     onOccludedChanged: {
-        if (!occluded && !sysProc.running) sysProc.running = true;
+        if (w.visible && !w.preview && !occluded && !sysProc.running) sysProc.running = true;
     }
 
     // ───────────── Backdrop ─────────────

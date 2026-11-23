@@ -28,12 +28,12 @@ Items are grouped by area. Each item includes a brief note on the current state 
 
 ## 2. Menu Bar & Control Center
 
-- [ ] **Real Global Menu (`DBusMenu`)** — Replace or augment the hardcoded per-category menus (`File / Edit / View / Window / Help` in `MacShell/MacBar.qml`) with real application menu trees via `com.canonical.AppMenu.Registrar` / `DBusMenu`, including a searchable *Help* menu.
-- [ ] **Auto-hide Menu Bar** — Option to hide the menu bar (globally or in fullscreen) and slide it in when the pointer hits the top screen edge.
-- [ ] **Reorder & Hide Menu Bar Items** — Hold modifier + drag to reorder or hide status/tray icons directly on the bar.
-- [ ] **Live Activities in Menu Bar** — macOS Tahoe–style compact status pills in the menu bar for ongoing activities (active timers from `ClockApp`, calls, recordings, background progress).
-- [ ] **Real Focus Modes** — Expand *Settings → Focus* (`MacShell/MacDock.qml`, currently only Do Not Disturb + Keep Awake) into customizable Focus profiles (Work, Sleep, Personal, Gaming) with schedules, per-app notification allowlists, and optional per-Focus wallpapers.
-- [ ] **Additional Control Center Modules** — Add missing tiles/sliders to `ccCatalog` in `MacShell/MacBar.qml`: Keyboard Brightness slider, Screen Mirroring / Display Casting, and AirDrop / Nearby Share toggle.
+- [x] **Real Global Menu (`DBusMenu`)** — `MacShell/assets/appmenu-bridge.py` + `MacShell/MacBar.qml` claim `com.canonical.AppMenu.Registrar`, query real `com.canonical.dbusmenu` menu trees (with nested submenus, shortcuts, and checkmarks) for the focused app with automatic fallback to built-in menus, and add a macOS-style searchable *Help* menu filtering all active app menu items.
+- [x] **Auto-hide Menu Bar** — Configurable in *Settings → Menu Bar* (`Never` / `Full Screen` / `Always`) and via `menubar autohide` IPC; drops `exclusiveZone` when hidden and slides smoothly back in when hovering the top screen edge.
+- [x] **Reorder & Hide Menu Bar Items** — Hold `Alt` (or `Meta`) and drag status items in `MacShell/MacBar.qml` (`MacShell/MenuBar.js`) to reorder them horizontally (persisted in `barRightOrder`), or drag downward off the bar to hide them.
+- [x] **Live Activities in Menu Bar** — macOS Tahoe–style compact status pills in the menu bar (`MacShell/MenuBar.js` + `MacShell/MacBar.qml`) for active `ClockApp` timers/stopwatches/ringing alarms, screen recordings, and active Discord voice calls.
+- [x] **Real Focus Modes** — `MacShell/FocusModes.js`, *Settings → Focus* (`MacShell/SettingsWindow.qml`), and Control Center's Focus sub-page provide customizable profiles (`Do Not Disturb`, `Work`, `Sleep`, `Personal`, `Gaming`) with schedules (including overnight ranges), per-app notification allowlists, optional per-Focus wallpapers, Game Mode linking, and `focus` IPC.
+- [x] **Additional Control Center Modules** — Added Keyboard Brightness slider (`kbbacklight`), Screen Mirroring / Display Casting tile + monitor/cast sub-page (`mirroring`), and AirDrop / Nearby Share toggle (`airdrop`, LocalSend / KDE Connect / Warpinator) to `ccCatalog` in `MacShell/MacBar.qml`.
 
 ---
 
