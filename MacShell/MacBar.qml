@@ -5559,7 +5559,7 @@ Scope {
     property real switcherBlur: 15           // blur of the switcher glass (smooth Gaussian; less than Spotlight / notifications)
     property string switcherStyle: "glass"   // glass (Liquid Glass) | frosted | opaque — Settings → Desktop & Dock
     property bool swOpen: false
-    property var swApps: []                  // open apps, most recently used first: { appId, name, icon, win, count }
+    property var swWindows: []               // open windows, most recently focused first
     property int swIndex: 0
     property var swMru: []                   // recently focused toplevels, newest first
     function swTrack() {
@@ -5571,6 +5571,7 @@ Scope {
     }
     function swIcon(a) {
         if (a.icon) return root.iconSrc(a.icon);
+        if (!a.appId) return root.iconSrc("");
         var p = Quickshell.iconPath(a.appId, true);
         if (p === "") p = Quickshell.iconPath(a.appId.toLowerCase(), true);
         return p !== "" ? p : root.iconSrc("");
@@ -5579,34 +5580,31 @@ Scope {
         var vals = ToplevelManager.toplevels.values, all = [];
         for (var i = 0; i < vals.length; i++) all.push(vals[i]);
         var order = [];
-        if (root.activeTl && all.indexOf(root.activeTl) >= 0) order.push(root.activeTl);       // the app you are in comes first
+        if (root.activeTl && all.indexOf(root.activeTl) >= 0) order.push(root.activeTl);
         for (var m = 0; m < root.swMru.length; m++) if (all.indexOf(root.swMru[m]) >= 0 && order.indexOf(root.swMru[m]) < 0) order.push(root.swMru[m]);
         for (var j = 0; j < all.length; j++) if (order.indexOf(all[j]) < 0) order.push(all[j]);
-        var seen = {}, apps = [];
+        var windows = [];
         for (var k = 0; k < order.length; k++) {
             var t = order[k], id = t.appId || "";
-            if (id === "") continue;
-            // MacShell's own windows (all "org.quickshell") are separate apps: Clock, System Settings
+            // MacShell's own windows share an app ID but use different icons.
             if (id === "org.quickshell") id = t.title === "Clock" ? "macshell-clock"
                                              : (t.title === "App Store" ? "macshell-appstore"
                                              : (t.title === "macshell Settings" ? "systemsettings" : id));
-            if (seen[id] !== undefined) { apps[seen[id]].count++; continue; }
             var e = root.lookup(id);
-            seen[id] = apps.length;
-            apps.push({ appId: id, cls: t.appId, name: id === "systemsettings" ? "System Settings" : (id === "org.quickshell" ? "MacShell" : (e ? e.name : id)),
-                        icon: id === "systemsettings" ? "preferences-system" : (id === "org.quickshell" ? root.logoPath : (e ? e.icon : "")), win: t, count: 1 });
+            windows.push({ appId: id, name: e ? e.name : (id || I18n.tr("Window")),
+                           icon: id === "systemsettings" ? "preferences-system" : (id === "org.quickshell" ? root.logoPath : (e ? e.icon : "")), win: t });
         }
-        return apps;
+        return windows;
     }
     function swNext(dir) {
         if (!root.swOpen) {
-            var apps = root.swBuild();
-            if (apps.length === 0) return;
-            root.swApps = apps;
-            root.swIndex = 0;                // 0 = the app you are in, so the first TAB lands on the previous one
+            var windows = root.swBuild();
+            if (windows.length === 0) return;
+            root.swWindows = windows;
+            root.swIndex = 0;                // First Tab selects the previous window.
             root.swOpen = true;
         }
-        var n = root.swApps.length;
+        var n = root.swWindows.length;
         root.swIndex = (root.swIndex + (dir >= 0 ? 1 : n - 1)) % n;
     }
     // The switcher layer holds EXCLUSIVE keyboard focus while open, and Hyprland can refuse to focus / switch
@@ -5635,6 +5633,10 @@ Scope {
             var t = root.swPending;
             root.swPending = null;
             if (!t) return;
+            if ("win" in t) {
+                if (t.win && ToplevelManager.toplevels.values.indexOf(t.win) >= 0) t.win.activate();
+                return;
+            }
             // Hyprland 0.55+ is Lua: `hyprctl dispatch` takes a Lua expression, the old "focuswindow ..." strings fail.
             var lua = root.buildFocusLua(t);
             if (lua === "") return;
@@ -5644,33 +5646,22 @@ Scope {
     }
     function swCommit() {
         if (!root.swOpen) return;
-        var a = root.swApps[root.swIndex];
+        var target = root.swWindows[root.swIndex];
         root.swOpen = false;
-        if (!a || !a.win) return;
-        try { Hyprland.refreshToplevels(); } catch (e) {}
-        var ts = Hyprland.toplevels.values, hit = null, i;
-        for (i = 0; i < ts.length; i++) if (ts[i].wayland === a.win) { hit = ts[i]; break; }
-        if (!hit) {                                   // handle did not match: fall back to class (+ title)
-            var cls = (a.cls || a.appId || "").toLowerCase(), ttl = a.win.title || "", loose = null;
-            for (i = 0; i < ts.length; i++) {
-                var o = ts[i].lastIpcObject || {};
-                if (("" + (o["class"] || "")).toLowerCase() !== cls) continue;
-                if (("" + (o.title || "")) === ttl) { hit = ts[i]; break; }
-                if (!loose) loose = ts[i];
-            }
-            if (!hit) hit = loose;
-        }
-        var addr = "", ws = 0;
-        if (hit) {
-            addr = "" + hit.address;
+        if (!target || !target.win || ToplevelManager.toplevels.values.indexOf(target.win) < 0) return;
+        // Class and title can both be identical for two windows.
+        var hit = Hyprland.toplevels.values.find(t => t.wayland === target.win);
+        if (hit && hit.address) {
+            var ws = 0;
+            var addr = "" + hit.address;
             if (addr.indexOf("0x") !== 0) addr = "0x" + addr;
             var w = hit.workspace;
             if (w && w.id > 0) ws = w.id;
             else if (hit.lastIpcObject && hit.lastIpcObject.workspace && hit.lastIpcObject.workspace.id > 0) ws = hit.lastIpcObject.workspace.id;
+            root.swPending = { addr: addr, ws: ws };
+        } else {
+            root.swPending = { win: target.win };
         }
-        console.log("[switcher] app=" + a.appId + " matched=" + (hit ? "yes" : "no") + " addr=" + addr + " ws=" + ws);
-        if (!hit && !a.appId) { try { a.win.activate(); } catch (e2) {} return; }
-        root.swPending = { addr: addr, ws: ws, cls: (a.cls || a.appId || "").replace(/[\\"']/g, "") };
         swFocusTimer.restart();
     }
     function swCancel() { root.swOpen = false; }
@@ -11980,7 +11971,7 @@ Scope {
                 Item {
                     id: swPanel
                     z: 10
-                    readonly property int n: root.swApps.length
+                    readonly property int n: root.swWindows.length
                     readonly property real cw: Math.min(92, (swRoot.width - 160) / Math.max(n, 1))
                     readonly property real ico: Math.round(cw * 0.7)
                     readonly property real pad: 14
@@ -12055,7 +12046,7 @@ Scope {
                         Behavior on x { NumberAnimation { duration: 320; easing.type: Easing.OutQuint } }
                     }
                     Repeater {
-                        model: root.swApps
+                        model: root.swWindows
                         delegate: Item {
                             id: swCell
                             required property int index
@@ -12088,9 +12079,9 @@ Scope {
                     Item {
                         id: swNameBox
                         visible: swPanel.n > 0
-                        width: 260; height: swName.implicitHeight
+                        width: swPanel.width - 20; height: swName.implicitHeight
                         readonly property real cx: swPanel.pad + root.swIndex * swPanel.cw + swPanel.cw / 2
-                        readonly property real tw: Math.min(swNameM.advanceWidth, swPanel.width - 20)
+                        readonly property real tw: Math.min(swNameM.advanceWidth, width)
                         // keep the whole name inside the panel
                         readonly property real cxc: Math.max(10 + tw / 2, Math.min(swPanel.width - 10 - tw / 2, cx))
                         x: cxc - width / 2
@@ -12099,10 +12090,14 @@ Scope {
                         MorphText {
                             id: swName
                             width: parent.width
-                            text: root.swApps.length > root.swIndex ? root.swApps[root.swIndex].name : ""
+                            text: {
+                                var selected = root.swWindows[root.swIndex];
+                                return selected ? (selected.win && selected.win.title || selected.name) : "";
+                            }
                             color: swPanel.style === "opaque" ? (root.effDark ? "white" : "#1D1D1F") : pal.fg
                             font.family: root.fontForWeight(Font.Medium, pal.fam); font.pixelSize: 13; font.weight: Font.Medium
                             horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
                             animateWidth: false
                             duration: 320
                         }

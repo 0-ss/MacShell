@@ -564,7 +564,7 @@ var strings = {
     "No matching files": "Файлы не найдены",
     "No recently used emoji": "Нет недавних эмодзи",
     "★ Favourites": "★ Избранное",
-    "App Switcher (Alt + Tab)": "Переключатель приложений (Alt + Tab)",
+    "Window Switcher (Alt + Tab)": "Переключатель окон (Alt + Tab)",
     "Developer Tools": "Инструменты разработчика",
     "Games": "Игры",
     "Productivity & Finance": "Продуктивность и финансы",

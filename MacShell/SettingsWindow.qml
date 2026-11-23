@@ -2666,7 +2666,7 @@ Window {
                     }
                 }
             }
-            SLabel { t: pal; header: true; text: I18n.tr("App Switcher (Alt + Tab)") }
+            SLabel { t: pal; header: true; text: I18n.tr("Window Switcher (Alt + Tab)") }
             SCard {
                 t: pal
                 SRow {

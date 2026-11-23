@@ -562,7 +562,7 @@ var strings = {
     "No matching files": "Sin archivos coincidentes",
     "No recently used emoji": "Sin emojis recientes",
     "★ Favourites": "★ Favoritos",
-    "App Switcher (Alt + Tab)": "Conmutador (Alt + Tab)",
+    "Window Switcher (Alt + Tab)": "Conmutador de ventanas (Alt + Tab)",
     "Developer Tools": "Desarrollo",
     "Games": "Juegos",
     "Productivity & Finance": "Productividad y finanzas",
