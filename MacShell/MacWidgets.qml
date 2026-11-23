@@ -16,6 +16,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Mpris
 import "I18n.js" as I18n
+import "DesktopWidgets.js" as DesktopWidgets
 
 Scope {
     id: root
@@ -175,15 +176,22 @@ Scope {
                 if (wmodel.get(k).wid === item.id) { wmodel.setProperty(k, "wx", p[0]); wmodel.setProperty(k, "wy", p[1]); break; }
         }
     }
-    function addWidget(type, style, size, src) {
+    readonly property string primaryScreenName: Quickshell.screens.length > 0 ? Quickshell.screens[0].name : ""
+    function addWidget(type, style, size, src, screenName) {
         var sz = size || "small";
         var p = firstFreeSlot(sz, "");
         if (!p) return false;
         wmodel.append({ wid: "w" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
-                        wtype: type, wstyle: style, wsize: sz, wmode: "auto", wsrc: src || "", wx: p[0], wy: p[1] });
+                        wtype: type, wstyle: style, wsize: sz, wmode: "auto", wsrc: src || "",
+                        wscreen: String(screenName || ""), wx: p[0], wy: p[1] });
         recount(); scheduleSave();
         if (type === "weather") refreshSoon();
         return true;
+    }
+    function setScreen(id, screenName) {
+        for (var i = 0; i < wmodel.count; i++)
+            if (wmodel.get(i).wid === id) { wmodel.setProperty(i, "wscreen", String(screenName || "")); break; }
+        recount(); scheduleSave();
     }
     function removeWidget(id) {
         for (var i = 0; i < wmodel.count; i++)
@@ -356,7 +364,7 @@ Scope {
         var list = [];
         for (var i = 0; i < wmodel.count; i++) {
             var m = wmodel.get(i);
-            list.push({ id: m.wid, type: m.wtype, style: m.wstyle, size: m.wsize, mode: m.wmode || "auto", src: m.wsrc || "", x: m.wx, y: m.wy });
+            list.push({ id: m.wid, type: m.wtype, style: m.wstyle, size: m.wsize, mode: m.wmode || "auto", src: m.wsrc || "", screen: m.wscreen || "", x: m.wx, y: m.wy });
         }
         store.setText(JSON.stringify({ tempUnit: tempUnit, locMode: locMode, cityName: cityName, widgetScale: widgetScale, widgets: list }, null, 2));
     }
@@ -379,6 +387,7 @@ Scope {
                                 wsize: (w.size === "medium" || w.size === "large") ? w.size : "small",
                                 wmode: (w.mode === "light" || w.mode === "dark") ? w.mode : "auto",
                                 wsrc: typeof w.src === "string" ? w.src : "",
+                                wscreen: typeof w.screen === "string" ? w.screen : "",
                                 wx: Number(w.x) || 0, wy: Number(w.y) || 0 });
             }
         }
@@ -758,9 +767,9 @@ Scope {
         return "file://" + encodeURI(p).replace(/#/g, "%23").replace(/\?/g, "%3F");
     }
 
-    // ───────────── the desktop layer ─────────────
+    // ───────────── the desktop layer (multi-monitor) ─────────────
     Variants {
-        model: (root.ready && Quickshell.screens.length > 0 && (root.widgetCount > 0 || root.editing)) ? [Quickshell.screens[0]] : []
+        model: (root.ready && Quickshell.screens.length > 0 && (root.widgetCount > 0 || root.editing)) ? Quickshell.screens : []
 
         PanelWindow {
             id: win
@@ -831,12 +840,37 @@ Scope {
                         required property string wsize
                         required property string wmode
                         required property string wsrc
+                        required property string wscreen
                         required property real wx
                         required property real wy
+                        readonly property bool onThisScreen: DesktopWidgets.widgetMatchesScreen(wscreen, win.modelData.name, root.primaryScreenName)
+                        visible: onThisScreen
+                        enabled: onThisScreen
 
                         property real dragDX: 0
                         property real dragDY: 0
                         x: wx + dragDX
+                        // Multi-monitor move button in edit mode
+                        Rectangle {
+                            visible: root.editing && Quickshell.screens.length > 1 && ww.onThisScreen
+                            z: 30; x: 10; y: -12
+                            height: 22; radius: 11; width: monMoveTxt.implicitWidth + 14
+                            color: Qt.rgba(0.12, 0.12, 0.14, 0.90)
+                            border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.25)
+                            Text {
+                                id: monMoveTxt; anchors.centerIn: parent
+                                text: "\u21c4 " + win.modelData.name
+                                color: "#FFFFFF"; font.pixelSize: 10.5
+                            }
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    var scs = Quickshell.screens, idx = 0;
+                                    for (var si = 0; si < scs.length; si++) if (scs[si].name === win.modelData.name) { idx = si; break; }
+                                    root.setScreen(ww.wid, scs[(idx + 1) % scs.length].name);
+                                }
+                            }
+                        }
                         y: wy + dragDY
                         readonly property var baseDims: root.dims(wsize)
                         readonly property real radiusPx: 28 * root.widgetScale * (wsize === "small" ? 168 / 158 : (wsize === "medium" ? 358 / 338 : 1))

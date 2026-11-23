@@ -58,11 +58,11 @@ Items are grouped by area. Each item includes a brief note on the current state 
 
 ## 5. Notifications, Widgets & Desktop
 
-- [ ] **Grouped / Stacked Notifications** — Collapse multiple notifications from the same app into an expandable stack in Notification Center.
-- [ ] **Combined Notification Center + Widgets Sidebar** — Clicking the clock (or swiping from the right edge) opens a unified right-hand panel showing notifications alongside widgets, rather than only the calendar popover.
-- [ ] **Multi-Monitor Desktop Widgets** — Lift the primary-monitor-only limitation in `MacShell/MacWidgets.qml` so widgets can be placed on any connected display.
-- [ ] **Desktop Stacks** — Automatically group desktop files into expandable stacks by file type, date, or tag in `MacShell/Desktop.qml`.
-- [ ] **System-Wide Quick Look (`Space`)** — Instant floating Liquid Glass preview for images, PDFs, video, audio, and code/markdown files triggered via `Space` (beyond the current desktop right-click image/info preview).
+- [x] **Grouped / Stacked Notifications** — `MacShell/DesktopWidgets.js` + `MacShell/MacBar.qml` collapse multiple notifications from the same app into expandable stacks with a `+N more` / `Show less` toggle pill.
+- [x] **Combined Notification Center + Widgets Sidebar** — Clicking the Menu Bar clock opens the unified Notification Center + Widgets Sidebar (`notifPop` + `notifWidgetsStrip` showing mini Calendar and Weather cards alongside notifications; right-click opens standalone Calendar).
+- [x] **Multi-Monitor Desktop Widgets** — Lifted the primary-monitor-only limit in `MacShell/MacWidgets.qml` so widgets persist a `screen` property, render on all connected displays, and can be moved across monitors in edit mode.
+- [x] **Desktop Stacks** — Right-click Desktop → *Use Stacks* (`Kind` / `Date`) groups desktop files into expandable stacks via `MacShell/DesktopWidgets.js` + `MacShell/Desktop.qml` with a floating stack popover.
+- [x] **System-Wide Quick Look (`Space`)** — `MacShell/QuickLook.qml` provides an instant floating Liquid Glass preview for images, PDFs, code/markdown/text, folders, and media metadata via Desktop `Space`/Quick Preview, Spotlight Quick Look button, and `quicklook` IPC.
 
 ---
 

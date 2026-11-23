@@ -47,6 +47,7 @@ ShellRoot {
         property var minimizeFx: minimizeFxObj
         property var wm: windowMgmt
         property var mc: missionControl
+        property var quickLook: quickLookObj
         function openSettings(pane) { macDock.openPrefs(pane); }
 
         // set by MacBar / MacDock / WindowDecor / WindowMgmt (Binding elements) when they need live window geometry
@@ -573,6 +574,7 @@ ShellRoot {
     MinimizeFx { id: minimizeFxObj; hub: sharedHub; effect: macDock.minimizeEffect; speed: macDock.minimizeSpeed }
     WindowMgmt { id: windowMgmt; hub: sharedHub }
     MissionControl { id: missionControl; hub: sharedHub }
+    QuickLook { id: quickLookObj; hub: sharedHub }
 
     Component.onCompleted: {
         sharedHub.bar = macBar;
@@ -723,5 +725,12 @@ ShellRoot {
         }
         function badge(app: string, count: int): void { macDock.setBadgeOverride(app, count); }
         function addFolder(path: string): void { macDock.addDockFolder(path, "fan"); }
+    }
+    // qs -c MacShell ipc call quicklook open <path> | toggle <path> | close
+    IpcHandler {
+        target: "quicklook"
+        function open(path: string): void { quickLookObj.openPath(path); }
+        function toggle(path: string): void { quickLookObj.togglePath(path); }
+        function close(): void { quickLookObj.close(); }
     }
 }

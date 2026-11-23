@@ -82,6 +82,7 @@ import "Fonts.js" as Fonts
 import "MenuBar.js" as MenuBar
 import "FocusModes.js" as FocusModes
 import "Spotlight.js" as Spotlight
+import "DesktopWidgets.js" as DesktopWidgets
 
 Scope {
     id: root
@@ -5661,6 +5662,24 @@ Scope {
         }
         if (changed) notifAppCounts = next;
     }
+    property bool notifGrouped: true
+    property var notifExpandedApps: ({})
+    property bool sidebarWidgets: true       // clicking clock opens combined Notification Center + Widgets Sidebar
+    function toggleNotifGroup(appKey) {
+        var next = {};
+        for (var k in notifExpandedApps) next[k] = notifExpandedApps[k];
+        next[appKey] = !next[appKey];
+        notifExpandedApps = next;
+    }
+    readonly property var notifGroupState: {
+        var _c = notifHist.count;
+        var list = [];
+        for (var i = 0; i < _c; i++) {
+            var r = notifHist.get(i);
+            list.push({ nid: r.nid, app: r.app });
+        }
+        return DesktopWidgets.groupNotifications(list, notifExpandedApps);
+    }
     property int notifSeq: 0
     property int notifReplyNid: -1
     property string notifReplyScreen: ""
@@ -8054,7 +8073,14 @@ Scope {
                                 verticalAlignment: Text.AlignVCenter
                                 anchors.verticalCenterOffset: 0.5
                             }
-                            MouseArea { anchors.fill: parent; onClicked: ui.openPop("cal", 0) }
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: mouse => {
+                                    if (mouse.button === Qt.RightButton || !root.sidebarWidgets) ui.openPop("cal", 0);
+                                    else ui.openPop("notif", clockBtn.mapToItem(ui, 0, 0).x);
+                                }
+                            }
                         }
                     }
                 }
@@ -10308,7 +10334,7 @@ Scope {
                     // at once instead (its cards are the popups) and only the chrome builds in around them.
                     // while clearing the height tracks the collapsing list frame by frame (never shorter than the empty state),
                     // so the dust and the shrink are one motion; otherwise it eases to its new size
-                    property real fullH: 92 + (notifHist.count === 0 ? 70 : (root.notifClearing ? Math.max(70, nfl.height) : nfl.height)) + 14
+                    property real fullH: 92 + (notifHist.count === 0 ? 70 : (root.notifClearing ? Math.max(70, nfl.height) : nfl.height)) + (root.sidebarWidgets ? (notifWidgetsStrip.implicitHeight + 16) : 0) + 14
                     Behavior on fullH { enabled: !root.notifClearing; NumberAnimation { duration: 560; easing.type: Easing.OutQuint } }
                     readonly property real ps: root.barPopupScale
                     readonly property real fullW: 380
@@ -10442,12 +10468,12 @@ Scope {
                         color: pal.fg2
                         font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 14
                     }
-                    Flickable {
+                        Flickable {
                         id: nfl
                         opacity: notifPop.merging ? 1 : notifPop.contentT
                         x: 12; y: 92
                         width: parent.width - 24
-                        height: Math.min(ncol.height, 440)
+                        height: Math.min(ncol.height, root.sidebarWidgets ? 320 : 440)
                         contentHeight: ncol.height
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
@@ -10470,6 +10496,9 @@ Scope {
                                     required property string actionsJson
                                     required property bool hasReply
                                     required property string replyPlaceholder
+                                    readonly property var grpInfo: root.notifGrouped ? (root.notifGroupState.extraCounts[nid] || null) : null
+                                    readonly property bool grpHidden: root.notifGrouped && !root.notifGroupState.visibleIds[nid]
+                                    visible: !grpHidden
                                     width: ncol.width
                                     // entrance: grows into the list (cards below glide down), slides in from above, comes into focus
                                     property real inT: 0
@@ -10506,8 +10535,27 @@ Scope {
                                         target: root
                                         function onNotifMergeFromChanged() { Qt.callLater(hcd.flyFromPopup); }
                                     }
-                                    height: hc.height * inT
+                                    height: grpHidden ? 0 : ((hc.height + (grpStackPill.visible ? 24 : 0)) * inT)
                                     cardH: hc.height
+                                    Rectangle {
+                                        id: grpStackPill
+                                        visible: !hcd.grpHidden && hcd.grpInfo !== null && hcd.grpInfo.total > 1
+                                        anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
+                                        width: parent.width - 20; height: 20; radius: 8
+                                        color: grpPillMa.containsMouse ? pal.btnHover : pal.tile
+                                        border.width: 1; border.color: pal.sep
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: hcd.grpInfo ? (hcd.grpInfo.expanded
+                                                ? I18n.tr("Show less")
+                                                : ("+" + hcd.grpInfo.hidden + " " + I18n.tr("more from") + " " + (hcd.app || "App"))) : ""
+                                            color: pal.fg2; font.family: root.fontForWeight(Font.Medium, pal.fam); font.pixelSize: 11
+                                        }
+                                        MouseArea {
+                                            id: grpPillMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                            onClicked: if (hcd.grpInfo) root.toggleNotifGroup(hcd.grpInfo.appKey)
+                                        }
+                                    }
                                     opacity: inT
                                     transform: [
                                         Scale { origin.x: hcd.width; origin.y: 0; xScale: hcd.flipS; yScale: hcd.flipS },
@@ -10574,6 +10622,66 @@ Scope {
                                     }
                                 }
                                 }
+                            }
+                        }
+                    }
+                    // Combined Widgets Sidebar strip (Calendar + Weather + System quick cards inside Notification Center)
+                    Column {
+                        id: notifWidgetsStrip
+                        visible: root.sidebarWidgets
+                        opacity: notifPop.chrome
+                        x: 12
+                        y: 92 + (notifHist.count === 0 ? 70 : (root.notifClearing ? Math.max(70, nfl.height) : nfl.height)) + 10
+                        width: parent.width - 24
+                        spacing: 8
+
+                        Rectangle { width: parent.width; height: 1; color: pal.sep }
+                        Row {
+                            width: parent.width; spacing: 8
+                            // Mini Calendar card (click opens full Calendar popover)
+                            Rectangle {
+                                width: Math.floor((parent.width - 8) / 2); height: 78; radius: 14
+                                color: pal.tile; border.width: 1; border.color: Qt.rgba(pal.tileBorder.r, pal.tileBorder.g, pal.tileBorder.b, pal.tileBorder.a * 0.4)
+                                Column {
+                                    anchors.fill: parent; anchors.margins: 10; spacing: 2
+                                    Text {
+                                        text: Qt.formatDate(clock.date, "dddd").toUpperCase()
+                                        color: "#FF453A"; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 10.5; font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        text: Qt.formatDate(clock.date, "d")
+                                        color: pal.fg; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 24; font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        text: Qt.formatDate(clock.date, "MMMM yyyy")
+                                        color: pal.fg2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 10.5
+                                    }
+                                }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: ui.openPop("cal", 0) }
+                            }
+                            // Mini Weather card
+                            Rectangle {
+                                readonly property var wgt: root.hub ? root.hub.widgets : null
+                                width: Math.floor((parent.width - 8) / 2); height: 78; radius: 14
+                                color: pal.tile; border.width: 1; border.color: Qt.rgba(pal.tileBorder.r, pal.tileBorder.g, pal.tileBorder.b, pal.tileBorder.a * 0.4)
+                                Column {
+                                    anchors.fill: parent; anchors.margins: 10; spacing: 2
+                                    Text {
+                                        width: parent.width; elide: Text.ElideRight
+                                        text: (parent.parent.wgt && parent.parent.wgt.wxReady) ? parent.parent.wgt.wxCity : I18n.tr("Weather")
+                                        color: pal.fg2; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 11; font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        text: (parent.parent.wgt && parent.parent.wgt.wxReady) ? (Math.round(parent.parent.wgt.wxTemp) + "\u00b0") : "\u2014"
+                                        color: pal.fg; font.family: root.fontForWeight(Font.DemiBold, pal.fam); font.pixelSize: 22; font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        width: parent.width; elide: Text.ElideRight
+                                        text: (parent.parent.wgt && parent.parent.wgt.wxReady && parent.parent.wgt.wxInfo) ? parent.parent.wgt.wxInfo.t : I18n.tr("Edit Widgets\u2026")
+                                        color: pal.fg2; font.family: root.fontForWeight(Font.Normal, pal.fam); font.pixelSize: 10.5
+                                    }
+                                }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { ui.pop = ""; root.openSettings("widgets"); } }
                             }
                         }
                     }
@@ -14274,6 +14382,12 @@ Scope {
                                 color: qlCopyMa.containsMouse ? root.accent : panelPal.btnOff
                                 Text { id: qlCopyT; anchors.centerIn: parent; text: I18n.tr("Copy Path"); color: qlCopyMa.containsMouse ? "white" : panelPal.fg; font.pixelSize: 11 }
                                 MouseArea { id: qlCopyMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { Quickshell.execDetached(["wl-copy", spPreviewPane.item.filePath]); ui.pop = ""; } }
+                            }
+                            Rectangle {
+                                height: 22; radius: 6; width: qlFullT.implicitWidth + 14
+                                color: qlFullMa.containsMouse ? root.accent : panelPal.btnOff
+                                Text { id: qlFullT; anchors.centerIn: parent; text: I18n.tr("Quick Look"); color: qlFullMa.containsMouse ? "white" : panelPal.fg; font.pixelSize: 11 }
+                                MouseArea { id: qlFullMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { var p = spPreviewPane.item.filePath; ui.pop = ""; if (root.hub && root.hub.quickLook) root.hub.quickLook.openPath(p); } }
                             }
                         }
                     }
