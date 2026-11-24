@@ -2664,10 +2664,10 @@ Scope {
     Process {
         id: btProc
         command: ["sh", "-c",
-            "p=$(timeout 4 bluetoothctl show 2>/dev/null </dev/null | grep -i 'Powered:' | head -n1); echo \"P:$p\"; "
-            + "timeout 4 bluetoothctl devices 2>/dev/null </dev/null | while read -r _ mac name; do "
+            "p=$(timeout 4 bluetoothctl show 2>/dev/null </dev/null | sed -E 's/\\x1B\\[[0-9;]*[[:alpha:]]//g' | grep -i 'Powered:' | head -n1); echo \"P:$p\"; "
+            + "timeout 4 bluetoothctl devices 2>/dev/null </dev/null | sed -E 's/\\x1B\\[[0-9;]*[[:alpha:]]//g' | while read -r _ mac name; do "
             + "[ -n \"$mac\" ] || continue; "
-            + "i=$(timeout 3 bluetoothctl info \"$mac\" 2>/dev/null </dev/null); "
+            + "i=$(timeout 3 bluetoothctl info \"$mac\" 2>/dev/null </dev/null | sed -E 's/\\x1B\\[[0-9;]*[[:alpha:]]//g'); "
             + "pr=0; printf '%s\\n' \"$i\" | grep -qE '^[[:space:]]*(Paired|Bonded): yes' && pr=1; "
             + "c=0; printf '%s\\n' \"$i\" | grep -qE '^[[:space:]]*Connected: yes' && c=1; "
             + "b=$(printf '%s\\n' \"$i\" | sed -n 's/.*Battery Percentage: 0x[0-9a-fA-F]* (\\([0-9]*\\)).*/\\1/p' | head -n1); "
@@ -2676,6 +2676,7 @@ Scope {
         ]
         stdout: StdioCollector {
             onStreamFinished: {
+                function cleanBt(s) { return String(s || "").replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/[\x00-\x1f\x7f]/g, "").trim(); }
                 var lines = text.split("\n"), on = false, devList = [], connCount = 0, firstConnName = "", i;
                 for (i = 0; i < lines.length; i++) {
                     var l = lines[i].replace(/\r$/, "");
@@ -2684,15 +2685,16 @@ Scope {
                     if (l.indexOf("D:") !== 0) continue;
                     var f = l.substring(2).split("\t");
                     if (f.length < 5 || !f[0]) continue;
-                    var mac = f[0], isPair = Number(f[1]) > 0, isConn = Number(f[2]) > 0, name = (f[4] || "").trim() || mac;
-                    // BlueZ names an unnamed device after its address with dashes: show those last
+                    var mac = cleanBt(f[0]), isPair = Number(f[1]) > 0, isConn = Number(f[2]) > 0, name = cleanBt(f[4]) || mac;
+                    var isMacOnly = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(name);
                     if (isConn) { connCount++; if (!firstConnName) firstConnName = name; }
-                    devList.push({ mac: mac, name: name, connected: isConn, paired: isPair, bat: f[3] || "", icon: root.btIconFor(name) });
+                    devList.push({ mac: mac, name: name, connected: isConn, paired: isPair, bat: cleanBt(f[3]), icon: root.btIconFor(name), macOnly: isMacOnly });
                 }
                 root.btOn = on;
                 devList.sort(function (a, b) {
                     if (a.connected !== b.connected) return a.connected ? -1 : 1;
                     if (a.paired !== b.paired) return a.paired ? -1 : 1;
+                    if (a.macOnly !== b.macOnly) return a.macOnly ? 1 : -1;
                     return a.name.localeCompare(b.name);
                 });
                 root.btConnected = connCount;
@@ -7667,6 +7669,8 @@ Scope {
                         property var pp: pal                // palette: the panel palette in the popover, ccPal in the Control Center
                         property bool showBack: false       // Control Center page: show the back arrow
                         signal back()
+                        readonly property var myDevs: root.btDevices.filter(function (d) { return d.paired || d.connected; })
+                        readonly property var otherDevs: root.btDevices.filter(function (d) { return !d.paired && !d.connected && !d.macOnly; })
                         width: parent ? parent.width : 296
                         spacing: 6
 
@@ -7705,20 +7709,20 @@ Scope {
                         }
 
                         Text {
-                            visible: root.btOn && root.btDevices.length === 0
+                            visible: root.btOn && btCol.myDevs.length === 0 && btCol.otherDevs.length === 0
                             width: parent.width; height: 56
                             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
                             text: root.btScanning ? I18n.tr("Searching for devices\u2026") : I18n.tr("No devices found")
                             color: pp.fg2
-                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 13
+                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.pixelSize: 13
                         }
 
                         Item {
-                            visible: root.btOn && root.btDevices.length > 0
+                            visible: root.btOn && (btCol.myDevs.length > 0 || btCol.otherDevs.length > 0)
                             width: parent.width; height: 22
                             Text {
                                 x: 6; anchors.verticalCenter: parent.verticalCenter
-                                text: I18n.tr("Devices")
+                                text: btCol.myDevs.length > 0 ? I18n.tr("My Devices") : I18n.tr("Nearby Devices")
                                 color: pp.fg2
                                 font.family: root.fontForWeight(Font.DemiBold, pp.fam); font.pixelSize: 11; font.weight: Font.DemiBold
                             }
@@ -7729,7 +7733,7 @@ Scope {
                                 Text {
                                     visible: root.btScanning
                                     text: I18n.tr("Scanning\u2026")
-                                    color: pp.fg2; font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 11
+                                    color: pp.fg2; font.family: root.fontForWeight(Font.Normal, pp.fam); font.pixelSize: 11
                                 }
                                 Text {
                                     visible: !root.btScanning
@@ -7743,7 +7747,7 @@ Scope {
                         // the list
                         Flickable {
                             id: btFlick
-                            visible: root.btOn && root.btDevices.length > 0
+                            visible: root.btOn && (btCol.myDevs.length > 0 || btCol.otherDevs.length > 0)
                             width: parent.width
                             height: Math.min(btList.height, 300)
                             contentWidth: width
@@ -7754,90 +7758,62 @@ Scope {
                             Column {
                                 id: btList
                                 width: btFlick.width
+                                spacing: 2
                                 Repeater {
-                                    model: root.btDevices
+                                    model: btCol.myDevs
                                     delegate: Item {
                                         id: devRow
                                         required property var modelData
                                         readonly property bool busy: root.btBusy === modelData.mac
-                                        width: btList.width; height: 38
+                                        width: btList.width; height: 46
 
                                         Rectangle {
                                             anchors.fill: parent
-                                            radius: 8
-                                            color: root.accent
-                                            visible: bma.containsMouse
+                                            radius: 12
+                                            color: pp.hover
+                                            opacity: bma.containsMouse ? 1 : 0
+                                            Behavior on opacity { NumberAnimation { duration: 90 } }
                                         }
 
-                                        Glyph {
-                                            visible: devRow.modelData.connected
-                                            x: 9; anchors.verticalCenter: parent.verticalCenter
-                                            width: 14; height: 14
-                                            kind: "check"
-                                            color: bma.containsMouse ? "white" : pp.fg
-                                        }
-                                        Glyph {
-                                            visible: !devRow.modelData.connected
-                                            x: 9; anchors.verticalCenter: parent.verticalCenter
-                                            width: 14; height: 14
-                                            kind: devRow.modelData.icon || "bluetooth"
-                                            color: bma.containsMouse ? "white" : pp.fg2
-                                        }
-
-                                        Text {
-                                            x: 30
+                                        Rectangle {
+                                            x: 8
                                             anchors.verticalCenter: parent.verticalCenter
-                                            width: parent.width - 30 - 100
-                                            elide: Text.ElideRight
-                                            text: devRow.modelData.name || devRow.modelData.mac
-                                            color: bma.containsMouse ? "white" : pp.fg
-                                            font.family: root.fontForWeight((devRow.modelData.connected ? Font.DemiBold : Font.Normal), pp.fam); font.pixelSize: 13
-                                            font.weight: (pp === ccPal || devRow.modelData.connected) ? Font.DemiBold : Font.Normal
+                                            width: 32; height: 32; radius: 16
+                                            color: devRow.modelData.connected ? root.accent : pp.btnOff
+                                            Behavior on color { ColorAnimation { duration: 120 } }
+                                            Glyph {
+                                                anchors.centerIn: parent
+                                                width: 16; height: 16
+                                                kind: devRow.modelData.icon || "bluetooth"
+                                                color: devRow.modelData.connected ? "white" : pp.fg
+                                            }
                                         }
 
-                                        Text {
-                                            visible: devRow.busy
-                                            anchors.right: parent.right; anchors.rightMargin: 12
+                                        Column {
+                                            x: 50
                                             anchors.verticalCenter: parent.verticalCenter
-                                            text: devRow.modelData.connected ? I18n.tr("Disconnecting\u2026") : I18n.tr("Connecting\u2026")
-                                            color: bma.containsMouse ? "white" : pp.fg2
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
-                                        }
-
-                                        Text {
-                                            visible: !devRow.busy && devRow.modelData.connected && bma.containsMouse
-                                            anchors.right: parent.right; anchors.rightMargin: 12
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: I18n.tr("Disconnect")
-                                            color: "white"
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
-                                        }
-
-                                        Text {
-                                            visible: !devRow.busy && devRow.modelData.connected && !bma.containsMouse
-                                            anchors.right: parent.right; anchors.rightMargin: 12
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: I18n.tr("Connected")
-                                            color: pp.fg2
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
-                                        }
-
-                                        Text {
-                                            visible: !devRow.busy && !devRow.modelData.connected && bma.containsMouse
-                                            anchors.right: parent.right; anchors.rightMargin: 12
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: I18n.tr("Connect")
-                                            color: "white"
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
-                                        }
-
-                                        Text {
-                                            visible: !devRow.busy && !devRow.modelData.connected && !bma.containsMouse && devRow.modelData.paired
-                                            anchors.right: parent.right; anchors.rightMargin: 12
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: I18n.tr("Paired")
-                                            color: pp.fg2
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
+                                            width: parent.width - 50 - 14
+                                            spacing: 1
+                                            Text {
+                                                width: parent.width
+                                                elide: Text.ElideRight
+                                                text: devRow.modelData.name || devRow.modelData.mac
+                                                color: pp.fg
+                                                font.family: root.fontForWeight(devRow.modelData.connected ? Font.DemiBold : Font.Normal, pp.fam); font.pixelSize: 13
+                                                font.weight: devRow.modelData.connected ? Font.DemiBold : Font.Normal
+                                            }
+                                            Text {
+                                                width: parent.width
+                                                elide: Text.ElideRight
+                                                text: devRow.busy
+                                                      ? (devRow.modelData.connected ? I18n.tr("Disconnecting\u2026") : I18n.tr("Connecting\u2026"))
+                                                      : (devRow.modelData.connected
+                                                         ? (bma.containsMouse ? I18n.tr("Click to disconnect")
+                                                            : (I18n.tr("Connected") + (devRow.modelData.bat !== "" ? " \u00B7 " + devRow.modelData.bat + "%" : "")))
+                                                         : (bma.containsMouse ? I18n.tr("Click to connect") : I18n.tr("Not Connected")))
+                                                color: pp.fg2
+                                                font.family: root.fontForWeight(Font.Normal, pp.fam); font.pixelSize: 11
+                                            }
                                         }
 
                                         MouseArea {
@@ -7846,6 +7822,73 @@ Scope {
                                             hoverEnabled: true
                                             enabled: !devRow.busy
                                             onClicked: root.connectBt(devRow.modelData.mac, devRow.modelData.connected)
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    visible: btCol.myDevs.length > 0 && btCol.otherDevs.length > 0
+                                    width: btList.width
+                                    leftPadding: 6; topPadding: 6; bottomPadding: 2
+                                    text: I18n.tr("Other Devices")
+                                    color: pp.fg2
+                                    font.family: root.fontForWeight(Font.DemiBold, pp.fam); font.pixelSize: 11; font.weight: Font.DemiBold
+                                }
+
+                                Repeater {
+                                    model: btCol.otherDevs
+                                    delegate: Item {
+                                        id: otherRow
+                                        required property var modelData
+                                        readonly property bool busy: root.btBusy === modelData.mac
+                                        width: btList.width; height: 42
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: 12
+                                            color: pp.hover
+                                            opacity: oma.containsMouse ? 1 : 0
+                                            Behavior on opacity { NumberAnimation { duration: 90 } }
+                                        }
+
+                                        Rectangle {
+                                            x: 8
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 28; height: 28; radius: 14
+                                            color: pp.btnOff
+                                            Glyph {
+                                                anchors.centerIn: parent
+                                                width: 14; height: 14
+                                                kind: otherRow.modelData.icon || "bluetooth"
+                                                color: pp.fg2
+                                            }
+                                        }
+
+                                        Text {
+                                            x: 46
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: parent.width - 46 - 70
+                                            elide: Text.ElideRight
+                                            text: otherRow.modelData.name || otherRow.modelData.mac
+                                            color: pp.fg
+                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.pixelSize: 13
+                                        }
+
+                                        Text {
+                                            visible: otherRow.busy || oma.containsMouse
+                                            anchors.right: parent.right; anchors.rightMargin: 10
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: otherRow.busy ? I18n.tr("Connecting\u2026") : I18n.tr("Connect")
+                                            color: root.accent
+                                            font.family: root.fontForWeight(Font.Medium, pp.fam); font.pixelSize: 11; font.weight: Font.Medium
+                                        }
+
+                                        MouseArea {
+                                            id: oma
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            enabled: !otherRow.busy
+                                            onClicked: root.connectBt(otherRow.modelData.mac, false)
                                         }
                                     }
                                 }
