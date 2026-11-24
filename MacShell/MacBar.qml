@@ -2485,8 +2485,9 @@ Scope {
                     if (l.indexOf("W:") !== 0) continue;
                     var f = l.substring(2).split("\t");
                     if (f.length < 4 || !f[0]) continue;
-                    var name = root.splitNm(f[1])[0] || f[1];
-                    arr.push({ uuid: f[0], name: name, ssid: f[2] || name, active: f[3] === "yes" });
+                    var name = root.splitNm(f[1]).join(":") || f[1];
+                    var ssid = root.splitNm(f[2] || "").join(":");
+                    arr.push({ uuid: f[0], name: name, ssid: ssid || name, active: f[3] === "yes" });
                 }
                 arr.sort(function (a, b) {
                     if (a.active !== b.active) return a.active ? -1 : 1;
@@ -2584,7 +2585,6 @@ Scope {
             var savedMap = {};
             for (var i = 0; i < remaining.length; i++) {
                 if (remaining[i].ssid) savedMap[remaining[i].ssid] = true;
-                if (remaining[i].name) savedMap[remaining[i].name] = true;
             }
             var nets = root.wifiNets.slice(), changed = false;
             for (var j = 0; j < nets.length; j++) {
@@ -2601,8 +2601,11 @@ Scope {
             wifiAfter.restart();
         }
     }
-    function disconnectWifi() {
-        sh("nmcli -t -f DEVICE,TYPE dev | grep ':wifi$' | cut -d: -f1 | head -n1 | xargs -r nmcli dev disconnect");
+    function disconnectWifi(uuid) {
+        if (uuid)
+            Quickshell.execDetached(["nmcli", "connection", "down", "uuid", uuid]);
+        else
+            sh("nmcli -t -f DEVICE,TYPE dev | grep ':wifi$' | cut -d: -f1 | head -n1 | xargs -r nmcli dev disconnect");
         wifiAfter.restart();
     }
     Timer { id: wifiAfter; interval: 1200; onTriggered: { root.scanWifi(); root.refreshWifi(); root.refreshConnections(); } }

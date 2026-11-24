@@ -2547,14 +2547,14 @@ Scope {
                 function liveNetFor(saved) {
                     var nets = root.bar ? root.bar.wifiNets : [];
                     for (var i = 0; i < nets.length; i++) {
-                        if (nets[i].ssid === saved.ssid || nets[i].ssid === saved.name)
+                        if (nets[i].ssid === saved.ssid)
                             return nets[i];
                     }
                     return null;
                 }
                 function isSavedSsid(ssid) {
                     for (var i = 0; i < savedNets.length; i++) {
-                        if (savedNets[i].ssid === ssid || savedNets[i].name === ssid)
+                        if (savedNets[i].ssid === ssid)
                             return true;
                     }
                     return false;
@@ -2645,7 +2645,7 @@ Scope {
                                     t: pal
                                     visible: !confirming && modelData.active
                                     text: I18n.tr("Disconnect")
-                                    onClicked: if (root.bar) root.bar.disconnectWifi()
+                                    onClicked: if (root.bar) root.bar.disconnectWifi(modelData.uuid)
                                 }
                                 SButton {
                                     t: pal
