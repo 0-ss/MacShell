@@ -2584,8 +2584,8 @@ Scope {
             + "timeout 4 bluetoothctl devices 2>/dev/null </dev/null | while read -r _ mac name; do "
             + "[ -n \"$mac\" ] || continue; "
             + "i=$(timeout 3 bluetoothctl info \"$mac\" 2>/dev/null </dev/null); "
-            + "pr=$(printf '%s\\n' \"$i\" | grep -Ec 'Paired: yes|Bonded: yes'); "
-            + "c=$(printf '%s\\n' \"$i\" | grep -c 'Connected: yes'); "
+            + "pr=0; printf '%s\\n' \"$i\" | grep -qE '^[[:space:]]*(Paired|Bonded): yes' && pr=1; "
+            + "c=0; printf '%s\\n' \"$i\" | grep -qE '^[[:space:]]*Connected: yes' && c=1; "
             + "b=$(printf '%s\\n' \"$i\" | sed -n 's/.*Battery Percentage: 0x[0-9a-fA-F]* (\\([0-9]*\\)).*/\\1/p' | head -n1); "
             + "printf 'D:%s\\t%s\\t%s\\t%s\\t%s\\n' \"$mac\" \"$pr\" \"$c\" \"$b\" \"$name\"; "
             + "done"
@@ -2600,7 +2600,7 @@ Scope {
                     if (l.indexOf("D:") !== 0) continue;
                     var f = l.substring(2).split("\t");
                     if (f.length < 5 || !f[0]) continue;
-                    var mac = f[0], isPair = f[1] === "1", isConn = f[2] === "1", name = (f[4] || "").trim() || mac;
+                    var mac = f[0], isPair = Number(f[1]) > 0, isConn = Number(f[2]) > 0, name = (f[4] || "").trim() || mac;
                     // BlueZ names an unnamed device after its address with dashes: show those last
                     if (isConn) { connCount++; if (!firstConnName) firstConnName = name; }
                     devList.push({ mac: mac, name: name, connected: isConn, paired: isPair, bat: f[3] || "", icon: root.btIconFor(name) });
