@@ -2437,8 +2437,10 @@ Scope {
 
     // wifi network list (feeds the Wi-Fi popover)
     property var wifiNets: []                  // [{ ssid, signal, secure, inUse, saved }]
+    property var wifiSaved: []                 // [{ uuid, name, ssid, active }]
     property bool wifiScanning: false
     property string wifiBusy: ""               // ssid currently being joined
+    property string wifiForgetBusy: ""         // uuid currently being forgotten
     property string wifiError: ""
     function sigLevel(s) { return s > 66 ? 3 : (s > 33 ? 2 : 1); }
     // split an `nmcli -t` line on unescaped colons (and unescape \: and \\)
@@ -2460,9 +2462,39 @@ Scope {
         return s !== "" ? s : "Couldn't join the network.";
     }
     function scanWifi() {
+        refreshSavedWifi();
         if (wifiListProc.running) return;
         wifiScanning = true;
         wifiListProc.running = true;
+    }
+    function refreshSavedWifi() { if (!wifiSavedProc.running) wifiSavedProc.running = true; }
+    Process {
+        id: wifiSavedProc
+        command: ["sh", "-c",
+            "nmcli -t -f UUID,NAME,TYPE,ACTIVE connection show 2>/dev/null | while IFS=: read -r u rest; do "
+            + "active=${rest##*:}; r2=${rest%:*}; type=${r2##*:}; name=${r2%:*}; "
+            + "[ \"$type\" = \"802-11-wireless\" ] || continue; "
+            + "ssid=$(nmcli -g 802-11-wireless.ssid connection show uuid \"$u\" 2>/dev/null | head -n1); "
+            + "printf 'W:%s\\t%s\\t%s\\t%s\\n' \"$u\" \"$name\" \"$ssid\" \"$active\"; "
+            + "done"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var lines = text.split("\n"), arr = [], i;
+                for (i = 0; i < lines.length; i++) {
+                    var l = lines[i].replace(/\r$/, "");
+                    if (l.indexOf("W:") !== 0) continue;
+                    var f = l.substring(2).split("\t");
+                    if (f.length < 4 || !f[0]) continue;
+                    var name = root.splitNm(f[1])[0] || f[1];
+                    arr.push({ uuid: f[0], name: name, ssid: f[2] || name, active: f[3] === "yes" });
+                }
+                arr.sort(function (a, b) {
+                    if (a.active !== b.active) return a.active ? -1 : 1;
+                    return a.name.localeCompare(b.name);
+                });
+                if (JSON.stringify(arr) !== JSON.stringify(root.wifiSaved)) root.wifiSaved = arr;
+            }
+        }
     }
     Process {
         id: wifiListProc
@@ -2521,6 +2553,54 @@ Scope {
             wifiAfter.restart();
         }
     }
+    function connectSavedWifi(uuid, label) {
+        if (wifiConnProc.running || !uuid) return;
+        wifiError = "";
+        wifiBusy = label || uuid;
+        wifiConnProc.command = ["nmcli", "--wait", "25", "connection", "up", "uuid", uuid];
+        wifiConnProc.running = true;
+    }
+    function forgetWifi(uuid) {
+        if (wifiForgetProc.running || !uuid) return;
+        wifiError = "";
+        wifiForgetBusy = uuid;
+        wifiForgetProc.command = ["nmcli", "connection", "delete", "uuid", uuid];
+        wifiForgetProc.running = true;
+    }
+    Process {
+        id: wifiForgetProc
+        stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") root.wifiError = root.nmErr(text) }
+        onExited: (code, status) => {
+            var uuid = root.wifiForgetBusy;
+            root.wifiForgetBusy = "";
+            if (code !== 0) {
+                if (root.wifiError === "") root.wifiError = "Couldn't forget the network.";
+                return;
+            }
+            root.wifiError = "";
+            var remaining = root.wifiSaved.filter(function (x) { return x.uuid !== uuid; });
+            if (remaining.length !== root.wifiSaved.length)
+                root.wifiSaved = remaining;
+            var savedMap = {};
+            for (var i = 0; i < remaining.length; i++) {
+                if (remaining[i].ssid) savedMap[remaining[i].ssid] = true;
+                if (remaining[i].name) savedMap[remaining[i].name] = true;
+            }
+            var nets = root.wifiNets.slice(), changed = false;
+            for (var j = 0; j < nets.length; j++) {
+                var nowSaved = savedMap[nets[j].ssid] === true;
+                if (nets[j].saved !== nowSaved) {
+                    nets[j] = { ssid: nets[j].ssid, signal: nets[j].signal, secure: nets[j].secure, inUse: nets[j].inUse, saved: nowSaved };
+                    changed = true;
+                }
+            }
+            if (changed) root.wifiNets = nets;
+            root.refreshSavedWifi();
+            root.refreshWifi();
+            root.refreshConnections();
+            wifiAfter.restart();
+        }
+    }
     function disconnectWifi() {
         sh("nmcli -t -f DEVICE,TYPE dev | grep ':wifi$' | cut -d: -f1 | head -n1 | xargs -r nmcli dev disconnect");
         wifiAfter.restart();
@@ -2559,7 +2639,8 @@ Scope {
     property string btConnectedName: ""
     property bool btScanning: false
     property var btDevices: []             // [ { mac, name, icon, connected, paired } ]
-    property string btBusy: ""             // mac of device currently connecting/disconnecting
+    property string btBusy: ""             // mac of device currently connecting/disconnecting/forgetting
+    property string btBusyAction: ""       // "connect" | "disconnect" | "forget" | ""
     property string btError: ""
 
     function btIconFor(name) {
@@ -2639,6 +2720,7 @@ Scope {
         if (btActionProc.running || !mac) return;
         root.btError = "";
         root.btBusy = mac;
+        root.btBusyAction = connected ? "disconnect" : "connect";
         if (connected) {
             btActionProc.command = ["sh", "-c", "bluetoothctl disconnect \"$1\" >/dev/null 2>&1 </dev/null; exit 0", "sh", mac];
         } else {
@@ -2658,12 +2740,47 @@ Scope {
         }
         btActionProc.running = true;
     }
+    function forgetBt(mac) {
+        if (btActionProc.running || !mac) return;
+        root.btError = "";
+        root.btBusy = mac;
+        root.btBusyAction = "forget";
+        btActionProc.command = ["sh", "-c",
+            "d=\"$1\"; "
+            + "o=$(timeout 10 bluetoothctl remove \"$d\" 2>&1 </dev/null); "
+            + "if [ $? -ne 0 ]; then "
+            + "m=$(printf '%s\\n' \"$o\" | grep -iE 'fail|error|not available|timeout|rejected|canceled' | tail -n1); "
+            + "[ -n \"$m\" ] || m='Could not forget the device.'; echo \"$m\" >&2; exit 1; "
+            + "fi",
+            "sh", mac];
+        btActionProc.running = true;
+    }
     Process {
         id: btActionProc
         stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") root.btError = text.trim(); }
         onExited: (code, status) => {
+            var act = root.btBusyAction;
+            var mac = root.btBusy;
             root.btBusy = "";
-            if (code !== 0 && root.btError === "") root.btError = "Failed to connect to device.";
+            root.btBusyAction = "";
+            if (code !== 0) {
+                if (root.btError === "")
+                    root.btError = act === "forget" ? "Failed to forget device." : "Failed to connect to device.";
+                btAfter.restart();
+                return;
+            }
+            if (act === "forget" && mac !== "") {
+                var devs = root.btDevices.filter(function (d) { return d.mac !== mac; });
+                var connCount = 0, firstConnName = "";
+                for (var i = 0; i < devs.length; i++) {
+                    if (devs[i].connected) { connCount++; if (!firstConnName) firstConnName = devs[i].name; }
+                }
+                root.btConnected = connCount;
+                root.btConnectedName = connCount === 1 ? firstConnName : (connCount > 1 ? connCount + " Connected" : "");
+                root.btDevices = devs;
+                root.refreshBt();
+                return;
+            }
             btAfter.restart();
         }
     }
