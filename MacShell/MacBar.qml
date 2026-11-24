@@ -7670,7 +7670,7 @@ Scope {
                         property bool showBack: false       // Control Center page: show the back arrow
                         signal back()
                         readonly property var myDevs: root.btDevices.filter(function (d) { return d.paired || d.connected; })
-                        readonly property var otherDevs: root.btDevices.filter(function (d) { return !d.paired && !d.connected && !d.macOnly; })
+                        readonly property var otherDevs: root.btDevices.filter(function (d) { return !d.paired && !d.connected; })
                         width: parent ? parent.width : 296
                         spacing: 6
 
