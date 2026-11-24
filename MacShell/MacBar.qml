@@ -8143,8 +8143,7 @@ Scope {
                             title: I18n.tr("Wi-Fi")
                             subtitle: !root.wifiOn ? I18n.tr("Off") : (root.wifiSsid !== "" ? root.wifiSsid : I18n.tr("Not Connected"))
                             hasArrow: true
-                            onClicked: root.toggleWifi()
-                            // only the arrow opens the Wi-Fi page inside the Control Center; the rest of the tile switches Wi-Fi on / off
+                            onClicked: { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); ui.ccPage = "wifi"; }
                             onArrowClicked: { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); ui.ccPage = "wifi"; }
                         }
                     }
@@ -8158,7 +8157,7 @@ Scope {
                             title: I18n.tr("Bluetooth")
                             subtitle: !root.btOn ? I18n.tr("Off") : (root.btConnected > 0 ? (root.btConnectedName || (root.btConnected + I18n.tr(" Connected"))) : I18n.tr("Not Connected"))
                             hasArrow: true
-                            onClicked: root.toggleBt()
+                            onClicked: { root.btError = ""; root.scanBt(); root.refreshBt(); ui.ccPage = "bt"; }
                             onArrowClicked: { root.btError = ""; root.scanBt(); root.refreshBt(); ui.ccPage = "bt"; }
                         }
                     }
