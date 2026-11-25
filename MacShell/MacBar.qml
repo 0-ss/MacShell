@@ -2437,8 +2437,10 @@ Scope {
 
     // wifi network list (feeds the Wi-Fi popover)
     property var wifiNets: []                  // [{ ssid, signal, secure, inUse, saved }]
+    property var wifiSaved: []                 // [{ uuid, name, ssid, active }]
     property bool wifiScanning: false
     property string wifiBusy: ""               // ssid currently being joined
+    property string wifiForgetBusy: ""         // uuid currently being forgotten
     property string wifiError: ""
     function sigLevel(s) { return s > 66 ? 3 : (s > 33 ? 2 : 1); }
     // split an `nmcli -t` line on unescaped colons (and unescape \: and \\)
@@ -2460,9 +2462,40 @@ Scope {
         return s !== "" ? s : "Couldn't join the network.";
     }
     function scanWifi() {
+        refreshSavedWifi();
         if (wifiListProc.running) return;
         wifiScanning = true;
         wifiListProc.running = true;
+    }
+    function refreshSavedWifi() { if (!wifiSavedProc.running) wifiSavedProc.running = true; }
+    Process {
+        id: wifiSavedProc
+        command: ["sh", "-c",
+            "nmcli -t -f UUID,NAME,TYPE,ACTIVE connection show 2>/dev/null | while IFS=: read -r u rest; do "
+            + "active=${rest##*:}; r2=${rest%:*}; type=${r2##*:}; name=${r2%:*}; "
+            + "[ \"$type\" = \"802-11-wireless\" ] || continue; "
+            + "ssid=$(nmcli -g 802-11-wireless.ssid connection show uuid \"$u\" 2>/dev/null | head -n1); "
+            + "printf 'W:%s\\t%s\\t%s\\t%s\\n' \"$u\" \"$name\" \"$ssid\" \"$active\"; "
+            + "done"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var lines = text.split("\n"), arr = [], i;
+                for (i = 0; i < lines.length; i++) {
+                    var l = lines[i].replace(/\r$/, "");
+                    if (l.indexOf("W:") !== 0) continue;
+                    var f = l.substring(2).split("\t");
+                    if (f.length < 4 || !f[0]) continue;
+                    var name = root.splitNm(f[1]).join(":") || f[1];
+                    var ssid = root.splitNm(f[2] || "").join(":");
+                    arr.push({ uuid: f[0], name: name, ssid: ssid || name, active: f[3] === "yes" });
+                }
+                arr.sort(function (a, b) {
+                    if (a.active !== b.active) return a.active ? -1 : 1;
+                    return a.name.localeCompare(b.name);
+                });
+                if (JSON.stringify(arr) !== JSON.stringify(root.wifiSaved)) root.wifiSaved = arr;
+            }
+        }
     }
     Process {
         id: wifiListProc
@@ -2521,8 +2554,58 @@ Scope {
             wifiAfter.restart();
         }
     }
-    function disconnectWifi() {
-        sh("nmcli -t -f DEVICE,TYPE dev | grep ':wifi$' | cut -d: -f1 | head -n1 | xargs -r nmcli dev disconnect");
+    function connectSavedWifi(uuid, label) {
+        if (wifiConnProc.running || !uuid) return;
+        wifiError = "";
+        wifiBusy = label || uuid;
+        wifiConnProc.command = ["nmcli", "--wait", "25", "connection", "up", "uuid", uuid];
+        wifiConnProc.running = true;
+    }
+    function forgetWifi(uuid) {
+        if (wifiForgetProc.running || !uuid) return;
+        wifiError = "";
+        wifiForgetBusy = uuid;
+        wifiForgetProc.command = ["nmcli", "connection", "delete", "uuid", uuid];
+        wifiForgetProc.running = true;
+    }
+    Process {
+        id: wifiForgetProc
+        stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") root.wifiError = root.nmErr(text) }
+        onExited: (code, status) => {
+            var uuid = root.wifiForgetBusy;
+            root.wifiForgetBusy = "";
+            if (code !== 0) {
+                if (root.wifiError === "") root.wifiError = "Couldn't forget the network.";
+                return;
+            }
+            root.wifiError = "";
+            var remaining = root.wifiSaved.filter(function (x) { return x.uuid !== uuid; });
+            if (remaining.length !== root.wifiSaved.length)
+                root.wifiSaved = remaining;
+            var savedMap = {};
+            for (var i = 0; i < remaining.length; i++) {
+                if (remaining[i].ssid) savedMap[remaining[i].ssid] = true;
+            }
+            var nets = root.wifiNets.slice(), changed = false;
+            for (var j = 0; j < nets.length; j++) {
+                var nowSaved = savedMap[nets[j].ssid] === true;
+                if (nets[j].saved !== nowSaved) {
+                    nets[j] = { ssid: nets[j].ssid, signal: nets[j].signal, secure: nets[j].secure, inUse: nets[j].inUse, saved: nowSaved };
+                    changed = true;
+                }
+            }
+            if (changed) root.wifiNets = nets;
+            root.refreshSavedWifi();
+            root.refreshWifi();
+            root.refreshConnections();
+            wifiAfter.restart();
+        }
+    }
+    function disconnectWifi(uuid) {
+        if (uuid)
+            Quickshell.execDetached(["nmcli", "connection", "down", "uuid", uuid]);
+        else
+            sh("nmcli -t -f DEVICE,TYPE dev | grep ':wifi$' | cut -d: -f1 | head -n1 | xargs -r nmcli dev disconnect");
         wifiAfter.restart();
     }
     Timer { id: wifiAfter; interval: 1200; onTriggered: { root.scanWifi(); root.refreshWifi(); root.refreshConnections(); } }
@@ -2559,7 +2642,8 @@ Scope {
     property string btConnectedName: ""
     property bool btScanning: false
     property var btDevices: []             // [ { mac, name, icon, connected, paired } ]
-    property string btBusy: ""             // mac of device currently connecting/disconnecting
+    property string btBusy: ""             // mac of device currently connecting/disconnecting/forgetting
+    property string btBusyAction: ""       // "connect" | "disconnect" | "forget" | ""
     property string btError: ""
 
     function btIconFor(name) {
@@ -2580,18 +2664,19 @@ Scope {
     Process {
         id: btProc
         command: ["sh", "-c",
-            "p=$(timeout 4 bluetoothctl show 2>/dev/null </dev/null | grep -i 'Powered:' | head -n1); echo \"P:$p\"; "
-            + "timeout 4 bluetoothctl devices 2>/dev/null </dev/null | while read -r _ mac name; do "
+            "p=$(timeout 4 bluetoothctl show 2>/dev/null </dev/null | sed -E 's/\\x1B\\[[0-9;]*[[:alpha:]]//g' | grep -i 'Powered:' | head -n1); echo \"P:$p\"; "
+            + "timeout 4 bluetoothctl devices 2>/dev/null </dev/null | sed -E 's/\\x1B\\[[0-9;]*[[:alpha:]]//g' | while read -r _ mac name; do "
             + "[ -n \"$mac\" ] || continue; "
-            + "i=$(timeout 3 bluetoothctl info \"$mac\" 2>/dev/null </dev/null); "
-            + "pr=$(printf '%s\\n' \"$i\" | grep -Ec 'Paired: yes|Bonded: yes'); "
-            + "c=$(printf '%s\\n' \"$i\" | grep -c 'Connected: yes'); "
+            + "i=$(timeout 3 bluetoothctl info \"$mac\" 2>/dev/null </dev/null | sed -E 's/\\x1B\\[[0-9;]*[[:alpha:]]//g'); "
+            + "pr=0; printf '%s\\n' \"$i\" | grep -qE '^[[:space:]]*(Paired|Bonded): yes' && pr=1; "
+            + "c=0; printf '%s\\n' \"$i\" | grep -qE '^[[:space:]]*Connected: yes' && c=1; "
             + "b=$(printf '%s\\n' \"$i\" | sed -n 's/.*Battery Percentage: 0x[0-9a-fA-F]* (\\([0-9]*\\)).*/\\1/p' | head -n1); "
             + "printf 'D:%s\\t%s\\t%s\\t%s\\t%s\\n' \"$mac\" \"$pr\" \"$c\" \"$b\" \"$name\"; "
             + "done"
         ]
         stdout: StdioCollector {
             onStreamFinished: {
+                function cleanBt(s) { return String(s || "").replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/[\x00-\x1f\x7f]/g, "").trim(); }
                 var lines = text.split("\n"), on = false, devList = [], connCount = 0, firstConnName = "", i;
                 for (i = 0; i < lines.length; i++) {
                     var l = lines[i].replace(/\r$/, "");
@@ -2600,15 +2685,16 @@ Scope {
                     if (l.indexOf("D:") !== 0) continue;
                     var f = l.substring(2).split("\t");
                     if (f.length < 5 || !f[0]) continue;
-                    var mac = f[0], isPair = f[1] === "1", isConn = f[2] === "1", name = (f[4] || "").trim() || mac;
-                    // BlueZ names an unnamed device after its address with dashes: show those last
+                    var mac = cleanBt(f[0]), isPair = Number(f[1]) > 0, isConn = Number(f[2]) > 0, name = cleanBt(f[4]) || mac;
+                    var isMacOnly = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(name);
                     if (isConn) { connCount++; if (!firstConnName) firstConnName = name; }
-                    devList.push({ mac: mac, name: name, connected: isConn, paired: isPair, bat: f[3] || "", icon: root.btIconFor(name) });
+                    devList.push({ mac: mac, name: name, connected: isConn, paired: isPair, bat: cleanBt(f[3]), icon: root.btIconFor(name), macOnly: isMacOnly });
                 }
                 root.btOn = on;
                 devList.sort(function (a, b) {
                     if (a.connected !== b.connected) return a.connected ? -1 : 1;
                     if (a.paired !== b.paired) return a.paired ? -1 : 1;
+                    if (a.macOnly !== b.macOnly) return a.macOnly ? 1 : -1;
                     return a.name.localeCompare(b.name);
                 });
                 root.btConnected = connCount;
@@ -2639,6 +2725,7 @@ Scope {
         if (btActionProc.running || !mac) return;
         root.btError = "";
         root.btBusy = mac;
+        root.btBusyAction = connected ? "disconnect" : "connect";
         if (connected) {
             btActionProc.command = ["sh", "-c", "bluetoothctl disconnect \"$1\" >/dev/null 2>&1 </dev/null; exit 0", "sh", mac];
         } else {
@@ -2658,12 +2745,47 @@ Scope {
         }
         btActionProc.running = true;
     }
+    function forgetBt(mac) {
+        if (btActionProc.running || !mac) return;
+        root.btError = "";
+        root.btBusy = mac;
+        root.btBusyAction = "forget";
+        btActionProc.command = ["sh", "-c",
+            "d=\"$1\"; "
+            + "o=$(timeout 10 bluetoothctl remove \"$d\" 2>&1 </dev/null); "
+            + "if [ $? -ne 0 ]; then "
+            + "m=$(printf '%s\\n' \"$o\" | grep -iE 'fail|error|not available|timeout|rejected|canceled' | tail -n1); "
+            + "[ -n \"$m\" ] || m='Could not forget the device.'; echo \"$m\" >&2; exit 1; "
+            + "fi",
+            "sh", mac];
+        btActionProc.running = true;
+    }
     Process {
         id: btActionProc
         stderr: StdioCollector { onStreamFinished: if (text.trim() !== "") root.btError = text.trim(); }
         onExited: (code, status) => {
+            var act = root.btBusyAction;
+            var mac = root.btBusy;
             root.btBusy = "";
-            if (code !== 0 && root.btError === "") root.btError = "Failed to connect to device.";
+            root.btBusyAction = "";
+            if (code !== 0) {
+                if (root.btError === "")
+                    root.btError = act === "forget" ? "Failed to forget device." : "Failed to connect to device.";
+                btAfter.restart();
+                return;
+            }
+            if (act === "forget" && mac !== "") {
+                var devs = root.btDevices.filter(function (d) { return d.mac !== mac; });
+                var connCount = 0, firstConnName = "";
+                for (var i = 0; i < devs.length; i++) {
+                    if (devs[i].connected) { connCount++; if (!firstConnName) firstConnName = devs[i].name; }
+                }
+                root.btConnected = connCount;
+                root.btConnectedName = connCount === 1 ? firstConnName : (connCount > 1 ? connCount + " Connected" : "");
+                root.btDevices = devs;
+                root.refreshBt();
+                return;
+            }
             btAfter.restart();
         }
     }
@@ -7547,6 +7669,8 @@ Scope {
                         property var pp: pal                // palette: the panel palette in the popover, ccPal in the Control Center
                         property bool showBack: false       // Control Center page: show the back arrow
                         signal back()
+                        readonly property var myDevs: root.btDevices.filter(function (d) { return d.paired || d.connected; })
+                        readonly property var otherDevs: root.btDevices.filter(function (d) { return !d.paired && !d.connected; })
                         width: parent ? parent.width : 296
                         spacing: 6
 
@@ -7585,20 +7709,20 @@ Scope {
                         }
 
                         Text {
-                            visible: root.btOn && root.btDevices.length === 0
+                            visible: root.btOn && btCol.myDevs.length === 0 && btCol.otherDevs.length === 0
                             width: parent.width; height: 56
                             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
                             text: root.btScanning ? I18n.tr("Searching for devices\u2026") : I18n.tr("No devices found")
                             color: pp.fg2
-                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 13
+                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.pixelSize: 13
                         }
 
                         Item {
-                            visible: root.btOn && root.btDevices.length > 0
+                            visible: root.btOn && (btCol.myDevs.length > 0 || btCol.otherDevs.length > 0)
                             width: parent.width; height: 22
                             Text {
                                 x: 6; anchors.verticalCenter: parent.verticalCenter
-                                text: I18n.tr("Devices")
+                                text: btCol.myDevs.length > 0 ? I18n.tr("My Devices") : I18n.tr("Nearby Devices")
                                 color: pp.fg2
                                 font.family: root.fontForWeight(Font.DemiBold, pp.fam); font.pixelSize: 11; font.weight: Font.DemiBold
                             }
@@ -7609,7 +7733,7 @@ Scope {
                                 Text {
                                     visible: root.btScanning
                                     text: I18n.tr("Scanning\u2026")
-                                    color: pp.fg2; font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 11
+                                    color: pp.fg2; font.family: root.fontForWeight(Font.Normal, pp.fam); font.pixelSize: 11
                                 }
                                 Text {
                                     visible: !root.btScanning
@@ -7623,7 +7747,7 @@ Scope {
                         // the list
                         Flickable {
                             id: btFlick
-                            visible: root.btOn && root.btDevices.length > 0
+                            visible: root.btOn && (btCol.myDevs.length > 0 || btCol.otherDevs.length > 0)
                             width: parent.width
                             height: Math.min(btList.height, 300)
                             contentWidth: width
@@ -7634,90 +7758,62 @@ Scope {
                             Column {
                                 id: btList
                                 width: btFlick.width
+                                spacing: 2
                                 Repeater {
-                                    model: root.btDevices
+                                    model: btCol.myDevs
                                     delegate: Item {
                                         id: devRow
                                         required property var modelData
                                         readonly property bool busy: root.btBusy === modelData.mac
-                                        width: btList.width; height: 38
+                                        width: btList.width; height: 46
 
                                         Rectangle {
                                             anchors.fill: parent
-                                            radius: 8
-                                            color: root.accent
-                                            visible: bma.containsMouse
+                                            radius: 12
+                                            color: pp.hover
+                                            opacity: bma.containsMouse ? 1 : 0
+                                            Behavior on opacity { NumberAnimation { duration: 90 } }
                                         }
 
-                                        Glyph {
-                                            visible: devRow.modelData.connected
-                                            x: 9; anchors.verticalCenter: parent.verticalCenter
-                                            width: 14; height: 14
-                                            kind: "check"
-                                            color: bma.containsMouse ? "white" : pp.fg
-                                        }
-                                        Glyph {
-                                            visible: !devRow.modelData.connected
-                                            x: 9; anchors.verticalCenter: parent.verticalCenter
-                                            width: 14; height: 14
-                                            kind: devRow.modelData.icon || "bluetooth"
-                                            color: bma.containsMouse ? "white" : pp.fg2
-                                        }
-
-                                        Text {
-                                            x: 30
+                                        Rectangle {
+                                            x: 8
                                             anchors.verticalCenter: parent.verticalCenter
-                                            width: parent.width - 30 - 100
-                                            elide: Text.ElideRight
-                                            text: devRow.modelData.name || devRow.modelData.mac
-                                            color: bma.containsMouse ? "white" : pp.fg
-                                            font.family: root.fontForWeight((devRow.modelData.connected ? Font.DemiBold : Font.Normal), pp.fam); font.pixelSize: 13
-                                            font.weight: (pp === ccPal || devRow.modelData.connected) ? Font.DemiBold : Font.Normal
+                                            width: 32; height: 32; radius: 16
+                                            color: devRow.modelData.connected ? root.accent : pp.btnOff
+                                            Behavior on color { ColorAnimation { duration: 120 } }
+                                            Glyph {
+                                                anchors.centerIn: parent
+                                                width: 16; height: 16
+                                                kind: devRow.modelData.icon || "bluetooth"
+                                                color: devRow.modelData.connected ? "white" : pp.fg
+                                            }
                                         }
 
-                                        Text {
-                                            visible: devRow.busy
-                                            anchors.right: parent.right; anchors.rightMargin: 12
+                                        Column {
+                                            x: 50
                                             anchors.verticalCenter: parent.verticalCenter
-                                            text: devRow.modelData.connected ? I18n.tr("Disconnecting\u2026") : I18n.tr("Connecting\u2026")
-                                            color: bma.containsMouse ? "white" : pp.fg2
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
-                                        }
-
-                                        Text {
-                                            visible: !devRow.busy && devRow.modelData.connected && bma.containsMouse
-                                            anchors.right: parent.right; anchors.rightMargin: 12
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: I18n.tr("Disconnect")
-                                            color: "white"
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
-                                        }
-
-                                        Text {
-                                            visible: !devRow.busy && devRow.modelData.connected && !bma.containsMouse
-                                            anchors.right: parent.right; anchors.rightMargin: 12
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: I18n.tr("Connected")
-                                            color: pp.fg2
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
-                                        }
-
-                                        Text {
-                                            visible: !devRow.busy && !devRow.modelData.connected && bma.containsMouse
-                                            anchors.right: parent.right; anchors.rightMargin: 12
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: I18n.tr("Connect")
-                                            color: "white"
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
-                                        }
-
-                                        Text {
-                                            visible: !devRow.busy && !devRow.modelData.connected && !bma.containsMouse && devRow.modelData.paired
-                                            anchors.right: parent.right; anchors.rightMargin: 12
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: I18n.tr("Paired")
-                                            color: pp.fg2
-                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.weight: (pp === ccPal ? Font.DemiBold : Font.Normal); font.pixelSize: 12
+                                            width: parent.width - 50 - 14
+                                            spacing: 1
+                                            Text {
+                                                width: parent.width
+                                                elide: Text.ElideRight
+                                                text: devRow.modelData.name || devRow.modelData.mac
+                                                color: pp.fg
+                                                font.family: root.fontForWeight(devRow.modelData.connected ? Font.DemiBold : Font.Normal, pp.fam); font.pixelSize: 13
+                                                font.weight: devRow.modelData.connected ? Font.DemiBold : Font.Normal
+                                            }
+                                            Text {
+                                                width: parent.width
+                                                elide: Text.ElideRight
+                                                text: devRow.busy
+                                                      ? (devRow.modelData.connected ? I18n.tr("Disconnecting\u2026") : I18n.tr("Connecting\u2026"))
+                                                      : (devRow.modelData.connected
+                                                         ? (bma.containsMouse ? I18n.tr("Click to disconnect")
+                                                            : (I18n.tr("Connected") + (devRow.modelData.bat !== "" ? " \u00B7 " + devRow.modelData.bat + "%" : "")))
+                                                         : (bma.containsMouse ? I18n.tr("Click to connect") : I18n.tr("Not Connected")))
+                                                color: pp.fg2
+                                                font.family: root.fontForWeight(Font.Normal, pp.fam); font.pixelSize: 11
+                                            }
                                         }
 
                                         MouseArea {
@@ -7726,6 +7822,73 @@ Scope {
                                             hoverEnabled: true
                                             enabled: !devRow.busy
                                             onClicked: root.connectBt(devRow.modelData.mac, devRow.modelData.connected)
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    visible: btCol.myDevs.length > 0 && btCol.otherDevs.length > 0
+                                    width: btList.width
+                                    leftPadding: 6; topPadding: 6; bottomPadding: 2
+                                    text: I18n.tr("Other Devices")
+                                    color: pp.fg2
+                                    font.family: root.fontForWeight(Font.DemiBold, pp.fam); font.pixelSize: 11; font.weight: Font.DemiBold
+                                }
+
+                                Repeater {
+                                    model: btCol.otherDevs
+                                    delegate: Item {
+                                        id: otherRow
+                                        required property var modelData
+                                        readonly property bool busy: root.btBusy === modelData.mac
+                                        width: btList.width; height: 42
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: 12
+                                            color: pp.hover
+                                            opacity: oma.containsMouse ? 1 : 0
+                                            Behavior on opacity { NumberAnimation { duration: 90 } }
+                                        }
+
+                                        Rectangle {
+                                            x: 8
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 28; height: 28; radius: 14
+                                            color: pp.btnOff
+                                            Glyph {
+                                                anchors.centerIn: parent
+                                                width: 14; height: 14
+                                                kind: otherRow.modelData.icon || "bluetooth"
+                                                color: pp.fg2
+                                            }
+                                        }
+
+                                        Text {
+                                            x: 46
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: parent.width - 46 - 70
+                                            elide: Text.ElideRight
+                                            text: otherRow.modelData.name || otherRow.modelData.mac
+                                            color: pp.fg
+                                            font.family: root.fontForWeight(Font.Normal, pp.fam); font.pixelSize: 13
+                                        }
+
+                                        Text {
+                                            visible: otherRow.busy || oma.containsMouse
+                                            anchors.right: parent.right; anchors.rightMargin: 10
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: otherRow.busy ? I18n.tr("Connecting\u2026") : I18n.tr("Connect")
+                                            color: root.accent
+                                            font.family: root.fontForWeight(Font.Medium, pp.fam); font.pixelSize: 11; font.weight: Font.Medium
+                                        }
+
+                                        MouseArea {
+                                            id: oma
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            enabled: !otherRow.busy
+                                            onClicked: root.connectBt(otherRow.modelData.mac, false)
                                         }
                                     }
                                 }
@@ -8143,8 +8306,7 @@ Scope {
                             title: I18n.tr("Wi-Fi")
                             subtitle: !root.wifiOn ? I18n.tr("Off") : (root.wifiSsid !== "" ? root.wifiSsid : I18n.tr("Not Connected"))
                             hasArrow: true
-                            onClicked: root.toggleWifi()
-                            // only the arrow opens the Wi-Fi page inside the Control Center; the rest of the tile switches Wi-Fi on / off
+                            onClicked: { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); ui.ccPage = "wifi"; }
                             onArrowClicked: { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); ui.ccPage = "wifi"; }
                         }
                     }
@@ -8158,7 +8320,7 @@ Scope {
                             title: I18n.tr("Bluetooth")
                             subtitle: !root.btOn ? I18n.tr("Off") : (root.btConnected > 0 ? (root.btConnectedName || (root.btConnected + I18n.tr(" Connected"))) : I18n.tr("Not Connected"))
                             hasArrow: true
-                            onClicked: root.toggleBt()
+                            onClicked: { root.btError = ""; root.scanBt(); root.refreshBt(); ui.ccPage = "bt"; }
                             onArrowClicked: { root.btError = ""; root.scanBt(); root.refreshBt(); ui.ccPage = "bt"; }
                         }
                     }

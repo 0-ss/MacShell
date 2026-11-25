@@ -424,22 +424,26 @@ Scope {
         required property var t
         property string text: ""
         property bool destructive: false
+        property bool filledDestructive: false
         signal clicked()
         width: lbl.implicitWidth + 26
         height: 24
         radius: 10
-        color: ma.pressed ? t.buttonPressed : t.button
-        border.width: 1
+        opacity: enabled ? 1 : 0.45
+        color: filledDestructive
+               ? (ma.pressed ? "#D70015" : (ma.containsMouse ? "#FF453A" : "#FF3B30"))
+               : (ma.pressed ? t.buttonPressed : t.button)
+        border.width: filledDestructive ? 0 : 1
         border.color: t.buttonBorder
         Text {
             id: lbl
             anchors.centerIn: parent
             text: b.text
-            color: b.destructive ? b.t.danger : b.t.text
+            color: b.filledDestructive ? "white" : (b.destructive ? b.t.danger : b.t.text)
             font.family: root.fontForWeight(Font.Normal, b.t.fam)
             font.pixelSize: 13
         }
-        MouseArea { id: ma; anchors.fill: parent; onClicked: b.clicked() }
+        MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true; onClicked: b.clicked() }
     }
 
     // Light / Dark appearance thumbnail
@@ -2537,6 +2541,24 @@ Scope {
                 id: wifiPane
                 spacing: 10
                 property string ethInfo: ""
+                property string confirmForgetUuid: ""
+                Timer { id: wifiConfirmReset; interval: 4000; onTriggered: wifiPane.confirmForgetUuid = "" }
+                readonly property var savedNets: root.bar ? root.bar.wifiSaved : []
+                function liveNetFor(saved) {
+                    var nets = root.bar ? root.bar.wifiNets : [];
+                    for (var i = 0; i < nets.length; i++) {
+                        if (nets[i].ssid === saved.ssid)
+                            return nets[i];
+                    }
+                    return null;
+                }
+                function isSavedSsid(ssid) {
+                    for (var i = 0; i < savedNets.length; i++) {
+                        if (savedNets[i].ssid === ssid)
+                            return true;
+                    }
+                    return false;
+                }
                 Component.onCompleted: { if (root.bar) root.bar.scanWifi(); ethProc.running = true; }
                 Timer { interval: 4000; repeat: true; running: prefsWindow.visible; onTriggered: if (!ethProc.running) ethProc.running = true }
                 Process {
@@ -2569,7 +2591,7 @@ Scope {
                         SSwitch { t: pal; checked: root.bar ? root.bar.wifiOn : false; onToggled: v => { if (root.bar && root.bar.wifiOn !== v) root.bar.toggleWifi(); } }
                     }
                 }
-                SLabel { t: pal; header: true; text: I18n.tr("Known Networks & Other Networks"); visible: root.bar && root.bar.wifiOn }
+                SLabel { t: pal; header: true; text: I18n.tr("Nearby Networks"); visible: root.bar && root.bar.wifiOn }
                 SCard {
                     t: pal
                     visible: root.bar && root.bar.wifiOn
@@ -2577,15 +2599,17 @@ Scope {
                         model: root.bar ? root.bar.wifiNets : []
                         delegate: SRow {
                             required property var modelData
+                            readonly property bool saved: modelData.saved || wifiPane.isSavedSsid(modelData.ssid)
                             t: pal
                             title: modelData.ssid + (modelData.inUse ? "  ✓" : "")
-                            subtitle: (modelData.secure ? I18n.tr("Secured") : I18n.tr("Open")) + (modelData.saved ? I18n.tr(" · Saved") : "") + " · " + modelData.signal + "%"
+                            subtitle: (modelData.secure ? I18n.tr("Secured") : I18n.tr("Open")) + (saved ? I18n.tr(" · Saved") : "") + " · " + modelData.signal + "%"
                             SButton {
                                 t: pal
-                                text: modelData.inUse ? I18n.tr("Connected") : (modelData.saved || !modelData.secure ? I18n.tr("Connect") : I18n.tr("Join…"))
+                                text: modelData.inUse ? I18n.tr("Connected") : (saved || !modelData.secure ? I18n.tr("Connect") : I18n.tr("Join…"))
+                                enabled: !(root.bar && root.bar.wifiBusy !== "")
                                 onClicked: {
                                     if (modelData.inUse) return;
-                                    if (modelData.saved || !modelData.secure) root.bar.connectWifi(modelData.ssid, "");
+                                    if (saved || !modelData.secure) root.bar.connectWifi(modelData.ssid, "");
                                     else { prefsWindow.visible = false; root.bar.wifiJoin ? root.bar.wifiJoin(modelData.ssid) : null; }
                                 }
                             }
@@ -2596,6 +2620,70 @@ Scope {
                     spacing: 8
                     SButton { t: pal; text: I18n.tr("Scan Again"); onClicked: if (root.bar) root.bar.scanWifi() }
                 }
+                SLabel { t: pal; color: "#FF6961"; text: root.bar ? root.bar.wifiError : ""; visible: root.bar && root.bar.wifiError !== "" }
+                SLabel { t: pal; header: true; text: I18n.tr("Known Networks"); visible: wifiPane.savedNets.length > 0 }
+                SCard {
+                    t: pal
+                    visible: wifiPane.savedNets.length > 0
+                    Repeater {
+                        model: wifiPane.savedNets
+                        delegate: SRow {
+                            required property var modelData
+                            readonly property var liveNet: wifiPane.liveNetFor(modelData)
+                            readonly property bool forgetting: root.bar && root.bar.wifiForgetBusy === modelData.uuid
+                            readonly property bool confirming: !forgetting && wifiPane.confirmForgetUuid === modelData.uuid
+                            t: pal
+                            title: modelData.name + (modelData.active ? "  ✓" : "")
+                            subtitle: forgetting ? I18n.tr("Forgetting\u2026")
+                                      : (confirming ? I18n.tr("Remove saved network and password?")
+                                         : ((modelData.ssid && modelData.ssid !== modelData.name ? modelData.ssid + " · " : "")
+                                            + (modelData.active ? I18n.tr("Connected")
+                                               : (liveNet ? I18n.tr("In range · ") + liveNet.signal + "%" : I18n.tr("Out of range")))))
+                            Row {
+                                spacing: 6
+                                SButton {
+                                    t: pal
+                                    visible: !confirming && modelData.active
+                                    text: I18n.tr("Disconnect")
+                                    onClicked: if (root.bar) root.bar.disconnectWifi(modelData.uuid)
+                                }
+                                SButton {
+                                    t: pal
+                                    visible: !confirming && !modelData.active && liveNet !== null
+                                    text: I18n.tr("Connect")
+                                    enabled: !(root.bar && root.bar.wifiBusy !== "")
+                                    onClicked: if (root.bar) root.bar.connectSavedWifi(modelData.uuid, modelData.ssid || modelData.name)
+                                }
+                                SButton {
+                                    t: pal
+                                    visible: !confirming
+                                    destructive: true
+                                    text: I18n.tr("Forget")
+                                    enabled: !(root.bar && root.bar.wifiForgetBusy !== "")
+                                    onClicked: { wifiPane.confirmForgetUuid = modelData.uuid; wifiConfirmReset.restart(); }
+                                }
+                                SButton {
+                                    t: pal
+                                    visible: confirming
+                                    text: I18n.tr("Cancel")
+                                    onClicked: { wifiPane.confirmForgetUuid = ""; wifiConfirmReset.stop(); }
+                                }
+                                SButton {
+                                    t: pal
+                                    visible: confirming
+                                    filledDestructive: true
+                                    text: I18n.tr("Confirm")
+                                    enabled: !(root.bar && root.bar.wifiForgetBusy !== "")
+                                    onClicked: {
+                                        wifiPane.confirmForgetUuid = "";
+                                        wifiConfirmReset.stop();
+                                        if (root.bar) root.bar.forgetWifi(modelData.uuid);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -2605,6 +2693,8 @@ Scope {
             Column {
                 id: btPane
                 spacing: 10
+                property string confirmForgetMac: ""
+                Timer { id: btConfirmReset; interval: 4000; onTriggered: btPane.confirmForgetMac = "" }
                 readonly property var bar: root.bar
                 readonly property var allDevs: bar ? bar.btDevices : []
                 readonly property var myDevs: allDevs.filter(function (d) { return d.paired || d.connected; })
@@ -2627,14 +2717,40 @@ Scope {
                         model: btPane.myDevs
                         delegate: SRow {
                             required property var modelData
+                            readonly property bool busyThis: root.bar && root.bar.btBusy === modelData.mac
+                            readonly property bool confirming: !busyThis && btPane.confirmForgetMac === modelData.mac
                             t: pal
                             title: modelData.name
-                            subtitle: (root.bar && root.bar.btBusy === modelData.mac ? (modelData.connected ? I18n.tr("Disconnecting\u2026") : I18n.tr("Connecting\u2026"))
-                                       : (modelData.connected ? "Connected" : "Not Connected")) + (modelData.bat !== "" ? " \u00B7 " + modelData.bat + "%" : "")
-                            SButton {
-                                t: pal; text: modelData.connected ? I18n.tr("Disconnect") : I18n.tr("Connect")
-                                enabled: !(root.bar && root.bar.btBusy !== "")
-                                onClicked: { if (root.bar) root.bar.connectBt(modelData.mac, modelData.connected); }
+                            subtitle: busyThis
+                                      ? (root.bar.btBusyAction === "forget" ? I18n.tr("Forgetting\u2026")
+                                         : (modelData.connected ? I18n.tr("Disconnecting\u2026") : I18n.tr("Connecting\u2026")))
+                                      : (confirming ? I18n.tr("Unpair and remove this device?")
+                                         : ((modelData.connected ? I18n.tr("Connected") : I18n.tr("Not Connected")) + (modelData.bat !== "" ? " \u00B7 " + modelData.bat + "%" : "")))
+                            Row {
+                                spacing: 6
+                                SButton {
+                                    t: pal; visible: !confirming; text: modelData.connected ? I18n.tr("Disconnect") : I18n.tr("Connect")
+                                    enabled: !(root.bar && root.bar.btBusy !== "")
+                                    onClicked: { if (root.bar) root.bar.connectBt(modelData.mac, modelData.connected); }
+                                }
+                                SButton {
+                                    t: pal; visible: !confirming; destructive: true; text: I18n.tr("Forget")
+                                    enabled: !(root.bar && root.bar.btBusy !== "")
+                                    onClicked: { btPane.confirmForgetMac = modelData.mac; btConfirmReset.restart(); }
+                                }
+                                SButton {
+                                    t: pal; visible: confirming; text: I18n.tr("Cancel")
+                                    onClicked: { btPane.confirmForgetMac = ""; btConfirmReset.stop(); }
+                                }
+                                SButton {
+                                    t: pal; visible: confirming; filledDestructive: true; text: I18n.tr("Confirm")
+                                    enabled: !(root.bar && root.bar.btBusy !== "")
+                                    onClicked: {
+                                        btPane.confirmForgetMac = "";
+                                        btConfirmReset.stop();
+                                        if (root.bar) root.bar.forgetBt(modelData.mac);
+                                    }
+                                }
                             }
                         }
                     }
